@@ -149,6 +149,10 @@ def _as_set(value: object) -> frozenset[str] | None:
 
 
 def _numeric(actual: object, expected: JsonValue, tolerance: float | None) -> bool:
+    # ``None`` is a value the golden answer can legitimately require ("no amount was
+    # stated"); treating it as not-a-number would make every nullable numeric field fail.
+    if actual is None or expected is None:
+        return actual is None and expected is None
     left = _as_float(actual)
     right = _as_float(expected)
     if left is None or right is None:

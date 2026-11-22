@@ -40,7 +40,7 @@ packages = ["src/agentqa"]
 [tool.pytest.ini_options]
 minversion = "8.0"
 testpaths = ["tests"]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 addopts = "-q --strict-markers"
 asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
@@ -59,4 +59,4 @@ ignore = ["RUF001", "RUF002", "RUF003"]
 python_version = "3.11"
 strict = true
 mypy_path = "src"
-packages = ["agentqa"]
+packages = ["agentqa", "examples"]

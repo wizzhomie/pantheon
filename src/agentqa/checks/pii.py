@@ -39,6 +39,24 @@ _PATTERNS: dict[PiiKind, re.Pattern[str]] = {
 }
 
 _STRIP_NON_DIGITS = re.compile(r"\D")
+_ISO_DATE_PREFIX = re.compile(r"^\d{4}-\d{2}-\d{2}")
+_MIN_PHONE_DIGITS = 7
+_MAX_PHONE_DIGITS = 15
+
+
+def looks_like_phone(text: str) -> bool:
+    """Reject date-shaped matches and numbers too short or too long for a phone.
+
+    The phone pattern is deliberately loose (``+48 601 234 567`` and ``+48601234567`` must
+    both match), and a loose pattern also matches ``2026-12-03``: eight digits, two dashes.
+    A date in a structured field is not a leaked phone number, and reporting it turns the
+    check into noise a reader learns to ignore — so the candidate is filtered after the
+    regex, not by making the regex cleverer.
+    """
+    if _ISO_DATE_PREFIX.match(text):
+        return False
+    digits = _STRIP_NON_DIGITS.sub("", text)
+    return _MIN_PHONE_DIGITS <= len(digits) <= _MAX_PHONE_DIGITS
 
 
 def luhn_ok(digits: str) -> bool:
@@ -90,6 +108,8 @@ class PiiCheck:
             for match in pattern.finditer(text):
                 candidate = match.group()
                 if kind == "card" and not luhn_ok(_STRIP_NON_DIGITS.sub("", candidate)):
+                    continue
+                if kind == "phone" and not looks_like_phone(candidate):
                     continue
                 found.append(
                     Issue(

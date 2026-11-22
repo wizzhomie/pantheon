@@ -38,10 +38,15 @@ class Check(Protocol):
     """Structural type every check satisfies.
 
     Deliberately not a base class: a check can be a dataclass, a closure or a class with
-    ``__call__``, as long as it exposes an id, a tier and the call signature.
+    ``__call__``, as long as it exposes an id, a tier and the call signature. ``id`` and
+    ``tier`` are read-only here because every built-in check is a frozen dataclass, and a
+    protocol that demanded a setter would reject exactly the checks the library ships.
     """
 
-    id: str
-    tier: Tier
+    @property
+    def id(self) -> str: ...
+
+    @property
+    def tier(self) -> Tier: ...
 
     def __call__(self, output: BaseModel, ctx: CheckContext) -> list[Issue]: ...

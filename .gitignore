@@ -22,10 +22,12 @@ htmlcov/
 # Local session handover notes
 memory/
 
-# Run artifacts (keep reports/sample_report.md only)
+# Run artifacts (the sample reports in reports/ are the committed exception)
 reports/*.json
 reports/*.md
-!reports/sample_report.md
+!reports/README.md
+!reports/sample_*.json
+!reports/sample_*.md
 runs/
 *.jsonl.tmp
 

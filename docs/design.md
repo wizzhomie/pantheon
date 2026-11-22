@@ -399,10 +399,15 @@ stateDiagram-v2
 
 ```python
 class Check(Protocol):
-    id: str
-    tier: Literal["fast", "deep"]
+    @property
+    def id(self) -> str: ...
+    @property
+    def tier(self) -> Literal["fast", "deep"]: ...
     def __call__(self, output: BaseModel, ctx: CheckContext) -> list[Issue]: ...
 ```
+
+`id` и `tier` — только для чтения: встроенные проверки заморожены, и протокол с сеттером отвергал бы
+собственные классы библиотеки (решение U27).
 
 Чистая функция: без сети, без состояния, без времени (`now` приходит в `CheckContext`, чтобы тесты
 были детерминированными). `deep` разрешён к сети, но встроенные `deep`-проверок не имеют — только
@@ -415,7 +420,7 @@ class Check(Protocol):
 | `formats` | `G2_BAD_*` | страна/валюта/дата/email/телефон/URL/enum по реестрам ISO | какие поля проверять |
 | `ranges` | `G3_OUT_OF_RANGE` | числа вне границ, даты в прошлом/будущем | границы по путям |
 | `evidence` | `G4_NO_EVIDENCE`, `G4_FAKE_QUOTE` | значение без цитаты; цитаты нет в исходнике | `evidence_paths`, порог похожести |
-| `pii` | `G5_PII_LEAK` | email/телефон/карта/IBAN там, где политика запрещает | что запрещено и где |
+| `pii` | `G5_PII_LEAK` | email/телефон/карта/IBAN там, где политика запрещает; ISO-дата телефоном не считается | что запрещено и где |
 | `refusal` | `G6_REFUSAL` | модель отказалась отвечать, вместо структуры | маркеры отказа |
 | `duplicates` | `G7_DUPLICATE_ITEMS` | дубли в списках (двойной счёт груза) | ключ сравнения |
 | `consistency` | свой код | кросс-полевые предикаты: `lambda o: o.a <= o.b` | список правил с кодом и текстом |
@@ -626,36 +631,40 @@ class MetaEval(StrictModel):
 ```
 agentqa/
 ├── pyproject.toml            # hatchling, extras: openai, anthropic, dev
-├── README.md                 # EN: проблема → идея → 20 строк использования → отчёт
+├── README.md                 # EN: проблема → идея → быстрый старт → пример → отчёт
+├── README.ru.md              # русская версия витрины
 ├── LICENSE                   # MIT
-├── Makefile                  # test / lint / typecheck / eval-mock / report
+├── Makefile                  # check / demo / sample / eval / baseline / diff
 ├── .github/workflows/ci.yml  # ruff + mypy + pytest, без секретов
 ├── src/agentqa/
-│   ├── __init__.py           # guard, evaluate, compare, calibrate
-│   ├── cli.py
-│   ├── config.py             # QAConfig, RunLimits, RetryPolicy, JudgePolicy, PRICES
-│   ├── contracts/            # base, case, issues, verdict, rubric, trace, evals
-│   ├── checks/               # base, registry, parse, required, formats, ranges,
-│   │                         # evidence, pii, refusal, duplicates, consistency
-│   ├── judge/                # base, llm_judge, function_judge, calibration, prompts/
-│   ├── llm/                  # base, fake, replay, openai_compatible, anthropic, pricing
-│   ├── runtime/              # facade, loop, correction, escalation, budget, modes
-│   ├── tracing/              # base, jsonl, callback, null
-│   ├── evals/                # dataset, scoring, metrics, report, compare, runner
-│   └── presets/toy.py        # игрушечный пресет для тестов ядра
-├── examples/logistics_intake/
-│   ├── preset.py             # схема, проверки, рубрика, промпт — витрина «как наполнять»
-│   ├── agent.py              # демо-агент (prompt → LLM → JSON)
-│   ├── data/*.jsonl          # 32 кейса + 18 ручных вердиктов
-│   └── README.md
+│   ├── __init__.py           # публичный API: guard, evaluate, compare, score_case, …
+│   ├── __main__.py           # python -m agentqa
+│   ├── cli.py                # eval / compare, --spec module:factory
+│   ├── config.py             # QAConfig, RunLimits, RetryPolicy, JudgePolicy, Pricing
+│   ├── parsing.py            # P1_BAD_JSON / P2_SCHEMA / P3_TRUNCATED
+│   ├── contracts/            # base, case, issues, agent, rubric, verdict, trace, evals
+│   ├── checks/               # base, paths, required, formats, ranges, evidence, pii,
+│   │                         # refusal, duplicates, consistency, runner
+│   ├── judge/                # base, llm_judge, function_judge, prompt, report, calibration
+│   ├── llm/                  # base, fake, replay, openai_compatible, anthropic, pricing, _http
+│   ├── runtime/              # preset, budget, correction, escalation, loop, facade
+│   └── evals/                # dataset, scoring, metrics, report, runner, compare
+├── examples/
+│   └── logistics_intake/     # витрина: пресет, агент, демо-агент, датасет, отчёты
+│       ├── schema.py         # ExtractedIntake
+│       ├── checks.py         # 8 проверок, 5 доменных правил
+│       ├── preset.py         # RUBRIC, SCORING, PRESET, build_retry
+│       ├── agent.py          # (case, feedback) → AgentReply
+│       ├── demo.py           # детерминированный stub с запрограммированными дефектами
+│       ├── runner.py         # build_guarded(): stub / replay / live
+│       ├── build_dataset.py  # генератор с проверкой цитат и unresolved
+│       ├── sample.py         # пересборка закоммиченных образцов отчётов
+│       └── dataset.jsonl     # 32 кейса, 18 ручных меток
 ├── tests/
-│   ├── unit/                 # по проверке, скоринг, метрики, рубрика, бюджет
-│   ├── integration/          # цикл на FakeClient: pass / retry-recover / escalate / budget
-│   ├── regression/test_golden_report.py
-│   └── cassettes/
-├── reports/sample_report.md  # закоммиченный пример сравнения
-└── docs/                     # design.md, how-it-works.md, checks_catalog.md,
-                              # extending.md, judge_rubric.md, failure_taxonomy.md
+│   ├── conftest.py           # issue, rubric, make_ctx
+│   └── unit/                 # 39 файлов: проверки, цикл, судья, evals, CLI, пример
+├── reports/                  # sample_baseline.*, sample_guarded.*, sample_diff.md, README
+└── docs/                     # design.md, how-it-works.md
 ```
 
 Почему `src/`-layout и отдельный `examples/`: `examples/` не устанавливается в пакет, но живёт в
@@ -682,8 +691,9 @@ agentqa/
 - `FunctionJudge` для интеграционных тестов цикла.
 - Кассеты: запись реальных ответов (`--record`) и воспроизведение (`--replay`) — прогоны
   воспроизводимы без ключей и денег.
-- Регрессия отчёта: `test_golden_report.py` фиксирует метрики прогона на синтетическом датасете;
-  изменение поведения ловится как падение теста, а не как «на глаз».
+- Регрессия примера: `test_example_logistics.py` прогоняет демо-агента через настоящий цикл,
+  скоринг и отчёт и фиксирует статусы (две эскалации, один ложный пропуск) и метрики; образцы
+  отчётов в `reports/` пересобираются `make sample` из того же кода, поэтому не расходятся с тестами.
 - Снапшоты JSON Schema контрактов: ломающее изменение видно в диффе PR.
 
 ---
@@ -699,14 +709,17 @@ agentqa/
 | 4 | судья, рубрика, подсчёт score кодом, `calibrate` | тест: судья не может «объявить себя пройденным» |
 | 5 | цикл: попытки, бюджет, режимы, эскалации, трейс | 4 сценария: pass / recover / escalate / budget |
 | 6 | evals: датасет, скоринг, метрики, отчёт, сравнение | `eval` даёт отчёт без сети на fake/replay |
-| 7 | `presets/toy` + `examples/logistics_intake` + README | пример проходит, README читается за 2 минуты |
+| 7 | `examples/logistics_intake` + датасет + образцы отчётов + `README.ru.md` | `make demo` без ключа, README читается за 2 минуты, цифры образца воспроизводятся тестом |
 | 8 | реальный прогон, кассеты, цифры в README, бейджи | цифры воспроизводятся из кассет |
 
-Фазы 0–6 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
+Фазы 0–7 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
 budget / no_progress / shadow / baseline, плюс таблица решений эскалации. Приёмка фазы 6 —
 `tests/unit/test_evals_*.py` и `test_cli.py`: JSONL и хеш, таблица компараторов, ловушки, метрики на
-посчитанных вручную числах, отчёт с хешами, диф с флагами, CLI без сети. 349 тестов, `ruff` и
-`mypy --strict` чистые.
+посчитанных вручную числах, отчёт с хешами, диф с флагами, CLI без сети. Приёмка фазы 7 —
+`examples/logistics_intake` (32 кейса, 18 меток, пять доменных правил) и
+`tests/unit/test_example_logistics.py`: собранный датасет совпадает с закоммиченным JSONL, каждый
+путь скоринга есть в каждом золотом ответе, демо-прогон воспроизводит статусы и цифры образца
+отчёта. 359 тестов, `ruff` и `mypy --strict` чистые (66 файлов, включая `examples/`).
 
 ---
 
@@ -724,3 +737,24 @@ budget / no_progress / shadow / baseline, плюс таблица решений
    детерминирован по `case_id`, чтобы покрытие судьи не плавало между прогонами.
 4. **Тела промптов в трейсе.** Не храним: только `payload_sha256`. `capture_payloads=True` кладёт
    превью до 300 символов в `notes` события (поле ограничено 500), отдельного хранилища тел нет.
+
+Решено в фазе 7 (витрина):
+
+5. **Чем «живёт» пример без модели.** `examples/logistics_intake/demo.py` повторяет золотые ответы с
+   запрограммированным дефектом; в отчёте модель записывается как `demo-stub`, а не как настоящая.
+   Альтернатива — скриптовые ответы `FakeClient` — смешивала бы «текст модели» с ответами агента и
+   не показала бы эскалации; альтернатива «ждать фазы 8» оставляла бы репозиторий без отчёта.
+6. **Датасет генерируется, а не пишется руками.** `build_dataset.py` падает, если цитата не является
+   подстрокой письма, если путь из `unresolved` заполнен или если золотой ответ не проходит схему;
+   `dataset.jsonl` закоммичен, тест ловит расхождение. Цена — 1000 строк на 32 кейса; выгода — цитаты
+   не гниют вместе с письмами.
+7. **Пример вскрыл два бага ядра, оба исправлены с тестами.** Регулярка телефона ловила ISO-даты
+   (`2026-12-03` = восемь цифр), из-за чего каждый кейс получал warning `G5_PII_LEAK`; числовой
+   компаратор считал `null` против `null` промахом, из-за чего любой nullable-числовой путь не мог
+   пройти. Правило: пример — это ещё и тест ядра, а не только витрина.
+8. **`Check` в протоколе объявляет `id`/`tier` read-only.** Иначе `mypy --strict` отвергал собственные
+   замороженные проверки библиотеки при сборке пресета в примере. Явная политика лучше `# type:
+   ignore` в витрине.
+9. **Прайс-лист в примере — пиковые ставки провайдера** с датой проверки и ссылкой: одна цена на
+   модель не умеет учитывать время суток, поэтому берём худшую, чтобы отчёт не льстил. Пустая таблица
+   в ядре остаётся: пример — это проект, а не дефолт библиотеки.

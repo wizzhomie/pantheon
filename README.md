@@ -6,10 +6,13 @@
 the step that returns structured data: deterministic checks → LLM judge → bounded correction loop →
 escalation, plus an offline regression suite that reuses the same preset.
 
-> **Status: working core (phases 0–5).** Contracts, nine deterministic checks, the model layer, the
-> rubric judge and the guarded runtime loop are in place: attempts, budget, escalation,
-> `baseline` / `guarded` / `shadow`, trace. Offline evaluation, the example preset and live numbers
-> land next (see [Roadmap](#roadmap)).
+*[Читать по-русски →](README.ru.md)*
+
+> **Status: phases 0–7 — the core and a complete example.** Contracts, nine deterministic checks,
+> the model layer, the rubric judge, the guarded loop, offline regression with report diff, and
+> `examples/logistics_intake`: a real preset with 32 labelled cases and committed sample reports
+> that run with `make demo` and no API key. Live model numbers land in phase 8
+> (see [Roadmap](#roadmap)).
 
 ---
 
@@ -77,10 +80,13 @@ PRESET = Preset(
     checks=[required(...), formats(...), EvidenceCheck(paths=["origin", "cargo.weight"])],
     rubric=Rubric(criteria=[...]),         # weights + descriptions, data not prose
     agent_prompt=PROMPT,
-    agent_model="deepseek-chat",
+    agent_model="deepseek-flash",
     scoring=ScoringSpec(fields=[...]),     # for offline comparison
 )
 ```
+
+A complete version of this — schema, eight checks, rubric, prompt, 32 labelled cases and a
+scoring spec — is [`examples/logistics_intake`](examples/logistics_intake/README.md).
 
 Wrap the agent once, then run cases:
 
@@ -88,8 +94,8 @@ Wrap the agent once, then run cases:
 guarded = guard(
     agent=extract_intake,                  # async (case, feedback | None) -> Attempt | AgentReply
     preset=PRESET,
-    llm=OpenAICompatibleClient(model="deepseek-chat"),   # used by the judge only
-    config=QAConfig(judge=JudgePolicy(model="deepseek-chat")),
+    llm=OpenAICompatibleClient(model="deepseek-flash"),   # used by the judge only
+    config=QAConfig(judge=JudgePolicy(model="deepseek-v4-pro")),
 )
 
 result = await guarded.run(Case(case_id="mail-42", payload=email))
@@ -119,15 +125,35 @@ your agent/judge/sinks (L3).
 `shadow` is how you earn the right to block: a week of real traces beats an argument about
 false positives.
 
+## A complete preset: logistics intake
+
+[`examples/logistics_intake`](examples/logistics_intake/README.md) turns dirty freight emails into
+`ExtractedIntake` — origin, destination, cargo, dates, amount, contact — without inventing a value.
+It is the reference for what a cartridge looks like: a schema, eight checks (five of them domain
+rules), a rubric, a prompt, 32 labelled cases with fabrication traps, and reports checked into the
+repository.
+
+| | |
+|---|---|
+| Stub run, no model calls | [guarded report](reports/sample_guarded.md) · [baseline vs guarded](reports/sample_diff.md) |
+| The preset, file by file | [`examples/logistics_intake/README.md`](examples/logistics_intake/README.md) |
+| Run it | `make demo` (free) · `make sample` (regenerate reports) · `make eval` (live) |
+
+The stub run replays golden answers with one scripted defect each, so it measures the loop, not a
+model: 75% → 94% correct, false passes 25% → 3%, two escalations, and one invented weight that no
+deterministic check can see — which is exactly what the false-pass metric is for. Real model numbers
+replace it in phase 8.
+
 ## Offline regression
 
 The same preset scores a dataset. Pass rates are **ground truth** against the golden values, not
 "the gate let it through" — so a wrong answer approved by the loop is its own metric:
 
 ```
-$ python -m agentqa eval --spec examples.intake.runner:build_guarded \
-      --dataset dataset.jsonl --out reports/guarded.json --markdown reports/guarded.md
-20261122T170000-guarded-4c924ff: 32 cases, pass 90.6% -> reports/guarded.json
+$ python -m agentqa eval --spec examples.logistics_intake.runner:build_guarded \
+      --dataset examples/logistics_intake/dataset.jsonl \
+      --out reports/guarded.json --markdown reports/guarded.md
+20261122T151956-guarded-521ed3d: 32 cases, pass 93.8% -> reports/guarded.json
 
 $ python -m agentqa compare reports/baseline.json reports/guarded.json \
       --markdown reports/diff.md
@@ -140,8 +166,9 @@ recovery, escalation rate, hallucination rate, field accuracy, p50/p95 latency, 
 and per *passed* case — plus judge calibration (agreement, Cohen's κ, false passes) against
 hand-labelled cases.
 
-> The numbers in this README are illustrative until the live run in phase 8; the report format and
-> the CLI above are what actually runs.
+> That run is the demo preset, and `AGENTQA_LLM=stub` is the default: the 93.8% is the loop acting on
+> golden answers, not a model. `AGENTQA_LLM=live` (with `DEEPSEEK_API_KEY`) or `AGENTQA_LLM=replay`
+> (a committed cassette) produces the real numbers; phase 8 records them.
 
 ## Relationship to existing tools
 
@@ -161,14 +188,18 @@ the regression run.
 | 4 | judge, rubric scoring, calibration | ✅ |
 | 5 | runtime loop: attempts, budget, modes, escalation, trace | ✅ |
 | 6 | offline evals: dataset, metrics, report, diff | ✅ |
-| 7 | toy preset + `examples/logistics_intake` + docs | — |
+| 7 | example preset, dataset, sample reports, Russian README | ✅ |
 | 8 | live run, cassettes, numbers in README | — |
 
 ## Docs
 
+- [`examples/logistics_intake/README.md`](examples/logistics_intake/README.md) — the preset end to
+  end: files, checks, dataset decisions, how to build your own
 - [`docs/design.md`](docs/design.md) — contracts, checks catalogue, runtime loop, evals, roadmap
 - [`docs/how-it-works.md`](docs/how-it-works.md) — plain-language explanation and the decision log
   (every choice with alternatives, cost, and when to revisit it)
+- [`reports/README.md`](reports/README.md) — what the committed sample reports are, and what they
+  are not
 
 ## License
 

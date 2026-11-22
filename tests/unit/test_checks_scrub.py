@@ -56,6 +56,19 @@ def test_no_pii_no_issue(make_ctx: CtxFactory) -> None:
     assert PiiCheck()(output, make_ctx("text")) == []
 
 
+def test_a_phone_in_free_text_is_reported(make_ctx: CtxFactory) -> None:
+    output = Toy(notes="call +48 601 234 567 before dispatch")
+    issues = PiiCheck(kinds=frozenset({"phone"}))(output, make_ctx("text"))
+    assert [issue.code for issue in issues] == ["G5_PII_LEAK"]
+    assert issues[0].field_path == "notes"
+
+
+def test_iso_dates_are_not_phones(make_ctx: CtxFactory) -> None:
+    """The phone pattern is loose enough to match a date; eight digits are not a phone."""
+    output = Toy(notes="pickup 2026-12-03 at 2026-12-03 09:00")
+    assert PiiCheck(kinds=frozenset({"phone"}))(output, make_ctx("text")) == []
+
+
 def test_refusal_is_critical(make_ctx: CtxFactory) -> None:
     output = Toy(notes="I'm sorry, I cannot assist with that request.")
     issues = RefusalCheck()(output, make_ctx("text"))

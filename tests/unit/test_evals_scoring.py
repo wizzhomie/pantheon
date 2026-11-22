@@ -109,6 +109,18 @@ def test_numeric_tolerance_is_absolute() -> None:
     assert score_case(output(qty=2), eval_case(expected={"qty": 2.4}), strict).passed is False
 
 
+def test_a_nullable_numeric_field_matches_null_with_null() -> None:
+    """Absence can be the correct answer; a numeric comparator must not call it a miss."""
+
+    class Maybe(BaseModel):
+        qty: int | None
+
+    nullable = ScoringSpec(fields=[FieldSpec(path="qty", comparator="numeric")])
+
+    assert score_case(Maybe(qty=None), eval_case(expected={"qty": None}), nullable).passed is True
+    assert score_case(Maybe(qty=1), eval_case(expected={"qty": None}), nullable).passed is False
+
+
 def test_set_comparison_ignores_order() -> None:
     case = eval_case(expected={"tags": ["a", "b"]})
     ordered = ScoringSpec(fields=[FieldSpec(path="tags", comparator="set")])
