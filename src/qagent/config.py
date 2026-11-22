@@ -63,6 +63,15 @@ class JudgePolicy(StrictModel):
         default=None, description="None reuses the agent's model; set it to use a stronger judge"
     )
     max_input_chars: int = Field(default=20_000, ge=1_000)
+    max_tokens: int = Field(
+        default=900,
+        ge=64,
+        le=100_000,
+        description=(
+            "output budget for one review; reasoning models spend it on hidden thinking, "
+            "so a judge on one needs a few thousand"
+        ),
+    )
 
     @model_validator(mode="after")
     def _sample_mode_needs_a_rate(self) -> JudgePolicy:

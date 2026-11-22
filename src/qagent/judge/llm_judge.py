@@ -70,14 +70,15 @@ class LLMJudge:
         output: BaseModel,
         gate: GateResult | None = None,
     ) -> JudgeResult:
+        schema = JudgeReport.model_json_schema()
         messages = build_messages(
             case,
             output.model_dump_json(),
             self.rubric,
             self.instructions,
             self.max_input_chars,
+            schema=schema,
         )
-        schema = JudgeReport.model_json_schema()
         usages: list[Usage] = []
         last_error: Exception | None = None
 

@@ -13,7 +13,9 @@ Three sources, selected by ``QAGENT_LLM``:
 ``replay``
     A committed cassette of real answers, replayed for free and without a key.
 ``live``
-    A real OpenAI-compatible endpoint (DeepSeek by default), with a real bill.
+    A real OpenAI-compatible endpoint (DeepSeek by default), with a real bill. With
+    ``QAGENT_RECORD=1`` every answer is also appended to the committed cassette, so the
+    same run can later be replayed for free (``QAGENT_LLM=replay``).
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ from qagent import (
     Pricing,
     QAConfig,
     ReplayClient,
+    RunLimits,
     guard,
 )
 
@@ -82,14 +85,28 @@ def build_guarded() -> GuardedAgent[ExtractedIntake]:
         # Imported here, not at module level: the demo and the tests must not need httpx.
         from qagent.llm import OpenAICompatibleClient
 
-        return _llm_guarded(
-            OpenAICompatibleClient(
-                model=DEFAULT_MODEL,
-                base_url=os.environ.get("QAGENT_BASE_URL", DEFAULT_BASE_URL),
-                api_key_env=API_KEY_ENV,
-            )
+        client: LLMClient = OpenAICompatibleClient(
+            model=DEFAULT_MODEL,
+            base_url=os.environ.get("QAGENT_BASE_URL", DEFAULT_BASE_URL),
+            api_key_env=API_KEY_ENV,
+            # DeepSeek rejects the rich `json_schema` form with HTTP 400, so the agent asks
+            # for a plain JSON object and carries the schema in the system prompt.
+            structured_output="json_object",
+            # A reasoning model can think for a minute before it writes the answer.
+            timeout_s=180.0,
         )
+        return _llm_guarded(_recording(client) if _record_requested() else client)
     raise ValueError(f"QAGENT_LLM must be stub, replay or live, got {source!r}")
+
+
+def _record_requested() -> bool:
+    """True when the run should also write answers into the cassette."""
+    return os.environ.get("QAGENT_RECORD", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _recording(client: LLMClient) -> ReplayClient:
+    """Wrap a live client so every answer lands in the committed cassette as well."""
+    return ReplayClient(CASSETTE_PATH, inner=client, mode="record")
 
 
 def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:
@@ -99,5 +116,12 @@ def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:
         prompt=AGENT_PROMPT,
         pricing=PRICING,
     )
-    config = QAConfig(judge=JudgePolicy(model=JUDGE_MODEL))
+    # Both models are reasoning models: hidden thinking is billed against max_tokens (the
+    # judge default of 900 is spent before the verdict is written) and one case easily takes
+    # a minute, which is four times the default latency budget. The policy is part of the
+    # example, not of the library defaults.
+    config = QAConfig(
+        judge=JudgePolicy(model=JUDGE_MODEL, max_tokens=8_000),
+        limits=RunLimits(max_latency_ms=240_000, max_cost_usd=0.20),
+    )
     return guard(agent, PRESET, llm=client, config=config, pricing=PRICING)

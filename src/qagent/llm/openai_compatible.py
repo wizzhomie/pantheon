@@ -10,13 +10,22 @@ from __future__ import annotations
 
 import os
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 
 from ._http import post_json
 from .base import FinishReason, LLMRequest, LLMResponse
 from .errors import LLMAuthError, LLMBadResponse
+
+StructuredOutput = Literal["json_schema", "json_object", "none"]
+"""How the request asks for structured output.
+
+``json_schema`` (the default) is the rich OpenAI form: the schema is sent and the provider
+is asked to enforce it. ``json_object`` is the older, much more widely implemented form
+(DeepSeek, for one, rejects ``json_schema``); the shape then has to be in the prompt.
+``none`` sends neither and leaves parsing to the caller.
+"""
 
 FINISH_REASONS: dict[str, FinishReason] = {
     "stop": "stop",
@@ -43,7 +52,10 @@ class OpenAICompatibleClient:
         max_retries: int = 2,
         backoff_s: float = 0.5,
         http: httpx.AsyncClient | None = None,
+        structured_output: StructuredOutput = "json_schema",
     ) -> None:
+        if structured_output not in ("json_schema", "json_object", "none"):
+            raise ValueError("structured_output must be json_schema, json_object or none")
         key = api_key or os.environ.get(api_key_env)
         if not key:
             raise LLMAuthError(f"no API key: pass api_key= or set {api_key_env}")
@@ -54,6 +66,7 @@ class OpenAICompatibleClient:
         self.backoff_s = backoff_s
         self._api_key = key
         self._http = http
+        self.structured_output = structured_output
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started = perf_counter()
@@ -63,7 +76,7 @@ class OpenAICompatibleClient:
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,
         }
-        if request.response_schema is not None:
+        if request.response_schema is not None and self.structured_output == "json_schema":
             payload["response_format"] = {
                 "type": "json_schema",
                 "json_schema": {
@@ -72,6 +85,8 @@ class OpenAICompatibleClient:
                     "strict": True,
                 },
             }
+        elif request.response_schema is not None and self.structured_output == "json_object":
+            payload["response_format"] = {"type": "json_object"}
         data = await self._post(payload, request)
         return _parse(data, request, started)
 

@@ -38,7 +38,7 @@ class LLMRequest(StrictModel):
     response_schema: dict[str, JsonValue] | None = Field(
         default=None, description="JSON Schema for structured output, when the provider supports it"
     )
-    timeout_s: Annotated[float, Field(gt=0, le=600)] = 60.0
+    timeout_s: Annotated[float | None, Field(gt=0, le=600)] = None
 
 
 class LLMResponse(StrictModel):

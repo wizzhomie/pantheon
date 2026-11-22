@@ -114,6 +114,7 @@ def guard(
             instructions=preset.judge_instructions,
             pricing=pricing,
             max_input_chars=cfg.judge.max_input_chars,
+            max_tokens=cfg.judge.max_tokens,
         )
     return GuardedAgent(
         agent=agent, preset=preset, config=cfg, judge=chosen, pricing=pricing

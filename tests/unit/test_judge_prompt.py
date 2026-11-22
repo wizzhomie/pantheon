@@ -66,3 +66,11 @@ def test_long_input_is_clipped_with_a_visible_marker() -> None:
 def test_long_output_is_clipped_too() -> None:
     messages = build_messages(case(), "y" * (OUTPUT_LIMIT + 10), rubric())
     assert "[... output truncated" in messages[1].content
+
+
+def test_the_answer_schema_reaches_the_model() -> None:
+    schema = {"type": "object", "properties": {"criterion_scores": {"type": "object"}}}
+    system = build_messages(case(), "{}", rubric(), schema=schema)[0].content
+
+    assert "Answer schema (JSON Schema" in system
+    assert '"criterion_scores"' in system

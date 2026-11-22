@@ -79,6 +79,36 @@ async def test_schema_becomes_a_strict_response_format() -> None:
     assert seen["response_format"]["json_schema"]["schema"] == schema
 
 
+async def test_json_object_mode_sends_the_older_form() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(http_request.content))
+        return httpx.Response(200, json=completion("{}"))
+
+    schema = {"type": "object"}
+    client = make_client(handler, structured_output="json_object")
+    await client.complete(request(schema=schema))
+    assert seen["response_format"] == {"type": "json_object"}
+
+
+async def test_none_mode_sends_no_response_format() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(http_request.content))
+        return httpx.Response(200, json=completion("{}"))
+
+    client = make_client(handler, structured_output="none")
+    await client.complete(request(schema={"type": "object"}))
+    assert "response_format" not in seen
+
+
+def test_unknown_structured_output_is_rejected_early() -> None:
+    with pytest.raises(ValueError, match="structured_output"):
+        make_client(lambda _: httpx.Response(200), structured_output="yaml")  # type: ignore[arg-type]
+
+
 async def test_truncation_is_visible() -> None:
     def handler(http_request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json=completion('{"a": ', finish_reason="length"))

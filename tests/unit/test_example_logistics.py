@@ -12,11 +12,12 @@ from pathlib import Path
 
 import pytest
 
+from examples.logistics_intake import runner
 from examples.logistics_intake.build_dataset import DATASET_PATH, build
 from examples.logistics_intake.demo import DEMO_MODEL, DEMO_PRESET, build_demo_guarded
 from examples.logistics_intake.preset import PRESET, SCORING, build_retry
 from examples.logistics_intake.runner import build_guarded
-from qagent import Case, Dataset, EvalReport, Feedback, Issue, evaluate
+from qagent import Case, Dataset, EvalReport, FakeClient, Feedback, Issue, ReplayClient, evaluate
 from qagent.checks.paths import MISSING, get_path
 
 REPORTS = Path(__file__).resolve().parents[2] / "reports"
@@ -113,3 +114,25 @@ def test_the_committed_sample_report_is_labelled_as_a_stub() -> None:
     assert "demo-stub" in report
     assert (REPORTS / "sample_baseline.json").exists()
     assert "Stub run" in (REPORTS / "sample_diff.md").read_text(encoding="utf-8")
+
+
+def test_record_mode_appends_live_answers_to_the_cassette(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    inner = FakeClient()
+    recorder = runner._recording(inner)
+
+    assert isinstance(recorder, ReplayClient)
+    assert recorder.mode == "record"
+    assert recorder.inner is inner
+
+    monkeypatch.setenv("QAGENT_RECORD", "1")
+    assert runner._record_requested() is True
+
+    monkeypatch.setenv("QAGENT_RECORD", "TRUE")
+    assert runner._record_requested() is True
+
+    monkeypatch.setenv("QAGENT_RECORD", "0")
+    assert runner._record_requested() is False
+    monkeypatch.delenv("QAGENT_RECORD")
+    assert runner._record_requested() is False

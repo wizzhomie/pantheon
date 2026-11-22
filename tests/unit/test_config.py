@@ -89,3 +89,10 @@ def test_prefix_match_and_exact_precedence() -> None:
 
 def test_default_config_matches_factory() -> None:
     assert QAConfig() == DEFAULT_CONFIG
+
+
+def test_a_judge_token_budget_must_be_sane() -> None:
+    with pytest.raises(ValidationError):
+        JudgePolicy(max_tokens=10)
+
+    assert JudgePolicy().max_tokens == 900

@@ -38,12 +38,12 @@ sample:
 
 eval:
 	QAGENT_LLM=live $(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \
-		--out reports/guarded.json --markdown reports/guarded.md --concurrency 1
+		--out reports/guarded.json --markdown reports/guarded.md --concurrency 3
 
 baseline:
 	QAGENT_LLM=live $(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \
 		--mode baseline --out reports/baseline.json \
-		--markdown reports/baseline.md --concurrency 1
+		--markdown reports/baseline.md --concurrency 3
 
 diff:
 	$(PYTHON) -m qagent compare reports/baseline.json reports/guarded.json \

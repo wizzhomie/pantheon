@@ -45,12 +45,13 @@ def test_the_default_judge_is_built_from_the_policy_and_the_rubric(rubric: Rubri
         agent,
         preset,
         llm=FakeClient(),
-        config=QAConfig(judge=JudgePolicy(model="judge-model")),
+        config=QAConfig(judge=JudgePolicy(model="judge-model", max_tokens=5_000)),
     )
 
     assert isinstance(guarded.judge, LLMJudge)
     assert guarded.judge.model == "judge-model"
     assert guarded.judge.rubric is rubric
+    assert guarded.judge.max_tokens == 5_000
 
 
 def test_the_judge_model_falls_back_to_the_presets_agent_model(rubric: Rubric) -> None:

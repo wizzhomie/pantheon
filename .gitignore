@@ -22,12 +22,19 @@ htmlcov/
 # Local session handover notes
 memory/
 
-# Run artifacts (the sample reports in reports/ are the committed exception)
+# Run artifacts. Committed on purpose: the stub demo reports (sample_*) that anyone can
+# regenerate with `make sample`, and the live DeepSeek run (baseline/guarded/diff) that the
+# README quotes. Everything else in reports/ is scratch.
 reports/*.json
 reports/*.md
 !reports/README.md
 !reports/sample_*.json
 !reports/sample_*.md
+!reports/baseline.json
+!reports/baseline.md
+!reports/guarded.json
+!reports/guarded.md
+!reports/diff.md
 runs/
 *.jsonl.tmp
 
