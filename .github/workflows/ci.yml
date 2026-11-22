@@ -1,0 +1,43 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: tests / py${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      # No secrets, no network calls to model providers: the suite must be green for
+      # anyone who forks the repository. Tests import the package via `pythonpath`
+      # from pyproject.toml, so no install step is required.
+      - name: Install test dependencies
+        run: python -m pip install --upgrade pip "pydantic>=2.7" "pytest>=8"
+
+      - name: Run tests
+        run: python -m pytest
+
+      # ruff + mypy join this workflow once their configs are verified locally
+      # (phase 2). Adding them here first would make CI red for reasons nobody can fix.
