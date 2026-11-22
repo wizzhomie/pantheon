@@ -8,11 +8,11 @@ escalation, plus an offline regression suite that reuses the same preset.
 
 *[Читать по-русски →](README.ru.md)*
 
-> **Status: phases 0–7 — the core and a complete example.** Contracts, nine deterministic checks,
-> the model layer, the rubric judge, the guarded loop, offline regression with report diff, and
-> `examples/logistics_intake`: a real preset with 32 labelled cases and committed sample reports
-> that run with `make demo` and no API key. Live model numbers land in phase 8
-> (see [Roadmap](#roadmap)).
+> **Status: phases 0–8 — the core, a complete example, and a real run.** Contracts, nine
+> deterministic checks, the model layer, the rubric judge, the guarded loop, offline regression
+> with report diff, and `examples/logistics_intake`: 32 labelled cases, a committed DeepSeek run
+> (pass 59% → 81%, false passes 41% → 19%) and the cassette that replays it without a key or a
+> bill. The cheap mode (`make demo`, no model calls) still runs in seconds.
 
 ---
 
@@ -135,14 +135,20 @@ repository.
 
 | | |
 |---|---|
+| Live run, DeepSeek `deepseek-flash` | [guarded report](reports/guarded.md) · [baseline vs guarded](reports/diff.md) |
 | Stub run, no model calls | [guarded report](reports/sample_guarded.md) · [baseline vs guarded](reports/sample_diff.md) |
 | The preset, file by file | [`examples/logistics_intake/README.md`](examples/logistics_intake/README.md) |
-| Run it | `make demo` (free) · `make sample` (regenerate reports) · `make eval` (live) |
+| Run it | `make demo` (free) · `make replay` (free, committed cassette) · `make eval` (live) |
+
+The live run (32 cases, 2026-11-22, no reasoning budget — see U37 below) moves the numbers the way
+the design intends: correct answers 59.4% → 81.2%, false passes 40.6% → 18.8%, and the six answers
+that still slip through are visible in the diff by name. The gate never escalated a case: nine were
+retried, six of them recovered. Latency is the price — 1.4 s → 3.0 s per case — and cost goes from
+$0.0008 to $0.0034 per case, which is still cents for the whole suite.
 
 The stub run replays golden answers with one scripted defect each, so it measures the loop, not a
-model: 75% → 94% correct, false passes 25% → 3%, two escalations, and one invented weight that no
-deterministic check can see — which is exactly what the false-pass metric is for. Real model numbers
-replace it in phase 8.
+model: 75% → 94% correct, false passes 25% → 3%, two escalations. Use it to see the mechanics
+without a key; use the live reports for what a model actually does.
 
 ## Offline regression
 
@@ -153,7 +159,7 @@ The same preset scores a dataset. Pass rates are **ground truth** against the go
 $ python -m qagent eval --spec examples.logistics_intake.runner:build_guarded \
       --dataset examples/logistics_intake/dataset.jsonl \
       --out reports/guarded.json --markdown reports/guarded.md
-20261122T151956-guarded-521ed3d: 32 cases, pass 93.8% -> reports/guarded.json
+20261122T165644-guarded-394398a: 32 cases, pass 81.2% -> reports/guarded.json
 
 $ python -m qagent compare reports/baseline.json reports/guarded.json \
       --markdown reports/diff.md
@@ -166,9 +172,11 @@ recovery, escalation rate, hallucination rate, field accuracy, p50/p95 latency, 
 and per *passed* case — plus judge calibration (agreement, Cohen's κ, false passes) against
 hand-labelled cases.
 
-> That run is the demo preset, and `QAGENT_LLM=stub` is the default: the 93.8% is the loop acting on
-> golden answers, not a model. `QAGENT_LLM=live` (with `DEEPSEEK_API_KEY`) or `QAGENT_LLM=replay`
-> (a committed cassette) produces the real numbers; phase 8 records them.
+> `QAGENT_LLM` selects the source: `live` (needs `DEEPSEEK_API_KEY`), `replay` (the committed
+> cassette — same numbers, no key, no network) or `stub` (the demo preset above). The committed
+> live reports were produced with reasoning switched off at the provider (`reasoning_effort: none`),
+> because hidden thinking cost ten times the run; the report states the model, not the mood of the
+> model, so treat these as numbers for that mode.
 
 ## Relationship to existing tools
 
@@ -189,7 +197,7 @@ the regression run.
 | 5 | runtime loop: attempts, budget, modes, escalation, trace | ✅ |
 | 6 | offline evals: dataset, metrics, report, diff | ✅ |
 | 7 | example preset, dataset, sample reports, Russian README | ✅ |
-| 8 | live run, cassettes, numbers in README | — |
+| 8 | live run, cassettes, numbers in README | ✅ |
 
 ## Docs
 

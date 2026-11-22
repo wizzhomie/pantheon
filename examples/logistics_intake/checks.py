@@ -193,6 +193,8 @@ CHECKS: list[Check] = [
         quotes=quotes_from_attribute("evidence"),
         required_paths=("origin.city", "destination.city"),
     ),
-    PiiCheck(allow_paths=("contact.email", "contact.phone")),
+    # Evidence quotes are copied from the email, so PII inside them is the source speaking,
+    # not a leak. The rule still covers notes and any other free text.
+    PiiCheck(allow_paths=("contact.email", "contact.phone", "evidence")),
     RefusalCheck(paths=("notes",)),
 ]

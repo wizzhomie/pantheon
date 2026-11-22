@@ -20,7 +20,8 @@ the 32 labelled cases.
 
 Two supporting files: [`build_dataset.py`](build_dataset.py) generates the committed
 `dataset.jsonl` and refuses to write it if a citation is not in its email, and
-[`demo.py`](demo.py) is the deterministic stand-in used by the sample reports.
+[`demo.py`](demo.py) is the deterministic stand-in used by the sample reports. The
+[`cassettes/`](cassettes/) folder holds the recorded live run: 71 real answers, replayed for free.
 
 ## Run it
 
@@ -29,6 +30,7 @@ No key, no network, no money:
 ```bash
 make demo      # the demo agent through the real CLI -> reports/demo_guarded.json
 make sample    # regenerate the committed stub reports + diff
+make replay    # the committed live cassette: pass 81.2%, no key, no network
 ```
 
 ```console
@@ -36,17 +38,35 @@ $ make demo
 20261122T151956-guarded-<sha>: 32 cases, pass 93.8% -> reports/demo_guarded.json
 ```
 
-A real model run (needs `DEEPSEEK_API_KEY`):
+A real model run (needs `DEEPSEEK_API_KEY`, costs cents):
 
 ```bash
-make baseline  # one call per case, no checks
-make eval      # full loop, judge on
-make diff      # baseline vs guarded -> reports/diff.md
+make baseline           # one call per case, no checks
+make eval               # full loop, judge on
+make diff               # baseline vs guarded -> reports/diff.md
+QAGENT_RECORD=1 make eval   # ...and append every answer to the cassette as well
 ```
 
-`QAGENT_LLM` selects the source: `stub` (default), `replay` (a committed cassette, no key)
-or `live`. The cassette directory is empty until the live run; `replay` fails loudly with
-the path it expected rather than silently escalating every case.
+`QAGENT_LLM` selects the source: `stub` (default), `replay` (the committed cassette, no key)
+or `live`. `QAGENT_RECORD=1` on a live run is the only way the cassette grows; in `replay`
+mode a changed prompt is a `CassetteMiss` with the key it wanted, never a silent fallback.
+
+## What the live run says
+
+32 cases, `deepseek-flash` as the agent and `deepseek-v4-pro` as the judge, reasoning off at
+the provider (U37 in [`docs/how-it-works.md`](../../docs/how-it-works.md)):
+
+| | baseline | guarded |
+|---|---|---|
+| Pass, final | 59.4% | 81.2% |
+| False pass rate | 40.6% | 18.8% |
+| Retry recovery | — | 66.7% |
+| Cost per passed case | $0.0014 | $0.0041 |
+
+Six answers were returned for repair and four came back correct. The six that still slip
+through are mostly `request_type` (quote vs. booking on the edge cases) and the traps only
+the golden data can see. Full numbers and per-case rows:
+[`reports/README.md`](../../reports/README.md).
 
 ## What the checks actually catch
 

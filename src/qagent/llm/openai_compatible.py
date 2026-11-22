@@ -53,6 +53,7 @@ class OpenAICompatibleClient:
         backoff_s: float = 0.5,
         http: httpx.AsyncClient | None = None,
         structured_output: StructuredOutput = "json_schema",
+        extra_body: dict[str, Any] | None = None,
     ) -> None:
         if structured_output not in ("json_schema", "json_object", "none"):
             raise ValueError("structured_output must be json_schema, json_object or none")
@@ -67,6 +68,10 @@ class OpenAICompatibleClient:
         self._api_key = key
         self._http = http
         self.structured_output = structured_output
+        # Provider-specific switches (``reasoning_effort``, sampling knobs) that have no
+        # portable name. Merged into the request body verbatim: the escape hatch stays
+        # visible in project code instead of hiding inside the library.
+        self.extra_body = dict(extra_body or {})
 
     async def complete(self, request: LLMRequest) -> LLMResponse:
         started = perf_counter()
@@ -87,6 +92,8 @@ class OpenAICompatibleClient:
             }
         elif request.response_schema is not None and self.structured_output == "json_object":
             payload["response_format"] = {"type": "json_object"}
+        if self.extra_body:
+            payload.update(self.extra_body)
         data = await self._post(payload, request)
         return _parse(data, request, started)
 

@@ -4,7 +4,7 @@
   "git_sha": "stub",
   "mode": "guarded",
   "preset_name": "logistics_intake",
-  "preset_hash": "67d10cb9d862bbaf9ec13a87f2b5779ddda588aa4bc9c76cd47fd232297ebd55",
+  "preset_hash": "0f88a657a555e39060d67dc1129ed22b24304e250b87e64cee31613a14597a69",
   "dataset_hash": "59b12a301566c8ae6783d080780286b8428e5cdab40a8dfca3c24148a7c5effd",
   "llm": {
     "agent": "demo-stub",
@@ -18,10 +18,10 @@
     "retry_recovery_rate": 0.8889,
     "escalation_rate": 0.0625,
     "false_pass_rate": 0.0312,
-    "field_accuracy_macro": 0.996,
+    "field_accuracy_macro": 0.9958,
     "hallucination_rate": 0.0312,
-    "latency_p50_ms": 0.466,
-    "latency_p95_ms": 0.948,
+    "latency_p50_ms": 0.458,
+    "latency_p95_ms": 0.883,
     "prompt_tokens": 0,
     "completion_tokens": 0,
     "cost_usd_total": 0.0,
@@ -40,14 +40,14 @@
         "pass_rate_first_attempt": 0.5556,
         "pass_rate_final": 0.8889,
         "escalation_rate": 0.1111,
-        "field_accuracy": 0.9928
+        "field_accuracy": 0.9926
       },
       "adversarial": {
         "cases": 5,
         "pass_rate_first_attempt": 0.6,
         "pass_rate_final": 0.8,
         "escalation_rate": 0.2,
-        "field_accuracy": 0.9871
+        "field_accuracy": 0.9867
       }
     }
   },
@@ -65,7 +65,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.589,
+      "latency_ms": 0.665,
       "cost_usd": 0.0
     },
     {
@@ -80,7 +80,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.467,
+      "latency_ms": 0.433,
       "cost_usd": 0.0
     },
     {
@@ -95,7 +95,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.983,
+      "latency_ms": 0.911,
       "cost_usd": 0.0
     },
     {
@@ -110,7 +110,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.432,
+      "latency_ms": 0.451,
       "cost_usd": 0.0
     },
     {
@@ -125,7 +125,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.836,
+      "latency_ms": 0.874,
       "cost_usd": 0.0
     },
     {
@@ -140,7 +140,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.397,
+      "latency_ms": 0.437,
       "cost_usd": 0.0
     },
     {
@@ -155,7 +155,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.844,
+      "latency_ms": 0.827,
       "cost_usd": 0.0
     },
     {
@@ -170,7 +170,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.623,
+      "latency_ms": 0.487,
       "cost_usd": 0.0
     },
     {
@@ -185,7 +185,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.391,
+      "latency_ms": 0.416,
       "cost_usd": 0.0
     },
     {
@@ -200,7 +200,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.449,
+      "latency_ms": 0.391,
       "cost_usd": 0.0
     },
     {
@@ -215,7 +215,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.848,
+      "latency_ms": 0.857,
       "cost_usd": 0.0
     },
     {
@@ -230,7 +230,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.412,
+      "latency_ms": 0.405,
       "cost_usd": 0.0
     },
     {
@@ -245,7 +245,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.38,
+      "latency_ms": 0.374,
       "cost_usd": 0.0
     },
     {
@@ -260,7 +260,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.469,
+      "latency_ms": 0.404,
       "cost_usd": 0.0
     },
     {
@@ -275,7 +275,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.835,
+      "latency_ms": 0.841,
       "cost_usd": 0.0
     },
     {
@@ -290,7 +290,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.466,
+      "latency_ms": 0.475,
       "cost_usd": 0.0
     },
     {
@@ -305,7 +305,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.432,
+      "latency_ms": 0.386,
       "cost_usd": 0.0
     },
     {
@@ -320,7 +320,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.384,
+      "latency_ms": 0.443,
       "cost_usd": 0.0
     },
     {
@@ -335,7 +335,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.425,
+      "latency_ms": 0.387,
       "cost_usd": 0.0
     },
     {
@@ -350,7 +350,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.948,
+      "latency_ms": 0.883,
       "cost_usd": 0.0
     },
     {
@@ -365,7 +365,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.385,
+      "latency_ms": 0.413,
       "cost_usd": 0.0
     },
     {
@@ -375,7 +375,7 @@
       "first_attempt_passed": false,
       "final_passed": false,
       "retries": 1,
-      "field_accuracy": 0.9355,
+      "field_accuracy": 0.9333,
       "missing_fields": [],
       "wrong_fields": [
         "origin.country_code"
@@ -385,7 +385,7 @@
         "G2_BAD_COUNTRY",
         "no_progress"
       ],
-      "latency_ms": 0.836,
+      "latency_ms": 0.872,
       "cost_usd": 0.0
     },
     {
@@ -400,7 +400,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.477,
+      "latency_ms": 0.512,
       "cost_usd": 0.0
     },
     {
@@ -415,7 +415,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.51,
+      "latency_ms": 0.463,
       "cost_usd": 0.0
     },
     {
@@ -430,7 +430,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.917,
+      "latency_ms": 0.859,
       "cost_usd": 0.0
     },
     {
@@ -445,7 +445,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.451,
+      "latency_ms": 0.458,
       "cost_usd": 0.0
     },
     {
@@ -460,7 +460,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.806,
+      "latency_ms": 0.815,
       "cost_usd": 0.0
     },
     {
@@ -470,7 +470,7 @@
       "first_attempt_passed": false,
       "final_passed": false,
       "retries": 0,
-      "field_accuracy": 0.9355,
+      "field_accuracy": 0.9333,
       "missing_fields": [],
       "wrong_fields": [
         "cargo.0.weight_kg"
@@ -479,7 +479,7 @@
         "cargo.0.weight_kg"
       ],
       "failure_codes": [],
-      "latency_ms": 0.428,
+      "latency_ms": 0.397,
       "cost_usd": 0.0
     },
     {
@@ -494,7 +494,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.436,
+      "latency_ms": 0.464,
       "cost_usd": 0.0
     },
     {
@@ -509,7 +509,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.436,
+      "latency_ms": 0.419,
       "cost_usd": 0.0
     },
     {
@@ -524,7 +524,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.526,
+      "latency_ms": 0.522,
       "cost_usd": 0.0
     },
     {
@@ -542,7 +542,7 @@
         "G6_REFUSAL",
         "critical_issue"
       ],
-      "latency_ms": 0.432,
+      "latency_ms": 0.445,
       "cost_usd": 0.0
     }
   ]

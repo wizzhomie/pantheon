@@ -112,3 +112,19 @@ def test_identity_can_be_built_from_selected_keys(make_ctx: CtxFactory) -> None:
 def test_short_lists_are_skipped(make_ctx: CtxFactory) -> None:
     assert DuplicatesCheck(path="items")(Toy(items=[]), make_ctx("text")) == []
     assert DuplicatesCheck(path="notes")(Toy(), make_ctx("text")) == []
+
+
+def test_an_allow_list_entry_covers_a_nested_path(make_ctx: CtxFactory) -> None:
+    class Quoted(BaseModel):
+        evidence: list[dict[str, str]] = []
+        notes: str | None = None
+
+    check = PiiCheck(allow_paths=("evidence",))
+    output = Quoted(
+        evidence=[{"quote": "write to marta@example.com"}],
+        notes="copy to marta@example.com",
+    )
+
+    codes = [issue.field_path for issue in check(output, make_ctx("text"))]
+    assert "evidence.0.quote" not in codes
+    assert "notes" in codes

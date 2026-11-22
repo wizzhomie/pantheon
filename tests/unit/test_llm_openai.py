@@ -195,3 +195,16 @@ def test_key_is_read_from_the_environment(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setenv("OPENAI_API_KEY", "from-env")
     client = OpenAICompatibleClient(model="test-model")
     assert client._api_key == "from-env"
+
+
+async def test_extra_body_is_merged_into_the_request() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(http_request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(http_request.content))
+        return httpx.Response(200, json=completion("{}"))
+
+    client = make_client(handler, extra_body={"reasoning_effort": "none"})
+    await client.complete(request())
+    assert seen["reasoning_effort"] == "none"
+    assert seen["model"] == "test-model"

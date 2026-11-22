@@ -3,6 +3,7 @@
 #   make check    lint + types + tests (what CI runs)
 #   make demo     the demo agent through the CLI: no key, no network, no money
 #   make sample   regenerate the committed stub reports
+#   make replay   the committed live cassette: same numbers, no key, no network
 #   make eval     a live model run (needs DEEPSEEK_API_KEY); baseline + diff included
 #
 # The library is not pip-installed in this checkout, hence PYTHONPATH=src. The `.` is what
@@ -16,7 +17,7 @@ SPEC := examples.logistics_intake.runner:build_guarded
 
 .DEFAULT_GOAL := check
 
-.PHONY: check lint typecheck test demo sample eval baseline diff
+.PHONY: check lint typecheck test demo sample replay eval baseline diff
 
 check: lint typecheck test
 
@@ -35,6 +36,10 @@ demo:
 
 sample:
 	$(PYTHON) -m examples.logistics_intake.sample
+
+replay:
+	QAGENT_LLM=replay $(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \
+		--out reports/replay_guarded.json --markdown reports/replay_guarded.md
 
 eval:
 	QAGENT_LLM=live $(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \

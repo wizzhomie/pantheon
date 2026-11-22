@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Preset | `logistics_intake` |
-| Preset hash | `67d10cb9d862bbaf9ec13a87f2b5779ddda588aa4bc9c76cd47fd232297ebd55` |
+| Preset hash | `0f88a657a555e39060d67dc1129ed22b24304e250b87e64cee31613a14597a69` |
 | Dataset hash | `59b12a301566c8ae6783d080780286b8428e5cdab40a8dfca3c24148a7c5effd` |
 | Cases | 32 |
 | Commit | `stub` |
@@ -72,13 +72,13 @@
 | `ed-01` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-02` | edge_case | passed_after_retry | yes | 100.0% | — | 1 | $0.0000 |
 | `ed-03` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `ed-04` | edge_case | escalated | no | 93.5% | G2_BAD_COUNTRY, no_progress | 1 | $0.0000 |
+| `ed-04` | edge_case | escalated | no | 93.3% | G2_BAD_COUNTRY, no_progress | 1 | $0.0000 |
 | `ed-05` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-06` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-07` | edge_case | passed_after_retry | yes | 100.0% | — | 1 | $0.0000 |
 | `ed-08` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-09` | edge_case | passed_after_retry | yes | 100.0% | — | 1 | $0.0000 |
-| `adv-01` | adversarial | passed | no | 93.5% | — | 0 | $0.0000 |
+| `adv-01` | adversarial | passed | no | 93.3% | — | 0 | $0.0000 |
 | `adv-02` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `adv-03` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `adv-04` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |

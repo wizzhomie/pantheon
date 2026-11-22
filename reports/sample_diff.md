@@ -14,7 +14,7 @@
 |---|---|---|---|---|
 | Pass, first attempt | 75.0% | 65.6% | -9.4 pp | worse |
 | Pass, final | 75.0% | 93.8% | +18.8 pp | better |
-| Field accuracy (macro) | 97.8% | 99.6% | +1.8 pp | better |
+| Field accuracy (macro) | 97.7% | 99.6% | +1.9 pp | better |
 | Retry recovery | 0.0% | 88.9% | +88.9 pp | better |
 | Hallucination rate | 3.1% | 3.1% | +0.0 pp | same |
 | False pass rate | 25.0% | 3.1% | -21.9 pp | better |

@@ -80,12 +80,16 @@ class PiiCheck:
     """Paths to scan; empty means every string leaf."""
     kinds: frozenset[PiiKind] = frozenset({"email", "phone", "card", "iban"})
     allow_paths: Sequence[str] = ()
-    """Paths where the data is expected, e.g. ``contact.email``."""
+    """Paths where the data is expected, e.g. ``contact.email``.
+
+    An entry also covers everything below it: ``evidence`` allows ``evidence.0.quote``, so a
+    preset with quotes inside a list does not have to enumerate indices.
+    """
     id: str = "pii"
     tier: Tier = "fast"
 
     def __call__(self, output: BaseModel, ctx: CheckContext) -> list[Issue]:
-        allowed = set(self.allow_paths)
+        allowed = tuple(self.allow_paths)
         targets = (
             list(self.paths)
             if self.paths
@@ -93,7 +97,7 @@ class PiiCheck:
         )
         issues: list[Issue] = []
         for path in targets:
-            if path in allowed:
+            if _is_allowed(path, allowed):
                 continue
             value = get_path(output, path)
             if not isinstance(value, str) or not value.strip():
@@ -124,3 +128,8 @@ class PiiCheck:
                 )
                 break  # one report per kind and path is enough signal
         return found
+
+
+def _is_allowed(path: str, allowed: tuple[str, ...]) -> bool:
+    """Exact path or a prefix at a dot boundary: ``evidence`` covers ``evidence.0.quote``."""
+    return any(path == entry or path.startswith(f"{entry}.") for entry in allowed)

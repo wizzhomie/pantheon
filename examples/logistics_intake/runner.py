@@ -94,6 +94,11 @@ def build_guarded() -> GuardedAgent[ExtractedIntake]:
             structured_output="json_object",
             # A reasoning model can think for a minute before it writes the answer.
             timeout_s=180.0,
+            # ...and the thinking costs more than the answer: ~9 000 hidden tokens per case
+            # against ~600 for the extraction itself. A QA demo does not need the thinking,
+            # so the example turns it off at the provider seam. Remove this line to get the
+            # full reasoning behaviour, at roughly ten times the bill.
+            extra_body={"reasoning_effort": "none"},
         )
         return _llm_guarded(_recording(client) if _record_requested() else client)
     raise ValueError(f"QAGENT_LLM must be stub, replay or live, got {source!r}")
@@ -116,10 +121,11 @@ def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:
         prompt=AGENT_PROMPT,
         pricing=PRICING,
     )
-    # Both models are reasoning models: hidden thinking is billed against max_tokens (the
-    # judge default of 900 is spent before the verdict is written) and one case easily takes
-    # a minute, which is four times the default latency budget. The policy is part of the
-    # example, not of the library defaults.
+    # Budgets sized for these models: hidden thinking is billed against max_tokens (the judge
+    # default of 900 is spent before the verdict is written) and one case easily takes a
+    # minute, four times the default latency budget. Reasoning is switched off below (U37),
+    # so the headroom is deliberate — removing that line must not break the run. The policy
+    # is part of the example, not of the library defaults.
     config = QAConfig(
         judge=JudgePolicy(model=JUDGE_MODEL, max_tokens=8_000),
         limits=RunLimits(max_latency_ms=240_000, max_cost_usd=0.20),

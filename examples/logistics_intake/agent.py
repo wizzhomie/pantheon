@@ -28,7 +28,7 @@ from .schema import ExtractedIntake
 # Generous on purpose: `deepseek-flash` is a reasoning model, and its hidden reasoning
 # tokens are billed and counted against this cap. A tight cap truncates the JSON after the
 # thinking is over. Cost follows the tokens actually produced, not the cap.
-MAX_OUTPUT_TOKENS = 6_000
+MAX_OUTPUT_TOKENS = 12_000
 
 
 def make_llm_agent(

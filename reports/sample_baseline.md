@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Preset | `logistics_intake` |
-| Preset hash | `67d10cb9d862bbaf9ec13a87f2b5779ddda588aa4bc9c76cd47fd232297ebd55` |
+| Preset hash | `0f88a657a555e39060d67dc1129ed22b24304e250b87e64cee31613a14597a69` |
 | Dataset hash | `59b12a301566c8ae6783d080780286b8428e5cdab40a8dfca3c24148a7c5effd` |
 | Cases | 32 |
 | Commit | `stub` |
@@ -22,7 +22,7 @@
 |---|---|---|
 | Pass, first attempt | 75.0% | accepted on attempt 1 and correct |
 | Pass, final | 75.0% | correct after the loop |
-| Field accuracy (macro) | 97.8% | weighted match of the expected fields |
+| Field accuracy (macro) | 97.7% | weighted match of the expected fields |
 | Hallucination rate | 3.1% | a forbidden value appeared |
 | False pass rate | 25.0% | the loop accepted a wrong answer |
 
@@ -44,8 +44,8 @@
 | Category | Cases | Pass, first | Pass, final | Escalation | Field accuracy |
 |---|---|---|---|---|---|
 | adversarial | 5 | 80.0% | 80.0% | 0.0% | 98.7% |
-| edge_case | 9 | 66.7% | 66.7% | 0.0% | 97.1% |
-| happy_path | 18 | 77.8% | 77.8% | 0.0% | 97.9% |
+| edge_case | 9 | 66.7% | 66.7% | 0.0% | 97.0% |
+| happy_path | 18 | 77.8% | 77.8% | 0.0% | 97.8% |
 
 ## Cases
 
@@ -53,15 +53,15 @@
 |---|---|---|---|---|---|---|---|
 | `hq-01` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `hq-02` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `hq-03` | happy_path | passed | no | 93.5% | — | 0 | $0.0000 |
+| `hq-03` | happy_path | passed | no | 93.3% | — | 0 | $0.0000 |
 | `hq-04` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `hq-05` | happy_path | passed | no | 93.5% | — | 0 | $0.0000 |
+| `hq-05` | happy_path | passed | no | 93.3% | — | 0 | $0.0000 |
 | `hq-06` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `hq-07` | happy_path | passed | no | 80.7% | — | 0 | $0.0000 |
+| `hq-07` | happy_path | passed | no | 80.0% | — | 0 | $0.0000 |
 | `hq-08` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `hq-09` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `hq-10` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `hq-11` | happy_path | passed | no | 93.5% | — | 0 | $0.0000 |
+| `hq-11` | happy_path | passed | no | 93.3% | — | 0 | $0.0000 |
 | `hq-12` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `hq-13` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `hq-14` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
@@ -72,13 +72,13 @@
 | `ed-01` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-02` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-03` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `ed-04` | edge_case | passed | no | 93.5% | — | 0 | $0.0000 |
+| `ed-04` | edge_case | passed | no | 93.3% | — | 0 | $0.0000 |
 | `ed-05` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `ed-06` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `ed-07` | edge_case | passed | no | 87.1% | — | 0 | $0.0000 |
+| `ed-07` | edge_case | passed | no | 86.7% | — | 0 | $0.0000 |
 | `ed-08` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
-| `ed-09` | edge_case | passed | no | 93.5% | — | 0 | $0.0000 |
-| `adv-01` | adversarial | passed | no | 93.5% | — | 0 | $0.0000 |
+| `ed-09` | edge_case | passed | no | 93.3% | — | 0 | $0.0000 |
+| `adv-01` | adversarial | passed | no | 93.3% | — | 0 | $0.0000 |
 | `adv-02` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `adv-03` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `adv-04` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
