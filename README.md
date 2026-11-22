@@ -1,5 +1,7 @@
 # agentqa
 
+[![ci](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml)
+
 **Embedded QA for LLM agents.** A small, preset-driven library that puts quality control *inside*
 the step that returns structured data: deterministic checks → LLM judge → bounded correction loop →
 escalation, plus an offline regression suite that reuses the same preset.
@@ -115,8 +117,8 @@ the regression run.
 | Phase | Content | State |
 |---|---|---|
 | 0 | design docs | ✅ |
-| 1 | skeleton, contracts, CI | next |
-| 2 | built-in checks + tests | — |
+| 1 | skeleton, contracts, config, CI | ✅ |
+| 2 | built-in checks + tests | next |
 | 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | — |
 | 4 | judge, rubric scoring, calibration | — |
 | 5 | runtime loop: attempts, budget, modes, escalation, trace | — |
