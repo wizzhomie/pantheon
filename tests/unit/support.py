@@ -15,13 +15,20 @@ from agentqa import (
     Case,
     CheckContext,
     Criterion,
+    EvalCase,
     Feedback,
+    FieldSpec,
     Issue,
     JudgeVerdict,
     Preset,
     Rubric,
+    RunResult,
+    ScoringSpec,
+    Totals,
     Usage,
 )
+from agentqa.evals.metrics import CaseRecord
+from agentqa.evals.scoring import CaseScore
 
 ReplyItem = Any
 
@@ -131,3 +138,113 @@ def criteria() -> list[Criterion]:
             weight=0.3,
         ),
     ]
+
+
+def eval_case(
+    case_id: str = "case-1",
+    *,
+    category: str = "happy_path",
+    payload: str = "two boxes",
+    expected: dict[str, Any] | None = None,
+    traps: list[Any] | None = None,
+    human_verdict: bool | None = None,
+    notes: str | None = None,
+) -> EvalCase:
+    return EvalCase(
+        case_id=case_id,
+        category=category,  # type: ignore[arg-type]
+        payload=payload,
+        expected={"qty": 2, "name": "two boxes"} if expected is None else expected,
+        traps=traps or [],
+        human_verdict=human_verdict,
+        notes=notes,
+    )
+
+
+def toy_scoring() -> ScoringSpec:
+    return ScoringSpec(
+        fields=[
+            FieldSpec(path="qty", comparator="numeric"),
+            FieldSpec(path="name"),
+        ]
+    )
+
+
+GOOD_SCORE = CaseScore(field_accuracy=1.0, passed=True)
+BAD_SCORE = CaseScore(field_accuracy=0.5, passed=False, wrong=["qty"])
+
+
+def make_result(
+    case_id: str = "case-1",
+    *,
+    status: str = "passed",
+    mode: str = "guarded",
+    attempts: int = 1,
+    cost: float = 0.01,
+    latency: float = 100.0,
+    prompt_tokens: int = 10,
+    completion_tokens: int = 5,
+    output: BaseModel | None = None,
+    gate: Any = None,
+    verdict: JudgeVerdict | None = None,
+    reason: str | None = None,
+) -> RunResult[ToyOutput]:
+    if status in ("passed", "passed_after_retry") and output is None:
+        output = ToyOutput(qty=2, name="two boxes")
+    if status == "escalated" and reason is None:
+        reason = "max_attempts_exhausted"
+    return RunResult[ToyOutput](
+        case_id=case_id,
+        mode=mode,  # type: ignore[arg-type]
+        status=status,  # type: ignore[arg-type]
+        output=output,  # type: ignore[arg-type]
+        gate=gate,
+        verdict=verdict,
+        escalation_reason=reason,  # type: ignore[arg-type]
+        would_have_blocked=(status in ("escalated", "failed") if mode == "shadow" else None),
+        totals=Totals(
+            latency_ms=latency,
+            attempts=attempts,
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            cost_usd=cost,
+        ),
+    )
+
+
+def case_record(
+    case_id: str = "case-1",
+    *,
+    category: str = "happy_path",
+    score: CaseScore = GOOD_SCORE,
+    status: str = "passed",
+    attempts: int = 1,
+    cost: float = 0.01,
+    latency: float = 100.0,
+) -> CaseRecord:
+    case = eval_case(case_id, category=category)
+    return CaseRecord(
+        case=case,
+        result=make_result(
+            case_id,
+            status=status,
+            attempts=attempts,
+            cost=cost,
+            latency=latency,
+            gate=_gate_for(status),
+        ),
+        score=score,
+    )
+
+
+def _gate_for(status: str) -> Any:
+    if status == "escalated":
+        from agentqa import CheckResult, GateResult
+
+        issue = qty_issue()
+        return GateResult(
+            passed=False,
+            results=[CheckResult(check_id="qty", passed=False, issues=[issue])],
+            issues=[issue],
+        )
+    return None

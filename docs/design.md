@@ -65,7 +65,7 @@ flowchart LR
 
 ## 3. Публичный API
 
-Пять имён, дальше — конфиг. Всё остальное внутреннее.
+Фасад и несколько функций, дальше — конфиг. Всё остальное внутреннее.
 
 ```python
 guarded = agentqa.guard(
@@ -75,12 +75,16 @@ guarded = agentqa.guard(
     config=QAConfig(),           # лимиты, пороги, режим
 )
 
-result = await guarded.run(case)             # RunResult[Intake]
-report = await agentqa.evaluate(guarded, dataset)   # EvalReport
+result = await guarded.run(case)                    # RunResult[Intake]
+report = await agentqa.evaluate(guarded, dataset)   # EvalReport (+ meta_eval при метках)
+agentqa.report.write_json(report, "reports/run.json")
 agentqa.report.write_markdown(report, "reports/run.md")
 agentqa.compare(baseline_json, guarded_json)        # ReportDiff
-agentqa.calibrate(guarded, labels)                  # MetaEval
 ```
+
+Отдельная калибровка судьи (`agentqa.calibrate(judge, labelled)`) остаётся доступной, но в обычном
+прогоне её делать не нужно: если в датасете есть `human_verdict`, `evaluate()` сам кладёт `meta_eval`
+в отчёт.
 
 Почему фасад, а не «собери сам из пяти классов»: сценарий использования должен читаться в одну
 строку, иначе библиотека не приживается. Внутренние компоненты при этом остаются доступными —
@@ -509,6 +513,72 @@ PII не лечится вторым запросом; политика `on_crit
 пример в `reports/`. Сравнение версий — `compare(two reports) → ReportDiff`: таблица «baseline /
 guarded / Δ» по метрикам плюс список кейсов, сменивших статус, с кодами причин.
 
+### Датасет
+
+`Dataset` — список `EvalCase` (кейс, категория, теги, ожидаемые значения, ловушки, ручной вердикт).
+Файл — JSONL, по кейсу на строку; пустой датасет и дубли `case_id` отклоняются. `digest()` —
+sha256 канонического JSON, **без** `notes` и `human_verdict`: они документируют и калибруют, но не
+меняют то, что измеряет прогон. Порядок кейсов на хеш не влияет.
+
+### Скоринг
+
+`ScoringSpec` — единственное место, где сказано, что такое «правильно»: пути полей с весами,
+компараторы (`exact` / `normalized` / `fuzzy` / `set` / `numeric`), ловушки и жёсткий порог
+`min_field_accuracy`. Ловушка (`Trap`) — значение, которого не должно быть никогда; попадание
+проваливает кейс, даже если остальные поля верны: выдуманное значение не компенсируется.
+
+`CaseScore.passed` — **истина по золотым значениям**, а не «гейт пропустил». Это принципиально:
+иначе отчёт измеряет качество гейта, а не качество ответа, и baseline с выключенными проверками
+выглядел бы хуже или лучше по причине, не связанной с моделью.
+
+### Метрики
+
+| Метрика | Что значит |
+|---|---|
+| `pass_rate_first_attempt` | ответ был правильным уже с первой попытки |
+| `pass_rate_final` | ответ правильный после цикла |
+| `false_pass_rate` | цикл принял ответ, а золотые значения говорят «неправильно» |
+| `retry_rate` | доля кейсов, где была вторая попытка |
+| `retry_recovery_rate` | среди ретраенных — доля ставших правильными (знаменатель честный) |
+| `escalation_rate` | доля эскалаций (нормальный исход, не «брак») |
+| `hallucination_rate` | доля кейсов с попаданием в ловушку |
+| `field_accuracy_macro` | среднее по кейсам от взвешенной точности полей |
+| `latency_p50/p95` | ближайший ранг, без интерполяции |
+| `cost_usd_per_case` / `cost_usd_per_passed_case` | вторая делит на **правильные** кейсы; при нуле — 0.0 и предупреждение в отчёте |
+
+`RunResult` не хранит первый ответ, поэтому «первая попытка» определяется статусом
+(`status == "passed"`) **и** правильностью: повезло с первым ответом — ещё не пропуск.
+
+### Отчёт
+
+`EvalReport` содержит `run_id` (`20261122T170000-guarded-4c924ff`), `git_sha`, `preset_hash`,
+`dataset_hash`, модели (`llm`), метрики, `meta_eval` и по кейсу: статус, правильность, точность,
+поля, коды, ретраи, стоимость. Markdown-версия — отдельные блоки «качество по золотым значениям» и
+«цикл», разбивка по категориям, калибровка судьи и таблица кейсов. В `Notes` пишутся честные
+оговорки: ноль прошедших кейсов, ненулевой false pass, неизвестный коммит.
+
+Калибровка судьи входит в тот же прогон: если у кейсов есть `human_verdict` и судья вызывался,
+`meta_eval` считается автоматически — отдельная команда не нужна и не может разойтись с отчётом.
+
+### Сравнение
+
+`compare(a, b)` строит `MetricDelta` по метрикам с направлением (`up` / `down` / `neutral`) и
+`changed_cases` по смене статуса. Смена датасета — красный флаг: числа несравнимы. Смена пресета —
+не ошибка, а предмет сравнения, но отчёт говорит прямо, что дельта — эффект схемы/проверок/рубрики,
+а не только модели.
+
+### CLI
+
+```
+python -m agentqa eval --spec examples.intake.runner:build_guarded \
+    --dataset dataset.jsonl --out reports/guarded.json --markdown reports/guarded.md
+python -m agentqa compare reports/baseline.json reports/guarded.json --markdown reports/diff.md
+```
+
+`--spec` — `module:factory`, возвращающая готовый `GuardedAgent`. Библиотека не пытается угадать,
+как у проекта устроены клиенты, ключи и replay: это код проекта. `--mode` переопределяет режим, что
+и даёт пару baseline/guarded из одной сборки.
+
 ```python
 class ReportDiff(StrictModel):
     a: str                              # run_id
@@ -536,8 +606,9 @@ class MetaEval(StrictModel):
     false_fail_ids: list[str]
 ```
 
-Калибровка — командой `agentqa calibrate --preset ... --labels ...`: прогоняет судью по размеченным
-кейсам и печатает таблицу. Это не «доверие модели», а измерение.
+Калибровка — не отдельная церемония: `evaluate()` считает `meta_eval` из меток в том же прогоне,
+что и метрики. Отдельная функция `calibrate(judge, labelled)` остаётся для случая, когда размеченные
+пары уже есть как артефакты. Это не «доверие модели», а измерение.
 
 ---
 
@@ -627,12 +698,14 @@ agentqa/
 | 3 | `llm/` (fake, replay, openai-compatible, anthropic) + pricing | интеграция с FakeClient без сети |
 | 4 | судья, рубрика, подсчёт score кодом, `calibrate` | тест: судья не может «объявить себя пройденным» |
 | 5 | цикл: попытки, бюджет, режимы, эскалации, трейс | 4 сценария: pass / recover / escalate / budget |
-| 6 | evals: датасет, скоринг, метрики, отчёт, сравнение | `eval --replay` даёт отчёт без сети |
+| 6 | evals: датасет, скоринг, метрики, отчёт, сравнение | `eval` даёт отчёт без сети на fake/replay |
 | 7 | `presets/toy` + `examples/logistics_intake` + README | пример проходит, README читается за 2 минуты |
 | 8 | реальный прогон, кассеты, цифры в README, бейджи | цифры воспроизводятся из кассет |
 
-Фазы 0–5 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
-budget / no_progress / shadow / baseline, плюс таблица решений эскалации; 281 тест, `ruff` и
+Фазы 0–6 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
+budget / no_progress / shadow / baseline, плюс таблица решений эскалации. Приёмка фазы 6 —
+`tests/unit/test_evals_*.py` и `test_cli.py`: JSONL и хеш, таблица компараторов, ловушки, метрики на
+посчитанных вручную числах, отчёт с хешами, диф с флагами, CLI без сети. 349 тестов, `ruff` и
 `mypy --strict` чистые.
 
 ---

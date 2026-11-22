@@ -105,6 +105,12 @@ class Metrics(StrictModel):
     retry_rate: float = Field(ge=0, le=1, default=0.0)
     retry_recovery_rate: float = Field(ge=0, le=1, default=0.0)
     escalation_rate: float = Field(ge=0, le=1, default=0.0)
+    false_pass_rate: float = Field(
+        default=0.0,
+        ge=0,
+        le=1,
+        description="the gate accepted the answer and the golden fields say it was wrong",
+    )
     field_accuracy_macro: float = Field(ge=0, le=1, default=0.0)
     hallucination_rate: float = Field(ge=0, le=1, default=0.0)
     latency_p50_ms: float = Field(default=0.0, ge=0)

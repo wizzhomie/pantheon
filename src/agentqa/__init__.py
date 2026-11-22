@@ -63,6 +63,7 @@ from .contracts import (
     Trap,
     Usage,
 )
+from .evals import Dataset, compare, evaluate, report, score_case
 from .judge import (
     FunctionJudge,
     Judge,
@@ -100,6 +101,7 @@ __all__ = [
     "CheckResult",
     "Comparator",
     "Criterion",
+    "Dataset",
     "EscalationPolicy",
     "EscalationReason",
     "EvalCase",
@@ -148,10 +150,14 @@ __all__ = [
     "Usage",
     "__version__",
     "calibrate",
+    "compare",
+    "evaluate",
     "guard",
     "parse_attempt",
     "render_feedback",
+    "report",
     "run_checks",
     "score_calibration",
+    "score_case",
     "usage_of",
 ]

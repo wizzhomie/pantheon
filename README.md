@@ -121,14 +121,27 @@ false positives.
 
 ## Offline regression
 
-```text
-baseline: pass 74%, fabrications 18%, $0.031/case, $0.042/passed, p95 4.1 s
-guarded:  pass 94%, fabrications  2%, $0.077/case, $0.082/passed, p95 11.6 s, escalations 6%
+The same preset scores a dataset. Pass rates are **ground truth** against the golden values, not
+"the gate let it through" — so a wrong answer approved by the loop is its own metric:
+
+```
+$ python -m agentqa eval --spec examples.intake.runner:build_guarded \
+      --dataset dataset.jsonl --out reports/guarded.json --markdown reports/guarded.md
+20261122T170000-guarded-4c924ff: 32 cases, pass 90.6% -> reports/guarded.json
+
+$ python -m agentqa compare reports/baseline.json reports/guarded.json \
+      --markdown reports/diff.md
 ```
 
-Metrics: pass rate before/after retry, retry recovery, escalation rate, hallucination rate,
-field accuracy, p50/p95 latency, tokens, cost per case and per *passed* case — plus judge
-calibration (agreement, Cohen's κ, false passes) against hand-labelled cases.
+The report carries `run_id`, commit, `preset_hash`, `dataset_hash`, both families of numbers (quality
+vs. loop behaviour) and per-case rows; `compare` raises a flag when the dataset changed, because then
+the numbers are not comparable. Metrics: pass rate before/after retry, false pass rate, retry
+recovery, escalation rate, hallucination rate, field accuracy, p50/p95 latency, tokens, cost per case
+and per *passed* case — plus judge calibration (agreement, Cohen's κ, false passes) against
+hand-labelled cases.
+
+> The numbers in this README are illustrative until the live run in phase 8; the report format and
+> the CLI above are what actually runs.
 
 ## Relationship to existing tools
 
@@ -147,7 +160,7 @@ the regression run.
 | 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | ✅ |
 | 4 | judge, rubric scoring, calibration | ✅ |
 | 5 | runtime loop: attempts, budget, modes, escalation, trace | ✅ |
-| 6 | offline evals: dataset, metrics, report, diff | — |
+| 6 | offline evals: dataset, metrics, report, diff | ✅ |
 | 7 | toy preset + `examples/logistics_intake` + docs | — |
 | 8 | live run, cassettes, numbers in README | — |
 
