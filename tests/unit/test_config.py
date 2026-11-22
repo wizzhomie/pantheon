@@ -88,4 +88,4 @@ def test_prefix_match_and_exact_precedence() -> None:
 
 
 def test_default_config_matches_factory() -> None:
-    assert DEFAULT_CONFIG == QAConfig()
+    assert QAConfig() == DEFAULT_CONFIG

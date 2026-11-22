@@ -49,6 +49,9 @@ target-version = "py311"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# The repo is bilingual: Russian docstrings and fixtures are deliberate, so
+# "confusable character" warnings would be noise, not signal.
+ignore = ["RUF001", "RUF002", "RUF003"]
 
 [tool.mypy]
 python_version = "3.11"

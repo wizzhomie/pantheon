@@ -11,6 +11,7 @@ CLI land in later phases — see ``docs/design.md``.
 
 from __future__ import annotations
 
+from .checks import Check, CheckContext, run_checks
 from .config import (
     DEFAULT_CONFIG,
     EscalationPolicy,
@@ -59,6 +60,7 @@ from .contracts import (
     Trap,
     Usage,
 )
+from .parsing import ParseOutcome, parse_attempt
 
 __version__ = "0.1.0"
 
@@ -71,6 +73,8 @@ __all__ = [
     "CaseChange",
     "CaseResult",
     "CategoryMetrics",
+    "Check",
+    "CheckContext",
     "CheckResult",
     "Comparator",
     "Criterion",
@@ -91,6 +95,7 @@ __all__ = [
     "Metrics",
     "Mode",
     "ModelPrice",
+    "ParseOutcome",
     "Pricing",
     "QAConfig",
     "ReportDiff",
@@ -108,4 +113,6 @@ __all__ = [
     "Trap",
     "Usage",
     "__version__",
+    "parse_attempt",
+    "run_checks",
 ]
