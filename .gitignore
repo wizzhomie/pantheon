@@ -19,6 +19,9 @@ htmlcov/
 .env.*
 !.env.example
 
+# Local session handover notes
+memory/
+
 # Run artifacts (keep reports/sample_report.md only)
 reports/*.json
 reports/*.md
