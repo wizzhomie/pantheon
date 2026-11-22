@@ -24,6 +24,11 @@ class RunLimits(StrictModel):
     max_cost_usd: float | None = Field(default=0.05, ge=0)
     max_latency_ms: float | None = Field(default=30_000, gt=0)
     max_judge_calls: int = Field(default=2, ge=0, le=10)
+    max_input_chars: int = Field(
+        default=200_000,
+        ge=1,
+        description="longer inputs are rejected before the agent runs and before money is spent",
+    )
 
 
 class RetryPolicy(StrictModel):

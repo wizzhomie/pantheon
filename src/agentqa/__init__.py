@@ -5,8 +5,10 @@ deterministic checks, an independent LLM judge with a data-driven rubric, a boun
 self-correction loop under an explicit budget, and an offline regression suite that
 reuses the same preset.
 
-Phase 1 exposes contracts and configuration only. The runtime loop, checks, judge and
-CLI land in later phases — see ``docs/design.md``.
+``guard(agent, preset, llm=...)`` is the entry point: it returns a
+:class:`GuardedAgent` whose ``run`` executes the loop, and the same preset drives the
+offline regression run. See ``docs/design.md`` for the design and ``docs/how-it-works.md``
+for the plain-language version.
 """
 
 from __future__ import annotations
@@ -24,6 +26,7 @@ from .config import (
 )
 from .contracts import (
     AgentFn,
+    AgentReply,
     Attempt,
     Case,
     CaseCategory,
@@ -78,12 +81,14 @@ from .llm import (
     usage_of,
 )
 from .parsing import ParseOutcome, parse_attempt
+from .runtime import GuardedAgent, Preset, guard, render_feedback
 
 __version__ = "0.1.0"
 
 __all__ = [
     "DEFAULT_CONFIG",
     "AgentFn",
+    "AgentReply",
     "Attempt",
     "Case",
     "CaseCategory",
@@ -104,6 +109,7 @@ __all__ = [
     "FieldSpec",
     "FunctionJudge",
     "GateResult",
+    "GuardedAgent",
     "Issue",
     "IssueSource",
     "JsonValue",
@@ -122,6 +128,7 @@ __all__ = [
     "Mode",
     "ModelPrice",
     "ParseOutcome",
+    "Preset",
     "Pricing",
     "QAConfig",
     "ReplayClient",
@@ -141,7 +148,9 @@ __all__ = [
     "Usage",
     "__version__",
     "calibrate",
+    "guard",
     "parse_attempt",
+    "render_feedback",
     "run_checks",
     "score_calibration",
     "usage_of",

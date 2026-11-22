@@ -9,7 +9,7 @@ from pydantic import Field, model_validator
 from .base import JsonValue, StrictModel
 
 Severity = Literal["info", "warning", "error", "critical"]
-IssueSource = Literal["input", "parse", "check", "judge", "budget"]
+IssueSource = Literal["input", "agent", "parse", "check", "judge", "budget"]
 
 SEVERITY_RANK: dict[Severity, int] = {"info": 0, "warning": 1, "error": 2, "critical": 3}
 

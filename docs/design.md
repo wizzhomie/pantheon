@@ -109,15 +109,49 @@ class Feedback(StrictModel):
     issues: list[Issue]
     judge: JudgeVerdict | None
     instructions: list[str]       # готовые императивные указания для агента
+    previous_output: str | None   # отклонённый ответ: без него фикс — угадайка
 
 Attempt = BaseModel | dict[str, JsonValue] | str   # последнее — текст, который придётся парсить
 
-AgentFn = Callable[[Case, Feedback | None], Awaitable[Attempt]]
+@dataclass(frozen=True)
+class AgentReply:
+    attempt: Attempt
+    usages: tuple[Usage, ...] = ()
+    truncated: bool = False
+
+AgentFn = Callable[[Case, Feedback | None], Awaitable[Attempt | AgentReply]]
 ```
 
-`Feedback` — единственный способ ядра говорить с пользовательским агентом. Пресет может
-переопределить, как он превращается в сообщения (`build_retry`), но структура фидбека — контракт
-ядра, поэтому трейс и метрики одинаковы для всех доменов.
+`Feedback` — единственный способ ядра говорить с пользовательским агентом, поэтому прошлый ответ
+входит в контракт: агент вызывается как функция и иначе не увидел бы, что именно сломал. `AgentReply`
+нужен только агентам, которые хотят попасть в трейс и бюджет своими токенами; простой
+детерминированный агент возвращает `Attempt`.
+
+**Пресет**
+
+```python
+class Preset(Generic[TOut]):
+    name: str
+    output_model: type[TOut]
+    rubric: Rubric
+    checks: Sequence[Check] = ()
+    judge: Judge | None = None            # можно не давать: фасад соберёт LLMJudge по политике
+    scoring: ScoringSpec | None = None    # для офлайн-прогона
+    agent_prompt: str = ""                # пресет отдаёт его своему агенту, ядро не читает
+    judge_instructions: str = ""          # доменные правила для судьи
+    agent_model: str | None = None        # фолбэк для модели судьи и метаданные отчёта
+    build_retry: Callable[[Case, Feedback], Feedback] | None = None
+    validate_input: Callable[[Case], list[Issue]] | None = None
+
+    def fingerprint(self) -> str: ...     # sha256 схемы, проверок, рубрики, промптов, скоринга
+```
+
+Пресет — обычный frozen dataclass, а не Pydantic-модель: два его поля непроверяемы по природе (класс
+схемы и функции-хуки), и проверять внешний слой, делая вид, что внутренний тоже проверен, хуже, чем
+проверить то, что можно: непустое имя, `BaseModel`-схема, уникальные id проверок.
+
+`fingerprint()` хеширует `id` и `tier` проверок, а не их настройки: протокол проверки конфигурацию не
+раскрывает. Если своя проверка меняет поведение при том же id, пресет переопределяет `fingerprint`.
 
 **Проблемы и вердикты**
 
@@ -191,7 +225,7 @@ class TraceEvent(StrictModel):
 
 class Totals(StrictModel):
     latency_ms: float
-    attempts: int
+    attempts: int                     # 0, если вход отвергнут до вызова агента
     prompt_tokens: int
     completion_tokens: int
     cost_usd: float
@@ -201,14 +235,18 @@ Status = Literal["passed", "passed_after_retry", "escalated", "failed"]
 
 class RunResult(StrictModel, Generic[TOut]):
     case_id: str
-    mode: Literal["baseline", "guarded"]
+    mode: Literal["baseline", "guarded", "shadow"]
     status: Status
     output: TOut | None               # последняя версия, даже если эскалация
     gate: GateResult | None
     verdict: JudgeVerdict | None
     escalation_reason: EscalationReason | None
+    would_have_blocked: bool | None   # только shadow: что сделал бы guarded
     trace: list[TraceEvent]
     totals: Totals
+
+    @property
+    def blocking(self) -> bool: ...   # False в shadow, иначе status ∈ {escalated, failed}
 ```
 
 `RunResult[Intake]` — генерический по выходу пресета: типизация работает сквозь всю библиотеку,
@@ -330,6 +368,25 @@ stateDiagram-v2
 `shadow` — то, чего обычно не хватает при внедрении: посмотреть, что было бы, прежде чем кого-то
 блокировать. Стоит 20 строк, а снимает половину возражений «а вдруг он зарежет нормальные заявки».
 
+Точные правила, чтобы режимы не расходились в отчётах:
+
+- `baseline` — **ровно один** вызов агента плюс парсинг. Статус честный: `passed`, если ответ
+  разобрался, иначе `failed` с гейтом из `parse`-issues. Это знаменатель для сравнения, а не
+  «режим без качества».
+- `shadow` проходит тот же цикл и оставляет тот же статус; отличаются только `blocking` (всегда
+  `False`) и поле `would_have_blocked`. Подменять статус на `passed` нельзя: тогда отчёт по shadow
+  нельзя будет сравнить с отчётом по guarded.
+
+Ещё три правила цикла:
+
+- **Бюджет гейтит новые траты.** Проверка перед каждым вызовом агента и перед вызовом судьи. Если
+  попытка уже принесла проходящий результат, он возвращается: выбрасывать оплаченный хороший ответ
+  из-за пересечённого лимита бессмысленно.
+- **`no_progress` — до судьи.** Совпавший ответ пройдёт те же проверки с тем же итогом, а судья —
+  это лишние деньги.
+- **Сломанный судья не пропускает результат.** Качество неизвестно → `escalated: judge_escalate`.
+  Молчаливый пропуск сделал бы библиотеку опасной ровно в момент поломки.
+
 ---
 
 ## 5. Каталог встроенных проверок (доменно-нейтральные)
@@ -376,12 +433,14 @@ class JudgePolicy(StrictModel):
     enabled: bool = True
     mode: Literal["always", "on_gate_pass", "sampled", "gates_failed_only"] = "on_gate_pass"
     sample_rate: float = Field(default=1.0, gt=0, le=1)
-    model: str | None = None          # None → модель агента
+    model: str | None = None          # None → preset.agent_model; молчаливого дефолта нет
     max_input_chars: int = 20_000
 
 class LLMJudge:
     def __init__(self, llm: LLMClient, rubric: Rubric, instructions: str): ...
-    async def review(self, case: Case, output: BaseModel, gate: GateResult) -> JudgeVerdict: ...
+    async def review(
+        self, case: Case, output: BaseModel, gate: GateResult | None = None
+    ) -> JudgeResult: ...
 ```
 
 Решения, которые делают судью предсказуемым:
@@ -394,7 +453,10 @@ class LLMJudge:
   обоснованием, а не проверяет факт.
 - **Сэмплирование** (`sampled`, `sample_rate`): на потоке можно проверять 10% кейсов судьёй,
   оставив гейты на 100%. Это единственный способ сделать runtime-QA дешёвым на объёме, и это
-  осознанный компромисс, а не забытая опция.
+  осознанный компромисс, а не забытая опция. Выбор кейса детерминированный — хеш `case_id`, — иначе
+  офлайн-прогон менял бы покрытие судьи от запуска к запуску и сравнивать отчёты было бы нельзя.
+- **Сломанный судья — находка, а не пропуск.** `JudgeError` или исключение провайдера дают
+  `escalated: judge_escalate`: когда качество неизвестно, вопросы решает человек, а не оптимизм.
 - **`FunctionJudge`** — тот же интерфейс без LLM: для тестов ядра и для детерминированных
   «судей» (например, сверка с эталонной таблицей).
 
@@ -405,10 +467,9 @@ class LLMJudge:
 ```python
 class RetryPolicy(StrictModel):
     max_attempts: int = Field(default=2, ge=1, le=3)
-    retry_on: set[Severity] = {"error", "critical"}
+    retry_on: frozenset[Severity] = {"error", "critical"}
     include_previous_output: bool = True
-    include_failing_quotes: bool = True      # для evidence: показать, что не нашлось
-    temperature_boost: float = 0.0           # 0 = не менять
+    stop_on_no_progress: bool = True         # одинаковый ответ = не ретраить
 
 class EscalationPolicy(StrictModel):
     on_exhausted: Literal["escalate", "return_last"] = "escalate"
@@ -417,13 +478,24 @@ class EscalationPolicy(StrictModel):
 
 EscalationReason = Literal[
     "max_attempts_exhausted", "critical_issue", "budget_exhausted",
-    "no_progress", "input_invalid", "judge_escalate", "agent_error",
+    "no_progress", "input_invalid", "judge_escalate", "agent_error", "not_retryable",
 ]
 ```
 
-Формат фидбека по умолчанию (шаблон в `prompts/correction_default.md`, пресет может заменить):
-исходный вход, прошлый результат, список `issues` с путями и подсказками, `fix_instructions`, и
-явное «не добавляй того, чего нет во входе; неизвестное помечай, а не угадывай».
+Порядок приоритетов в `runtime/escalation.py`: просьба судьи о человеке → `critical` → отказ судьи
+по порогу → исчерпание попыток. Критичное не ретраится, хотя формально входит в `retry_on`: утечка
+PII не лечится вторым запросом; политика `on_critical="retry_once"` даёт ровно одну попытку. Если
+пресет сузил `retry_on` так, что ошибка не подлежит ретраю, причина — `not_retryable`, а не
+«кончились попытки»: отчёт должен отличать «политика запретила» от «мы старались».
+
+Фидбек собирает `runtime/correction.py`: до 12 issues (сначала блокирующие), указания судьи, три
+неотменяемых правила ядра («чини только перечисленное», «не добавляй того, чего нет во входе;
+неизвестное помечай», «верни один JSON-объект») и подсказки полей — всего не больше десяти строк.
+`render_feedback(feedback)` отдаёт готовый текст агенту, который строит промпт сам.
+
+`build_retry` в пресете — это `(Case, Feedback) -> Feedback`, а не генератор сообщений: ядро не
+знает, как устроен агент, и единственный канал к нему — контракт `Feedback`. Пресет может
+отфильтровать лишние issues и добавить доменные правила, но не поменять формат фидбека.
 
 Дефолт намеренно «сухой»: конкретика («поле `x` не подтверждено») работает лучше вежливых
 рассуждений («пожалуйста, проверьте внимательнее»). Это же требование к пресету: `fix_instructions`
@@ -559,14 +631,23 @@ agentqa/
 | 7 | `presets/toy` + `examples/logistics_intake` + README | пример проходит, README читается за 2 минуты |
 | 8 | реальный прогон, кассеты, цифры в README, бейджи | цифры воспроизводятся из кассет |
 
+Фазы 0–5 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
+budget / no_progress / shadow / baseline, плюс таблица решений эскалации; 281 тест, `ruff` и
+`mypy --strict` чистые.
+
 ---
 
 ## 13. Открытые вопросы
 
 1. **Имя пакета на PyPI.** `agentqa` может быть занято — проверить перед публикацией; имя репозитория
-   от этого не зависит.
-2. **Дефолтная модель судьи.** Предлагаю: та же, что у агента; в README — пример «сильнее модель
-   только для судьи» и как это отражается на стоимости.
-3. **`sample_rate` по умолчанию.** Предлагаю 1.0 (честный дефолт), с рецептом для потока в docs.
-4. **Хранить ли тела промптов в трейсе.** Предлагаю: нет (только хеши + опциональный
-   `capture_payloads=True` для отладки), чтобы трейс не разрастался и не содержал PII.
+   от этого не зависит. Единственный по-настоящему открытый пункт.
+
+Решено в фазе 5 (записано, чтобы не пересматривать без причины):
+
+2. **Модель судьи по умолчанию.** Молчаливого дефолта нет: `config.judge.model` или
+   `preset.agent_model`, иначе `guard()` падает с явной ошибкой. Ошибка при сборке дешевле, чем
+   другой судья, тихо оказавшийся в проде.
+3. **`sample_rate`.** 1.0; `mode="sampled"` с `sample_rate=1.0` отклоняется как бессмысленный. Сэмпл
+   детерминирован по `case_id`, чтобы покрытие судьи не плавало между прогонами.
+4. **Тела промптов в трейсе.** Не храним: только `payload_sha256`. `capture_payloads=True` кладёт
+   превью до 300 символов в `notes` события (поле ограничено 500), отдельного хранилища тел нет.

@@ -16,3 +16,9 @@ def test_every_public_name_exists() -> None:
 
 def test_contracts_are_importable_from_the_package_root() -> None:
     from agentqa import Case, Issue, JudgeVerdict, Rubric  # noqa: F401
+
+
+def test_the_facade_is_importable_from_the_package_root() -> None:
+    from agentqa import GuardedAgent, Preset, guard, render_feedback  # noqa: F401
+
+    assert callable(guard)

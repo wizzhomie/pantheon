@@ -6,9 +6,10 @@
 the step that returns structured data: deterministic checks → LLM judge → bounded correction loop →
 escalation, plus an offline regression suite that reuses the same preset.
 
-> **Status: design phase.** No package yet — the contracts and decisions are specified in
-> [`docs/design.md`](docs/design.md) and explained in plain language in
-> [`docs/how-it-works.md`](docs/how-it-works.md). Code lands phase by phase (see [Roadmap](#roadmap)).
+> **Status: working core (phases 0–5).** Contracts, nine deterministic checks, the model layer, the
+> rubric judge and the guarded runtime loop are in place: attempts, budget, escalation,
+> `baseline` / `guarded` / `shadow`, trace. Offline evaluation, the example preset and live numbers
+> land next (see [Roadmap](#roadmap)).
 
 ---
 
@@ -76,9 +77,33 @@ PRESET = Preset(
     checks=[required(...), formats(...), EvidenceCheck(paths=["origin", "cargo.weight"])],
     rubric=Rubric(criteria=[...]),         # weights + descriptions, data not prose
     agent_prompt=PROMPT,
+    agent_model="deepseek-chat",
     scoring=ScoringSpec(fields=[...]),     # for offline comparison
 )
 ```
+
+Wrap the agent once, then run cases:
+
+```python
+guarded = guard(
+    agent=extract_intake,                  # async (case, feedback | None) -> Attempt | AgentReply
+    preset=PRESET,
+    llm=OpenAICompatibleClient(model="deepseek-chat"),   # used by the judge only
+    config=QAConfig(judge=JudgePolicy(model="deepseek-chat")),
+)
+
+result = await guarded.run(Case(case_id="mail-42", payload=email))
+
+if result.blocking:                        # escalated or failed
+    queue_for_human(result)                # reason + trace + the rejected answer included
+else:
+    use(result.output)
+
+one_shot = await guarded.with_mode("baseline").run(Case(case_id="mail-42", payload=email))
+```
+
+The trace records every step with tokens, cost and latency; `result.totals` is the bill for that
+case, judge included.
 
 Three customization levels, none of which needs a fork: config (L1), your checks and rubric (L2),
 your agent/judge/sinks (L3).
@@ -121,7 +146,7 @@ the regression run.
 | 2 | built-in checks + tests | ✅ |
 | 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | ✅ |
 | 4 | judge, rubric scoring, calibration | ✅ |
-| 5 | runtime loop: attempts, budget, modes, escalation, trace | next |
+| 5 | runtime loop: attempts, budget, modes, escalation, trace | ✅ |
 | 6 | offline evals: dataset, metrics, report, diff | — |
 | 7 | toy preset + `examples/logistics_intake` + docs | — |
 | 8 | live run, cassettes, numbers in README | — |

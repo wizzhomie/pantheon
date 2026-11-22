@@ -4,7 +4,7 @@ Everything here is a frozen Pydantic model: results are evidence, so they are im
 closed to unknown fields, and safe to serialise into a report.
 """
 
-from .agent import AgentFn, Attempt, Feedback
+from .agent import AgentFn, AgentReply, Attempt, Feedback
 from .base import JsonValue, StrictModel
 from .case import Case
 from .evals import (
@@ -45,6 +45,7 @@ from .verdict import JudgeVerdict
 
 __all__ = [
     "AgentFn",
+    "AgentReply",
     "Attempt",
     "Case",
     "CaseCategory",

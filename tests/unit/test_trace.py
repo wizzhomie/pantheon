@@ -89,9 +89,70 @@ def test_trace_event_hash_is_strict() -> None:
     assert event.usage.price_known is True
 
 
-def test_totals_require_at_least_one_attempt() -> None:
+def test_totals_allow_zero_attempts_when_the_input_was_rejected() -> None:
+    totals = Totals(latency_ms=1.0, attempts=0, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)
+    assert totals.attempts == 0
+
+
+def test_totals_reject_negative_attempts() -> None:
     with pytest.raises(ValidationError):
-        Totals(latency_ms=1.0, attempts=0, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)
+        Totals(latency_ms=1.0, attempts=-1, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)
+
+
+def test_a_shadow_result_must_state_whether_it_would_block() -> None:
+    with pytest.raises(ValidationError, match="must state would_have_blocked"):
+        RunResult[Output](
+            case_id="case-1",
+            mode="shadow",
+            status="passed",
+            output=Output(value=1),
+            totals=totals(),
+        )
+
+
+def test_would_have_blocked_must_match_the_status() -> None:
+    with pytest.raises(ValidationError, match="must match the status"):
+        RunResult[Output](
+            case_id="case-1",
+            mode="shadow",
+            status="passed",
+            output=Output(value=1),
+            would_have_blocked=True,
+            totals=totals(),
+        )
+
+
+def test_would_have_blocked_is_only_meaningful_in_shadow_mode() -> None:
+    with pytest.raises(ValidationError, match="only meaningful in shadow"):
+        RunResult[Output](
+            case_id="case-1",
+            mode="guarded",
+            status="passed",
+            output=Output(value=1),
+            would_have_blocked=False,
+            totals=totals(),
+        )
+
+
+def test_shadow_results_never_block_while_guarded_ones_do() -> None:
+    shadow = RunResult[Output](
+        case_id="case-1",
+        mode="shadow",
+        status="escalated",
+        escalation_reason="critical_issue",
+        would_have_blocked=True,
+        totals=totals(),
+    )
+    guarded = RunResult[Output](
+        case_id="case-1",
+        mode="guarded",
+        status="escalated",
+        escalation_reason="critical_issue",
+        totals=totals(),
+    )
+
+    assert shadow.blocking is False
+    assert guarded.blocking is True
 
 
 def test_result_survives_a_json_round_trip() -> None:
