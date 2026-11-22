@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 from .base import FinishReason, LLMClient, LLMRequest, LLMResponse, Message, Role
 from .errors import (
     CassetteMiss,
+    JudgeError,
     LLMAuthError,
     LLMBadResponse,
     LLMError,
@@ -57,6 +58,7 @@ __all__ = [
     "CassetteMode",
     "FakeClient",
     "FinishReason",
+    "JudgeError",
     "LLMAuthError",
     "LLMBadResponse",
     "LLMClient",

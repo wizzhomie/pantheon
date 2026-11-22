@@ -60,6 +60,14 @@ from .contracts import (
     Trap,
     Usage,
 )
+from .judge import (
+    FunctionJudge,
+    Judge,
+    JudgeResult,
+    LLMJudge,
+    calibrate,
+    score_calibration,
+)
 from .llm import (
     FakeClient,
     LLMClient,
@@ -94,13 +102,17 @@ __all__ = [
     "FakeClient",
     "Feedback",
     "FieldSpec",
+    "FunctionJudge",
     "GateResult",
     "Issue",
     "IssueSource",
     "JsonValue",
+    "Judge",
     "JudgePolicy",
+    "JudgeResult",
     "JudgeVerdict",
     "LLMClient",
+    "LLMJudge",
     "LLMRequest",
     "LLMResponse",
     "Message",
@@ -128,7 +140,9 @@ __all__ = [
     "Trap",
     "Usage",
     "__version__",
+    "calibrate",
     "parse_attempt",
     "run_checks",
+    "score_calibration",
     "usage_of",
 ]

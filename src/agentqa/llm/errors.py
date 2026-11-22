@@ -45,3 +45,7 @@ class CassetteMiss(LLMError):
         super().__init__(message)
         self.key = key
         self.path = path
+
+
+class JudgeError(LLMError):
+    """The judge could not produce a scorable verdict (bad JSON, unknown criteria)."""
