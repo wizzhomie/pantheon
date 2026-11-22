@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
-from agentqa.llm import (
+from qagent.llm import (
     AnthropicClient,
     LLMAuthError,
     LLMRequest,

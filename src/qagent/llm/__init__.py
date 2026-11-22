@@ -1,7 +1,7 @@
 """Model clients behind one protocol.
 
 The base types, the fake client and the cassette client import nothing beyond Pydantic, so
-``pip install agentqa`` stays a one-dependency install. Provider clients need ``httpx`` and
+the core stays a one-dependency install. Provider clients need ``httpx`` and
 are therefore resolved lazily: importing this package must not require the extra.
 """
 
@@ -47,7 +47,8 @@ def __getattr__(name: str) -> Any:
     except ImportError as exc:  # pragma: no cover — depends on the install
         hint = _INSTALL_HINTS[name]
         raise ImportError(
-            f"{name} needs httpx: pip install 'agentqa[{hint}]'"
+            f"{name} needs httpx: pip install 'httpx>=0.27' "
+            f"(or pip install -e '.[{hint}]' in a checkout)"
         ) from exc
     return getattr(module, attribute)
 

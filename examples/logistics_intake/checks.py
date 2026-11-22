@@ -13,8 +13,8 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from agentqa import Check
-from agentqa.checks import (
+from qagent import Check
+from qagent.checks import (
     ConsistencyCheck,
     DuplicatesCheck,
     EvidenceCheck,

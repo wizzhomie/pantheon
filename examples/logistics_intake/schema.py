@@ -17,7 +17,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from agentqa import StrictModel
+from qagent import StrictModel
 
 RequestType = Literal["quote", "booking", "change", "other"]
 """What the sender wants: a price, a confirmed booking, an amendment, or something else."""

@@ -20,8 +20,8 @@
     "false_pass_rate": 0.0312,
     "field_accuracy_macro": 0.996,
     "hallucination_rate": 0.0312,
-    "latency_p50_ms": 0.473,
-    "latency_p95_ms": 0.938,
+    "latency_p50_ms": 0.466,
+    "latency_p95_ms": 0.948,
     "prompt_tokens": 0,
     "completion_tokens": 0,
     "cost_usd_total": 0.0,
@@ -65,7 +65,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.593,
+      "latency_ms": 0.589,
       "cost_usd": 0.0
     },
     {
@@ -80,7 +80,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.473,
+      "latency_ms": 0.467,
       "cost_usd": 0.0
     },
     {
@@ -95,7 +95,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.938,
+      "latency_ms": 0.983,
       "cost_usd": 0.0
     },
     {
@@ -110,7 +110,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.506,
+      "latency_ms": 0.432,
       "cost_usd": 0.0
     },
     {
@@ -125,7 +125,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.872,
+      "latency_ms": 0.836,
       "cost_usd": 0.0
     },
     {
@@ -140,7 +140,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.398,
+      "latency_ms": 0.397,
       "cost_usd": 0.0
     },
     {
@@ -155,7 +155,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.84,
+      "latency_ms": 0.844,
       "cost_usd": 0.0
     },
     {
@@ -170,7 +170,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 1.615,
+      "latency_ms": 0.623,
       "cost_usd": 0.0
     },
     {
@@ -185,7 +185,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.451,
+      "latency_ms": 0.391,
       "cost_usd": 0.0
     },
     {
@@ -200,7 +200,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.433,
+      "latency_ms": 0.449,
       "cost_usd": 0.0
     },
     {
@@ -215,7 +215,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.894,
+      "latency_ms": 0.848,
       "cost_usd": 0.0
     },
     {
@@ -230,7 +230,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.434,
+      "latency_ms": 0.412,
       "cost_usd": 0.0
     },
     {
@@ -245,7 +245,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.41,
+      "latency_ms": 0.38,
       "cost_usd": 0.0
     },
     {
@@ -260,7 +260,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.443,
+      "latency_ms": 0.469,
       "cost_usd": 0.0
     },
     {
@@ -275,7 +275,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.885,
+      "latency_ms": 0.835,
       "cost_usd": 0.0
     },
     {
@@ -290,7 +290,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.37,
+      "latency_ms": 0.466,
       "cost_usd": 0.0
     },
     {
@@ -305,7 +305,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.484,
+      "latency_ms": 0.432,
       "cost_usd": 0.0
     },
     {
@@ -320,7 +320,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.414,
+      "latency_ms": 0.384,
       "cost_usd": 0.0
     },
     {
@@ -335,7 +335,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.398,
+      "latency_ms": 0.425,
       "cost_usd": 0.0
     },
     {
@@ -350,7 +350,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.929,
+      "latency_ms": 0.948,
       "cost_usd": 0.0
     },
     {
@@ -365,7 +365,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.43,
+      "latency_ms": 0.385,
       "cost_usd": 0.0
     },
     {
@@ -385,7 +385,7 @@
         "G2_BAD_COUNTRY",
         "no_progress"
       ],
-      "latency_ms": 0.864,
+      "latency_ms": 0.836,
       "cost_usd": 0.0
     },
     {
@@ -400,7 +400,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.392,
+      "latency_ms": 0.477,
       "cost_usd": 0.0
     },
     {
@@ -415,7 +415,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.607,
+      "latency_ms": 0.51,
       "cost_usd": 0.0
     },
     {
@@ -430,7 +430,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.846,
+      "latency_ms": 0.917,
       "cost_usd": 0.0
     },
     {
@@ -445,7 +445,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.52,
+      "latency_ms": 0.451,
       "cost_usd": 0.0
     },
     {
@@ -460,7 +460,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.856,
+      "latency_ms": 0.806,
       "cost_usd": 0.0
     },
     {
@@ -479,7 +479,7 @@
         "cargo.0.weight_kg"
       ],
       "failure_codes": [],
-      "latency_ms": 0.422,
+      "latency_ms": 0.428,
       "cost_usd": 0.0
     },
     {
@@ -494,7 +494,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.412,
+      "latency_ms": 0.436,
       "cost_usd": 0.0
     },
     {
@@ -509,7 +509,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.443,
+      "latency_ms": 0.436,
       "cost_usd": 0.0
     },
     {
@@ -524,7 +524,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.401,
+      "latency_ms": 0.526,
       "cost_usd": 0.0
     },
     {
@@ -542,7 +542,7 @@
         "G6_REFUSAL",
         "critical_issue"
       ],
-      "latency_ms": 0.546,
+      "latency_ms": 0.432,
       "cost_usd": 0.0
     }
   ]

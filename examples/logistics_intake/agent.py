@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 
-from agentqa import (
+from qagent import (
     AgentFn,
     AgentReply,
     Case,

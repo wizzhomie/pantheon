@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from agentqa.checks import (
+from qagent.checks import (
     CheckContext,
     DuplicatesCheck,
     PiiCheck,

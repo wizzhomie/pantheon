@@ -1,12 +1,12 @@
 """Wiring: which client, which model, which prices. Project code, not library code.
 
-This module is the seam the CLI is designed around: ``agentqa eval --spec
+This module is the seam the CLI is designed around: ``qagent eval --spec
 examples.logistics_intake.runner:build_guarded`` calls :func:`build_guarded` and knows
 nothing else. Choosing a provider, reading a key and finding a cassette are decisions that
 belong to a project, and putting them here keeps the library free of a second configuration
 system.
 
-Three sources, selected by ``AGENTQA_LLM``:
+Three sources, selected by ``QAGENT_LLM``:
 
 ``stub`` (default)
     The deterministic demo agent — no network, no key, no money.
@@ -22,7 +22,7 @@ import os
 from datetime import date
 from pathlib import Path
 
-from agentqa import (
+from qagent import (
     GuardedAgent,
     JudgePolicy,
     LLMClient,
@@ -69,27 +69,27 @@ PRICING = Pricing(
 
 def build_guarded() -> GuardedAgent[ExtractedIntake]:
     """Build the guarded agent the CLI runs, from the environment and nothing else."""
-    source = os.environ.get("AGENTQA_LLM", "stub").strip().lower()
+    source = os.environ.get("QAGENT_LLM", "stub").strip().lower()
     if source == "stub":
         return build_demo_guarded()
     if source == "replay":
         if not CASSETTE_PATH.exists():
             raise FileNotFoundError(
-                f"no cassette at {CASSETTE_PATH}; record one with AGENTQA_LLM=live first"
+                f"no cassette at {CASSETTE_PATH}; record one with QAGENT_LLM=live first"
             )
         return _llm_guarded(ReplayClient(CASSETTE_PATH, mode="replay"))
     if source == "live":
         # Imported here, not at module level: the demo and the tests must not need httpx.
-        from agentqa.llm import OpenAICompatibleClient
+        from qagent.llm import OpenAICompatibleClient
 
         return _llm_guarded(
             OpenAICompatibleClient(
                 model=DEFAULT_MODEL,
-                base_url=os.environ.get("AGENTQA_BASE_URL", DEFAULT_BASE_URL),
+                base_url=os.environ.get("QAGENT_BASE_URL", DEFAULT_BASE_URL),
                 api_key_env=API_KEY_ENV,
             )
         )
-    raise ValueError(f"AGENTQA_LLM must be stub, replay or live, got {source!r}")
+    raise ValueError(f"QAGENT_LLM must be stub, replay or live, got {source!r}")
 
 
 def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:

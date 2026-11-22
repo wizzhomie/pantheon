@@ -28,7 +28,7 @@ def git_revision() -> str:
 
     Never raises: an evaluation run in a tarball without ``.git`` is still a valid run.
     """
-    from_env = os.environ.get("AGENTQA_GIT_SHA") or os.environ.get("GITHUB_SHA")
+    from_env = os.environ.get("QAGENT_GIT_SHA") or os.environ.get("GITHUB_SHA")
     if from_env:
         return from_env.strip()[:40]
     try:

@@ -7,7 +7,7 @@ code paths, which is also why ``preset.fingerprint()`` can tell two reports apar
 
 from __future__ import annotations
 
-from agentqa import Case, Criterion, Feedback, FieldSpec, Preset, Rubric, ScoringSpec
+from qagent import Case, Criterion, Feedback, FieldSpec, Preset, Rubric, ScoringSpec
 
 from .checks import CHECKS
 from .schema import ExtractedIntake

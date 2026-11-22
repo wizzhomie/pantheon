@@ -1,6 +1,6 @@
 # Logistics intake — one preset, end to end
 
-This is the example `agentqa` exists for, built the way a real project would build it: a
+This is the example `qagent` exists for, built the way a real project would build it: a
 freight forwarder receives a dirty email and needs a structured intake request out of it —
 origin, destination, cargo, dates, amount, contact — without inventing a single value.
 
@@ -44,7 +44,7 @@ make eval      # full loop, judge on
 make diff      # baseline vs guarded -> reports/diff.md
 ```
 
-`AGENTQA_LLM` selects the source: `stub` (default), `replay` (a committed cassette, no key)
+`QAGENT_LLM` selects the source: `stub` (default), `replay` (a committed cassette, no key)
 or `live`. The cassette directory is empty until the live run; `replay` fails loudly with
 the path it expected rather than silently escalating every case.
 
@@ -112,14 +112,14 @@ still format-checked; it just is not a quality signal.
 
 1. Write the output model; make every field the email might not state optional, and add
    `unresolved: list[str]` plus `evidence: list[Evidence]`.
-2. Write the checks: generic ones from `agentqa.checks`, domain rules as `Rule` predicates.
+2. Write the checks: generic ones from `qagent.checks`, domain rules as `Rule` predicates.
 3. Write the rubric (criteria and weights, not prose) and the scoring spec (which fields,
    which comparator, which traps).
 4. Write the agent: `(case, feedback) -> attempt | AgentReply`. Append
    `render_feedback(feedback)` on a retry; report usage if the agent knows it.
 5. Build 30–50 cases, label the hard half, and add traps for the values a model is tempted
    to invent.
-6. Connect it: `guard(agent, preset, llm=...)` and `python -m agentqa eval --spec ...`.
+6. Connect it: `guard(agent, preset, llm=...)` and `python -m qagent eval --spec ...`.
 
 Nothing in this folder was needed to change the core, except fixes for two bugs the example
 exposed (a loose phone pattern that flagged ISO dates, and a numeric comparator that treated

@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from agentqa.contracts import Criterion, Issue, JudgeVerdict, Rubric
+from qagent.contracts import Criterion, Issue, JudgeVerdict, Rubric
 
 PERFECT = {"grounding": 5, "completeness": 5}
 WORST = {"grounding": 1, "completeness": 1}

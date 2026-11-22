@@ -6,7 +6,7 @@ import pytest
 from pydantic import ValidationError
 from support import eval_case
 
-from agentqa import Dataset, EvalCase, Trap
+from qagent import Dataset, EvalCase, Trap
 
 
 def test_jsonl_round_trip_keeps_cases_and_hash() -> None:

@@ -9,7 +9,7 @@ from decimal import Decimal
 import pytest
 from pydantic import BaseModel
 
-from agentqa.checks import CheckContext, DateRule, NumberRange, RangesCheck
+from qagent.checks import CheckContext, DateRule, NumberRange, RangesCheck
 
 
 class Toy(BaseModel):

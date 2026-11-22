@@ -35,13 +35,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_eval(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
-        print(f"agentqa: {exc}", file=sys.stderr)
+        print(f"qagent: {exc}", file=sys.stderr)
         return EXIT_FAILURE
 
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="agentqa",
+        prog="qagent",
         description="Evaluate a dataset against a preset and compare reports.",
     )
     subcommands = parser.add_subparsers(dest="command", required=True)

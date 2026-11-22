@@ -13,8 +13,8 @@ import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentqa import EvalReport
-from agentqa.evals import (
+from qagent import EvalReport
+from qagent.evals import (
     Dataset,
     compare,
     evaluate,

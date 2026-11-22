@@ -7,8 +7,8 @@ from datetime import UTC, datetime
 
 import pytest
 
-from agentqa.checks import CheckContext
-from agentqa.contracts import Case, Criterion, Issue, JsonValue, Rubric
+from qagent.checks import CheckContext
+from qagent.contracts import Case, Criterion, Issue, JsonValue, Rubric
 
 FIXED_NOW = datetime(2026, 11, 22, 12, 0, tzinfo=UTC)
 

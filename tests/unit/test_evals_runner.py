@@ -7,14 +7,14 @@ from datetime import UTC, datetime
 import pytest
 from support import ScriptedAgent, eval_case, toy_preset, toy_scoring, verdict
 
-from agentqa import (
+from qagent import (
     Dataset,
     FunctionJudge,
     JudgePolicy,
     QAConfig,
     guard,
 )
-from agentqa.evals import evaluate
+from qagent.evals import evaluate
 
 AT = datetime(2026, 11, 22, 17, 0, tzinfo=UTC)
 

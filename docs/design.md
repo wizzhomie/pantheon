@@ -1,9 +1,9 @@
-# agentqa — дизайн универсального ядра
+# qagent — дизайн универсального ядра
 
 Статус: черновик на согласование, код ещё не написан.
 Простыми словами: [how-it-works.md](how-it-works.md).
 
-Одна фраза: **`agentqa` — это QA-слой для любого шага LLM-пайплайна, который обязан вернуть
+Одна фраза: **`qagent` — это QA-слой для любого шага LLM-пайплайна, который обязан вернуть
 структурированный результат.** Ты оборачиваешь свой агент, приносишь свой пресет (схема, проверки,
 рубрика, датасет) — получаешь цикл «проверка → критика → фикс-фидбек → ретрай → эскалация»,
 трейс с токенами и стоимостью, и офлайн-регрессию с метриками и отчётом для сравнения версий.
@@ -14,7 +14,7 @@
 
 | Это | Это не |
 |---|---|
-| Библиотека (`pip install agentqa`), встраивается в чужой проект за 20 строк | Агентский фреймворк: не строит графы, не управляет инструментами |
+| Библиотека (`pip install -e .`, пока не на PyPI), встраивается в чужой проект за 20 строк | Агентский фреймворк: не строит графы, не управляет инструментами |
 | Обёртка над **любой** функцией `case → structured output` | Привязка к OpenAI/LangChain/вендору |
 | Конструктор: ядро = механизм, домен = пресет | Готовая библиотека промптов под конкретную задачу |
 | Офлайн-харнесс: датасет, метрики, отчёт, калибровка судьи | SaaS-платформа оценки и дашборд |
@@ -29,7 +29,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph core["agentqa (ядро, домена не знает)"]
+    subgraph core["qagent (ядро, домена не знает)"]
         direction TB
         L[цикл: попытки / бюджет / эскалация]
         C[встроенные проверки<br/>схема, форматы, диапазоны, цитаты, PII]
@@ -68,7 +68,7 @@ flowchart LR
 Фасад и несколько функций, дальше — конфиг. Всё остальное внутреннее.
 
 ```python
-guarded = agentqa.guard(
+guarded = qagent.guard(
     agent=my_agent,              # Callable[[Case, Feedback | None], Awaitable[Attempt]]
     preset=LOGISTICS_PRESET,     # Preset
     llm=openai_compatible(...),  # LLMClient (для судьи); FakeClient в тестах
@@ -76,13 +76,13 @@ guarded = agentqa.guard(
 )
 
 result = await guarded.run(case)                    # RunResult[Intake]
-report = await agentqa.evaluate(guarded, dataset)   # EvalReport (+ meta_eval при метках)
-agentqa.report.write_json(report, "reports/run.json")
-agentqa.report.write_markdown(report, "reports/run.md")
-agentqa.compare(baseline_json, guarded_json)        # ReportDiff
+report = await qagent.evaluate(guarded, dataset)   # EvalReport (+ meta_eval при метках)
+qagent.report.write_json(report, "reports/run.json")
+qagent.report.write_markdown(report, "reports/run.md")
+qagent.compare(baseline_json, guarded_json)        # ReportDiff
 ```
 
-Отдельная калибровка судьи (`agentqa.calibrate(judge, labelled)`) остаётся доступной, но в обычном
+Отдельная калибровка судьи (`qagent.calibrate(judge, labelled)`) остаётся доступной, но в обычном
 прогоне её делать не нужно: если в датасете есть `human_verdict`, `evaluate()` сам кладёт `meta_eval`
 в отчёт.
 
@@ -575,9 +575,9 @@ sha256 канонического JSON, **без** `notes` и `human_verdict`: �
 ### CLI
 
 ```
-python -m agentqa eval --spec examples.intake.runner:build_guarded \
+python -m qagent eval --spec examples.intake.runner:build_guarded \
     --dataset dataset.jsonl --out reports/guarded.json --markdown reports/guarded.md
-python -m agentqa compare reports/baseline.json reports/guarded.json --markdown reports/diff.md
+python -m qagent compare reports/baseline.json reports/guarded.json --markdown reports/diff.md
 ```
 
 `--spec` — `module:factory`, возвращающая готовый `GuardedAgent`. Библиотека не пытается угадать,
@@ -629,16 +629,16 @@ class MetaEval(StrictModel):
   контракта — мажор.
 
 ```
-agentqa/
+qagent/
 ├── pyproject.toml            # hatchling, extras: openai, anthropic, dev
 ├── README.md                 # EN: проблема → идея → быстрый старт → пример → отчёт
 ├── README.ru.md              # русская версия витрины
 ├── LICENSE                   # MIT
 ├── Makefile                  # check / demo / sample / eval / baseline / diff
 ├── .github/workflows/ci.yml  # ruff + mypy + pytest, без секретов
-├── src/agentqa/
+├── src/qagent/
 │   ├── __init__.py           # публичный API: guard, evaluate, compare, score_case, …
-│   ├── __main__.py           # python -m agentqa
+│   ├── __main__.py           # python -m qagent
 │   ├── cli.py                # eval / compare, --spec module:factory
 │   ├── config.py             # QAConfig, RunLimits, RetryPolicy, JudgePolicy, Pricing
 │   ├── parsing.py            # P1_BAD_JSON / P2_SCHEMA / P3_TRUNCATED
@@ -725,8 +725,10 @@ budget / no_progress / shadow / baseline, плюс таблица решений
 
 ## 13. Открытые вопросы
 
-1. **Имя пакета на PyPI.** `agentqa` может быть занято — проверить перед публикацией; имя репозитория
-   от этого не зависит. Единственный по-настоящему открытый пункт.
+1. **Имя пакета на PyPI.** `qagent` занято (`aixiasang/qagent` 0.1.0, не связанный проект) —
+   публикация требует другого имени дистрибутива (`qagent-qa`); импорт `qagent` и имя репозитория от
+   этого не зависят. Пока пакет ставится из репозитория (`pip install -e .`). Единственный
+   по-настоящему открытый пункт.
 
 Решено в фазе 5 (записано, чтобы не пересматривать без причины):
 

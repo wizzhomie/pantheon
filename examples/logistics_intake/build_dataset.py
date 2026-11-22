@@ -18,7 +18,7 @@ from textwrap import dedent
 
 from pydantic import BaseModel
 
-from agentqa import CaseCategory, Dataset, EvalCase, JsonValue, Trap
+from qagent import CaseCategory, Dataset, EvalCase, JsonValue, Trap
 
 from .schema import ExtractedIntake, RequestType
 

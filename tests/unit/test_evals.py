@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from agentqa.contracts import (
+from qagent.contracts import (
     CaseResult,
     CategoryMetrics,
     EvalCase,

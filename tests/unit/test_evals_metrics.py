@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from support import BAD_SCORE, GOOD_SCORE, case_record
 
-from agentqa.evals.metrics import CaseRecord, build_metrics, percentile
-from agentqa.evals.scoring import CaseScore
+from qagent.evals.metrics import CaseRecord, build_metrics, percentile
+from qagent.evals.scoring import CaseScore
 
 
 def four_records() -> list[CaseRecord]:

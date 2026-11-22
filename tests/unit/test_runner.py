@@ -6,8 +6,8 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from agentqa.checks import CheckContext, run_checks
-from agentqa.contracts import Issue
+from qagent.checks import CheckContext, run_checks
+from qagent.contracts import Issue
 
 
 class Toy(BaseModel):

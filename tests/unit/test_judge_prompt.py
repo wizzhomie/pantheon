@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from agentqa.contracts import Case, Criterion, Rubric
-from agentqa.judge import build_messages, render_rubric
-from agentqa.judge.prompt import OUTPUT_LIMIT
+from qagent.contracts import Case, Criterion, Rubric
+from qagent.judge import build_messages, render_rubric
+from qagent.judge.prompt import OUTPUT_LIMIT
 
 
 def rubric() -> Rubric:

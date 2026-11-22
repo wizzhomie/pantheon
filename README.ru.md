@@ -1,6 +1,6 @@
-# agentqa
+# qagent
 
-[![ci](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml)
+[![ci](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml)
 
 **Встроенное QA для LLM-агентов.** Небольшая библиотека, управляемая пресетами: она ставит контроль
 качества *внутрь* шага, который возвращает структурированные данные — детерминированные проверки →
@@ -32,14 +32,14 @@
 отформатированная выдумка.** Офлайн-оценка скажет, что случилось вчера; сегодняшний плохой ответ она
 не остановит.
 
-`agentqa` закрывает обе половины одним набором правил: проверки, которые стоят на пути живого
+`qagent` закрывает обе половины одним набором правил: проверки, которые стоят на пути живого
 прогона, — это те же проверки, которые оценивают регрессионный прогон.
 
 ## Что это / что это не
 
 | Это | Это не |
 |---|---|
-| Библиотека (`pip install agentqa`), вставляется в существующий пайплайн | Агентский фреймворк — без графов и маршрутизации инструментов |
+| Библиотека (`pip install -e .`, пока не на PyPI), вставляется в существующий пайплайн | Агентский фреймворк — без графов и маршрутизации инструментов |
 | Обёртка над **любой** функцией `вход → структурированный выход` | Привязка к одному SDK или провайдеру |
 | Конструктор на пресетах: ядро — механизм, домен — ваш пресет | Библиотека промптов под одну задачу |
 | Офлайн-стенд: датасет, метрики, сравнение версий, калибровка судьи | SaaS-платформа оценки с дашбордом |
@@ -149,12 +149,12 @@ Stub-прогон повторяет золотые ответы с одним �
 ли гейт» — поэтому неверный ответ, который цикл принял, получает отдельную метрику:
 
 ```
-$ python -m agentqa eval --spec examples.logistics_intake.runner:build_guarded \
+$ python -m qagent eval --spec examples.logistics_intake.runner:build_guarded \
       --dataset examples/logistics_intake/dataset.jsonl \
       --out reports/guarded.json --markdown reports/guarded.md
 20261122T151956-guarded-521ed3d: 32 cases, pass 93.8% -> reports/guarded.json
 
-$ python -m agentqa compare reports/baseline.json reports/guarded.json \
+$ python -m qagent compare reports/baseline.json reports/guarded.json \
       --markdown reports/diff.md
 ```
 
@@ -165,14 +165,14 @@ $ python -m agentqa compare reports/baseline.json reports/guarded.json \
 на кейс и на *правильный* кейс — плюс калибровка судьи (согласие, κ Коэна, ложные пропуски) по
 размеченным вручную кейсам.
 
-> Это прогон демо-пресета, и `AGENTQA_LLM=stub` — режим по умолчанию: 93.8% — работа цикла на золотых
-> ответах, а не модель. Живые числа дают `AGENTQA_LLM=live` (с `DEEPSEEK_API_KEY`) или
-> `AGENTQA_LLM=replay` (закоммиченная кассета); фаза 8 их запишет.
+> Это прогон демо-пресета, и `QAGENT_LLM=stub` — режим по умолчанию: 93.8% — работа цикла на золотых
+> ответах, а не модель. Живые числа дают `QAGENT_LLM=live` (с `DEEPSEEK_API_KEY`) или
+> `QAGENT_LLM=replay` (закоммиченная кассета); фаза 8 их запишет.
 
 ## Отношение к существующим инструментам
 
 Они в основном отвечают на вопрос «насколько хороша модель»: Guardrails валидирует выход, DeepEval и
-promptfoo запускают офлайн-оценки, LangSmith/Langfuse трассируют. `agentqa` отвечает на вопрос «что
+promptfoo запускают офлайн-оценки, LangSmith/Langfuse трассируют. `qagent` отвечает на вопрос «что
 делать с этим конкретным плохим ответом и сколько это стоило» — и переиспользует один пресет и для
 живого цикла, и для регрессионного прогона.
 

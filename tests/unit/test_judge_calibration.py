@@ -5,8 +5,8 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel
 
-from agentqa.contracts import Case, JudgeVerdict, Rubric
-from agentqa.judge import CalibrationSample, FunctionJudge, calibrate, score_calibration
+from qagent.contracts import Case, JudgeVerdict, Rubric
+from qagent.judge import CalibrationSample, FunctionJudge, calibrate, score_calibration
 
 
 def sample(case_id: str, judge: bool, human: bool) -> CalibrationSample:

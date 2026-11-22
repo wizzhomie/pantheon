@@ -18,7 +18,7 @@ from support import (
     verdict,
 )
 
-from agentqa import (
+from qagent import (
     AgentReply,
     Case,
     EscalationPolicy,
@@ -30,7 +30,7 @@ from agentqa import (
     RunLimits,
     guard,
 )
-from agentqa.contracts import JudgeVerdict
+from qagent.contracts import JudgeVerdict
 
 NO_JUDGE = QAConfig(judge=JudgePolicy(enabled=False))
 JUDGE_ON = QAConfig()

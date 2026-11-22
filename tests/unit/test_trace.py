@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from agentqa.contracts import RunResult, Totals, TraceEvent, Usage
+from qagent.contracts import RunResult, Totals, TraceEvent, Usage
 
 
 class Output(BaseModel):

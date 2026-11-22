@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from agentqa import EvalReport, Metrics
-from agentqa.contracts.evals import CaseResult
-from agentqa.evals.compare import compare, load_report, render_markdown, write_markdown
+from qagent import EvalReport, Metrics
+from qagent.contracts.evals import CaseResult
+from qagent.evals.compare import compare, load_report, render_markdown, write_markdown
 
 AT = datetime(2026, 11, 22, 17, 0, tzinfo=UTC)
 

@@ -8,7 +8,7 @@ from datetime import date
 import pytest
 from pydantic import BaseModel
 
-from agentqa.checks import CheckContext, FormatRule, FormatsCheck
+from qagent.checks import CheckContext, FormatRule, FormatsCheck
 
 
 class Toy(BaseModel):

@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel
 
-from agentqa.checks import CheckContext, ConsistencyCheck, Rule
+from qagent.checks import CheckContext, ConsistencyCheck, Rule
 
 
 class Toy(BaseModel):

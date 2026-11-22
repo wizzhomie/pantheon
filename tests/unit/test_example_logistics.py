@@ -12,12 +12,12 @@ from pathlib import Path
 
 import pytest
 
-from agentqa import Case, Dataset, EvalReport, Feedback, Issue, evaluate
-from agentqa.checks.paths import MISSING, get_path
 from examples.logistics_intake.build_dataset import DATASET_PATH, build
 from examples.logistics_intake.demo import DEMO_MODEL, DEMO_PRESET, build_demo_guarded
 from examples.logistics_intake.preset import PRESET, SCORING, build_retry
 from examples.logistics_intake.runner import build_guarded
+from qagent import Case, Dataset, EvalReport, Feedback, Issue, evaluate
+from qagent.checks.paths import MISSING, get_path
 
 REPORTS = Path(__file__).resolve().parents[2] / "reports"
 
@@ -71,7 +71,7 @@ def test_retry_hook_adds_domain_advice_and_respects_the_cap() -> None:
 
 
 def test_the_cli_factory_builds_the_demo_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("AGENTQA_LLM", raising=False)
+    monkeypatch.delenv("QAGENT_LLM", raising=False)
 
     guarded = build_guarded()
 

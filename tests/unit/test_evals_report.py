@@ -15,7 +15,7 @@ from support import (
     toy_scoring,
 )
 
-from agentqa import (
+from qagent import (
     Dataset,
     EvalReport,
     JudgePolicy,
@@ -23,8 +23,8 @@ from agentqa import (
     QAConfig,
     guard,
 )
-from agentqa.contracts.evals import Metrics
-from agentqa.evals.report import (
+from qagent.contracts.evals import Metrics
+from qagent.evals.report import (
     build_report,
     git_revision,
     make_run_id,
@@ -155,7 +155,7 @@ def test_run_id_is_sortable_and_short(rubric: object) -> None:
 
 
 def test_git_revision_reads_the_environment(monkeypatch: object) -> None:
-    monkeypatch.setenv("AGENTQA_GIT_SHA", "abc1234")  # type: ignore[attr-defined]
+    monkeypatch.setenv("QAGENT_GIT_SHA", "abc1234")  # type: ignore[attr-defined]
 
     assert git_revision() == "abc1234"
 

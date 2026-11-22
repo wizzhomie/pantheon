@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from agentqa import (
+from qagent import (
     Case,
     CheckContext,
     Criterion,
@@ -27,8 +27,8 @@ from agentqa import (
     Totals,
     Usage,
 )
-from agentqa.evals.metrics import CaseRecord
-from agentqa.evals.scoring import CaseScore
+from qagent.evals.metrics import CaseRecord
+from qagent.evals.scoring import CaseScore
 
 ReplyItem = Any
 
@@ -239,7 +239,7 @@ def case_record(
 
 def _gate_for(status: str) -> Any:
     if status == "escalated":
-        from agentqa import CheckResult, GateResult
+        from qagent import CheckResult, GateResult
 
         issue = qty_issue()
         return GateResult(

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import pytest
 
-from agentqa.llm import (
+from qagent.llm import (
     CassetteMiss,
     FakeClient,
     LLMRequest,

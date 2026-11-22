@@ -6,8 +6,8 @@ import pytest
 from pydantic import BaseModel
 from support import ToyOutput, eval_case
 
-from agentqa import FieldSpec, ScoringSpec, Trap
-from agentqa.evals.scoring import score_case
+from qagent import FieldSpec, ScoringSpec, Trap
+from qagent.evals.scoring import score_case
 
 
 def spec(**overrides: object) -> ScoringSpec:

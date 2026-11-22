@@ -1,4 +1,4 @@
-"""``python -m agentqa`` — run an evaluation or compare two reports."""
+"""``python -m qagent`` — run an evaluation or compare two reports."""
 
 from __future__ import annotations
 

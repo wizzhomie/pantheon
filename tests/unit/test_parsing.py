@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from agentqa.parsing import ParseOutcome, parse_attempt
+from qagent.parsing import ParseOutcome, parse_attempt
 
 
 class Toy(BaseModel):

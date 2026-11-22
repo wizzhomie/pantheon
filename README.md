@@ -1,6 +1,6 @@
-# agentqa
+# qagent
 
-[![ci](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/agentqa/actions/workflows/ci.yml)
+[![ci](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml)
 
 **Embedded QA for LLM agents.** A small, preset-driven library that puts quality control *inside*
 the step that returns structured data: deterministic checks → LLM judge → bounded correction loop →
@@ -32,14 +32,14 @@ A schema validates the first row only. **The expensive failure is a schema-valid
 formatted invention.** Offline evals tell you what happened yesterday; they don't stop today's bad
 answer.
 
-`agentqa` covers both halves with one set of rules: the checks that gate a live run are the checks
+`qagent` covers both halves with one set of rules: the checks that gate a live run are the checks
 that score a regression run.
 
 ## What it is / isn't
 
 | It is | It isn't |
 |---|---|
-| A library (`pip install agentqa`), dropped into an existing pipeline | An agent framework — no graphs, no tool routing |
+| A library (`pip install -e .` for now, not on PyPI), dropped into an existing pipeline | An agent framework — no graphs, no tool routing |
 | A wrapper around **any** `case → structured output` function | A vendor lock-in to one SDK or provider |
 | A preset-driven kit: core = mechanism, domain = your preset | A prompt library for one specific task |
 | An offline harness: dataset, metrics, version diff, judge calibration | A SaaS eval platform with a dashboard |
@@ -150,12 +150,12 @@ The same preset scores a dataset. Pass rates are **ground truth** against the go
 "the gate let it through" — so a wrong answer approved by the loop is its own metric:
 
 ```
-$ python -m agentqa eval --spec examples.logistics_intake.runner:build_guarded \
+$ python -m qagent eval --spec examples.logistics_intake.runner:build_guarded \
       --dataset examples/logistics_intake/dataset.jsonl \
       --out reports/guarded.json --markdown reports/guarded.md
 20261122T151956-guarded-521ed3d: 32 cases, pass 93.8% -> reports/guarded.json
 
-$ python -m agentqa compare reports/baseline.json reports/guarded.json \
+$ python -m qagent compare reports/baseline.json reports/guarded.json \
       --markdown reports/diff.md
 ```
 
@@ -166,14 +166,14 @@ recovery, escalation rate, hallucination rate, field accuracy, p50/p95 latency, 
 and per *passed* case — plus judge calibration (agreement, Cohen's κ, false passes) against
 hand-labelled cases.
 
-> That run is the demo preset, and `AGENTQA_LLM=stub` is the default: the 93.8% is the loop acting on
-> golden answers, not a model. `AGENTQA_LLM=live` (with `DEEPSEEK_API_KEY`) or `AGENTQA_LLM=replay`
+> That run is the demo preset, and `QAGENT_LLM=stub` is the default: the 93.8% is the loop acting on
+> golden answers, not a model. `QAGENT_LLM=live` (with `DEEPSEEK_API_KEY`) or `QAGENT_LLM=replay`
 > (a committed cassette) produces the real numbers; phase 8 records them.
 
 ## Relationship to existing tools
 
 They mostly answer *"how good is the model"*: Guardrails validates output, DeepEval and promptfoo
-run offline evaluations, LangSmith/Langfuse trace. `agentqa` answers *"what do we do with this
+run offline evaluations, LangSmith/Langfuse trace. `qagent` answers *"what do we do with this
 particular bad answer, and what did that cost"* — and reuses one preset for both the live loop and
 the regression run.
 

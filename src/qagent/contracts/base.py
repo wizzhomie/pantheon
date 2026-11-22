@@ -1,4 +1,4 @@
-"""Shared building blocks for every agentqa contract."""
+"""Shared building blocks for every qagent contract."""
 
 from __future__ import annotations
 

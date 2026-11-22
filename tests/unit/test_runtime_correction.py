@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from agentqa import Feedback, Issue, JudgeVerdict, Rubric
-from agentqa.runtime.correction import (
+from qagent import Feedback, Issue, JudgeVerdict, Rubric
+from qagent.runtime.correction import (
     DEFAULT_IMPERATIVES,
     MAX_FEEDBACK_ISSUES,
     MAX_PREVIOUS_OUTPUT_CHARS,

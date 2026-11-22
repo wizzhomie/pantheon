@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from agentqa.config import ModelPrice, Pricing
-from agentqa.contracts import Case, Issue, Rubric
-from agentqa.judge import JudgeReport, LLMJudge, normalise_code
-from agentqa.llm import FakeClient, JudgeError, LLMResponse
+from qagent.config import ModelPrice, Pricing
+from qagent.contracts import Case, Issue, Rubric
+from qagent.judge import JudgeReport, LLMJudge, normalise_code
+from qagent.llm import FakeClient, JudgeError, LLMResponse
 
 
 class Output(BaseModel):

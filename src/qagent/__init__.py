@@ -1,4 +1,4 @@
-"""agentqa — embedded QA for LLM agents.
+"""qagent — embedded QA for LLM agents.
 
 A preset-driven quality layer for any step that must return structured data:
 deterministic checks, an independent LLM judge with a data-driven rubric, a bounded

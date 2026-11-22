@@ -5,7 +5,7 @@ deliberately unvalidatable: a Pydantic *class* and callables (a retry hook, an i
 validator). Validating the outer shell while accepting those as opaque would be
 half a contract; here the constructor validates what it can and says so.
 
-The core never imports a preset by name: it receives one through :func:`agentqa.guard`.
+The core never imports a preset by name: it receives one through :func:`qagent.guard`.
 """
 
 from __future__ import annotations
@@ -27,7 +27,7 @@ from ..contracts.rubric import Rubric
 from ..judge.base import Judge
 
 TOut = TypeVar("TOut", bound=BaseModel)
-"""The preset's output type; it flows through :class:`agentqa.RunResult`."""
+"""The preset's output type; it flows through :class:`qagent.RunResult`."""
 
 RetryBuilder: TypeAlias = Callable[[Case, Feedback], Feedback]
 """Domain hook: adjust the feedback before the next attempt (filter issues, add rules)."""

@@ -6,7 +6,7 @@ import pytest
 from pydantic import BaseModel
 from support import QtyCheck, ToyOutput
 
-from agentqa import Criterion, Preset, Rubric
+from qagent import Criterion, Preset, Rubric
 
 
 class OtherOutput(BaseModel):

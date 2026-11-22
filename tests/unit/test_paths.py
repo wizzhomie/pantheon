@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from agentqa.checks.paths import MISSING, get_path, is_present, iter_leaves
+from qagent.checks.paths import MISSING, get_path, is_present, iter_leaves
 
 
 class Inner(BaseModel):
