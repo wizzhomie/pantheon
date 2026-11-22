@@ -60,6 +60,15 @@ from .contracts import (
     Trap,
     Usage,
 )
+from .llm import (
+    FakeClient,
+    LLMClient,
+    LLMRequest,
+    LLMResponse,
+    Message,
+    ReplayClient,
+    usage_of,
+)
 from .parsing import ParseOutcome, parse_attempt
 
 __version__ = "0.1.0"
@@ -82,6 +91,7 @@ __all__ = [
     "EscalationReason",
     "EvalCase",
     "EvalReport",
+    "FakeClient",
     "Feedback",
     "FieldSpec",
     "GateResult",
@@ -90,6 +100,10 @@ __all__ = [
     "JsonValue",
     "JudgePolicy",
     "JudgeVerdict",
+    "LLMClient",
+    "LLMRequest",
+    "LLMResponse",
+    "Message",
     "MetaEval",
     "MetricDelta",
     "Metrics",
@@ -98,6 +112,7 @@ __all__ = [
     "ParseOutcome",
     "Pricing",
     "QAConfig",
+    "ReplayClient",
     "ReportDiff",
     "RetryPolicy",
     "Rubric",
@@ -115,4 +130,5 @@ __all__ = [
     "__version__",
     "parse_attempt",
     "run_checks",
+    "usage_of",
 ]

@@ -119,8 +119,8 @@ the regression run.
 | 0 | design docs | ✅ |
 | 1 | skeleton, contracts, config, CI | ✅ |
 | 2 | built-in checks + tests | ✅ |
-| 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | next |
-| 4 | judge, rubric scoring, calibration | — |
+| 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | ✅ |
+| 4 | judge, rubric scoring, calibration | next |
 | 5 | runtime loop: attempts, budget, modes, escalation, trace | — |
 | 6 | offline evals: dataset, metrics, report, diff | — |
 | 7 | toy preset + `examples/logistics_intake` + docs | — |

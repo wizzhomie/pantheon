@@ -24,7 +24,7 @@ dependencies = ["pydantic>=2.7"]
 [project.optional-dependencies]
 openai = ["httpx>=0.27"]
 anthropic = ["httpx>=0.27"]
-dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10"]
+dev = ["pytest>=8", "pytest-asyncio>=0.23", "ruff>=0.5", "mypy>=1.10", "httpx>=0.27"]
 
 [project.urls]
 Homepage = "https://github.com/wizzhomie/agentqa"
@@ -42,6 +42,8 @@ minversion = "8.0"
 testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.ruff]
 line-length = 100
