@@ -124,6 +124,8 @@ one_shot = await guarded.with_mode("baseline").run(Case(case_id="mail-42", paylo
 qagent init --dir ./qa             # заготовка конфига и датасет из одного кейса
 qagent check --config qagent.toml  # проверить файл и датасет, ничего не запуская
 qagent eval --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
+qagent record --config qagent.toml      # live model, answers written to the cassette
+qagent replay --config qagent.toml      # same numbers from the cassette, free
 ```
 
 [`examples/logistics_intake/qagent.toml`](examples/logistics_intake/qagent.toml) описывает тот же

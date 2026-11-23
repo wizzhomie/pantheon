@@ -8,6 +8,11 @@ Two ways in, on purpose:
 ``--spec module:factory``
     The original path: a project that wants to build the whole ``GuardedAgent`` itself.
 
+``record`` and ``replay`` are thin wrappers around ``eval``: they set the environment a
+project's factories read (``QAGENT_RECORD=1`` with a live model, or ``QAGENT_LLM=replay``)
+and then evaluate. A project whose factories ignore those variables still works — it just
+ignores the request, which is why the variables are documented in the example runners.
+
 ``--mode`` overrides the configured mode, which is how a baseline and a guarded report are
 produced from one setup.
 """
@@ -17,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import os
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -111,7 +117,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
     try:
-        if args.command == "eval":
+        if args.command in ("eval", "record", "replay"):
             return _run_eval(args)
         if args.command == "check":
             return _run_check(args)
@@ -149,6 +155,18 @@ def _build_parser() -> argparse.ArgumentParser:
     run.add_argument("--mode", choices=["guarded", "baseline", "shadow"])
     run.add_argument("--concurrency", type=int, default=4)
 
+    for name, summary in (
+        ("record", "evaluate against a live model and write the answers to the cassette"),
+        ("replay", "evaluate from the committed cassette: no key, no network, no bill"),
+    ):
+        wrapper = subcommands.add_parser(name, help=summary)
+        wrapper.add_argument("--config", type=Path, required=True, metavar="PATH")
+        wrapper.add_argument("--dataset", type=Path)
+        wrapper.add_argument("--out", type=Path, help="JSON report; defaults to the config")
+        wrapper.add_argument("--markdown", type=Path)
+        wrapper.add_argument("--mode", choices=["guarded", "baseline", "shadow"])
+        wrapper.add_argument("--concurrency", type=int, default=4)
+
     check = subcommands.add_parser("check", help="validate a config and its dataset, run nothing")
     check.add_argument("--config", required=True, type=Path, metavar="PATH")
 
@@ -163,6 +181,11 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_eval(args: argparse.Namespace) -> int:
+    if args.command == "record":
+        os.environ["QAGENT_LLM"] = "live"
+        os.environ["QAGENT_RECORD"] = "1"
+    elif args.command == "replay":
+        os.environ["QAGENT_LLM"] = "replay"
     guarded, dataset_path, out, markdown = _resolve_eval(args)
     if args.mode:
         guarded = guarded.with_mode(args.mode)

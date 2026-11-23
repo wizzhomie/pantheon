@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -135,3 +136,12 @@ def test_the_demo_walks_the_loop_paths() -> None:
 def test_the_config_file_describes_this_example(capsys) -> None:  # type: ignore[no-untyped-def]
     assert main(["check", "--config", str(CONFIG)]) == 0
     assert "code_review" in capsys.readouterr().out
+
+
+def test_the_replay_command_reproduces_the_live_numbers(tmp_path: Path) -> None:
+    out = tmp_path / "replay.json"
+    assert main(["replay", "--config", str(CONFIG), "--out", str(out)]) == 0
+    metrics = json.loads(out.read_text(encoding="utf-8"))["metrics"]
+    assert metrics["pass_rate_final"] == 0.8333
+    assert metrics["false_pass_rate"] == 0.0
+    assert metrics["escalation_rate"] == 0.2222

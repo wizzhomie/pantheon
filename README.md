@@ -123,6 +123,8 @@ rather than from a copy of this library's wiring:
 qagent init --dir ./qa             # starter config plus a one-case dataset
 qagent check --config qagent.toml  # validate the file and the dataset, run nothing
 qagent eval --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
+qagent record --config qagent.toml      # live model, answers written to the cassette
+qagent replay --config qagent.toml      # same numbers from the cassette, free
 ```
 
 [`examples/logistics_intake/qagent.toml`](examples/logistics_intake/qagent.toml) describes the same
