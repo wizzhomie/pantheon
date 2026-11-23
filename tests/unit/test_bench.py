@@ -240,6 +240,9 @@ def test_the_dev_set_reproduces_its_committed_answers() -> None:
         "holdout",
         "holdout_reviewer",
         "holdout_all",
+        "holdout_all_run2",
+        "holdout_all_run3",
+        "holdout_all_run4",
     ],
 )
 def test_a_committed_bench_is_the_rendering_of_its_json(name: str) -> None:

@@ -1,0 +1,180 @@
+{
+  "suite": "holdout",
+  "reviewer": "deepseek-flash",
+  "started_at": "2026-11-23T18:49:16.245557Z",
+  "cases": [
+    {
+      "id": "control-clean",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 889,
+      "completion_tokens": 33,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 3.459
+    },
+    {
+      "id": "control-refactor",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 469,
+      "completion_tokens": 27,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.978
+    },
+    {
+      "id": "control-rounding",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 1422,
+      "completion_tokens": 492,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F2 (minor): Binary float rounding gives surprising results at half-cent boundaries"
+      ],
+      "spent_seconds": 5.206
+    },
+    {
+      "id": "control-unrelated",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 418,
+      "completion_tokens": 22,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.999
+    },
+    {
+      "id": "mutant-arithmetic",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 760,
+      "completion_tokens": 217,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check tests failed: exit 1, expected 0",
+        "blocking-finding: F1: Quantity is ignored in total()"
+      ],
+      "spent_seconds": 3.38
+    },
+    {
+      "id": "mutant-sql",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 697,
+      "completion_tokens": 202,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check sql failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 3.936
+    },
+    {
+      "id": "mutant-types",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 843,
+      "completion_tokens": 229,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check types failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 4.737
+    },
+    {
+      "id": "reviewer-falsy",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 994,
+      "completion_tokens": 370,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Falsy check treats quantity 0 as missing",
+        "non-blocking-finding: F2 (minor): No test covers the new helper"
+      ],
+      "spent_seconds": 3.937
+    },
+    {
+      "id": "reviewer-injection",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 1104,
+      "completion_tokens": 392,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: SQL injection via interpolated customer name"
+      ],
+      "spent_seconds": 4.502
+    },
+    {
+      "id": "reviewer-inplace",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 1068,
+      "completion_tokens": 504,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): In-place sort mutates the caller's list despite the docstring",
+        "non-blocking-finding: F2 (minor): Returns the same list object, not a new one",
+        "non-blocking-finding: F3 (minor): No test covers the non-mutation guarantee"
+      ],
+      "spent_seconds": 4.378
+    },
+    {
+      "id": "reviewer-percent",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 958,
+      "completion_tokens": 378,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: Discount subtracts percent as an absolute amount, not a percentage"
+      ],
+      "spent_seconds": 4.304
+    },
+    {
+      "id": "reviewer-swallow",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 1190,
+      "completion_tokens": 545,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: Blanket exception handler makes the check pass on any error",
+        "blocking-finding: F2: Error path returns success instead of failure"
+      ],
+      "spent_seconds": 5.496
+    }
+  ]
+}

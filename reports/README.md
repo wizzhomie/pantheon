@@ -185,6 +185,28 @@ after it — same diff, same expected answer, different pipeline. `control-round
 `PASS WITH CONDITIONS` on two minor findings: the verdict ships, so it is not a false alarm, but it
 is not the answer the case committed to either, and the `Result:` line names it.
 
+### Is that number stable?
+
+The same command ran four times on 2026-11-23, and all four reports are in the repository:
+[`holdout_all/`](holdout_all/bench.md) and the repeats
+[`holdout_all_run2/`](holdout_all_run2/bench.md), [`holdout_all_run3/`](holdout_all_run3/bench.md),
+[`holdout_all_run4/`](holdout_all_run4/bench.md). Every run gave the same verdict on all twelve
+cases — forty-eight of forty-eight case verdicts identical — and the same `Result:` line, with
+`control-rounding` off the answer. What moved was the price, not the answer:
+
+| Run | Off the answer | Tokens in / out | Time |
+|---|---|---|---|
+| `holdout_all` | `control-rounding` | 11 045 / 3 759 | 54.1 s |
+| `holdout_all_run2` | `control-rounding` | 10 796 / 3 403 | 46.6 s |
+| `holdout_all_run3` | `control-rounding` | 10 812 / 3 411 | 47.3 s |
+| `holdout_all_run4` | `control-rounding` | 10 899 / 3 503 | 48.3 s |
+
+Tokens vary by about three percent and time by about seven seconds, so a token figure here is an
+estimate while a verdict is a result. The limits of the claim are worth writing down as well: four
+runs within one afternoon measure variance, not drift — nothing here says what the same suite does
+next week, on another model, or with a fifth clean control. Twelve cases can only prove so much, and
+the point of repeating the run was to find out whether the number is reproducible at all.
+
 ### The dev set
 
 Three live reports from the suite tuning is allowed on. They are the receipts of the two prompt
