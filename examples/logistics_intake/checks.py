@@ -117,39 +117,7 @@ def cargo_is_plausible(output: BaseModel) -> bool:
     return True
 
 
-CHECKS: list[Check] = [
-    RequiredCheck(
-        rules=[
-            RequiredRule("request_type"),
-            RequiredRule("contact.name"),
-            RequiredRule("origin.city"),
-            RequiredRule("origin.country_code"),
-            RequiredRule("destination.city"),
-            RequiredRule("destination.country_code"),
-            RequiredRule("cargo"),
-            RequiredRule(
-                "pickup_date",
-                when=_is_booking,
-                hint="bookings need a loading date; a quote can stay unresolved",
-            ),
-        ],
-        unresolved_path="unresolved",
-    ),
-    FormatsCheck(
-        rules=[
-            FormatRule("origin.country_code", "country_code"),
-            FormatRule("destination.country_code", "country_code"),
-            FormatRule("contact.email", "email"),
-            FormatRule("contact.phone", "phone"),
-            FormatRule("pickup_date", "iso_date"),
-            FormatRule("delivery_date", "iso_date"),
-            FormatRule("quote_currency", "currency"),
-        ]
-    ),
-    RangesCheck(
-        numbers=[NumberRange("quote_amount", minimum=0.0, maximum=500_000.0, unit="EUR-equivalent")]
-    ),
-    ConsistencyCheck(
+CONSISTENCY = ConsistencyCheck(
         rules=[
             Rule(
                 code="L1_PICKUP_AFTER_DELIVERY",
@@ -187,7 +155,42 @@ CHECKS: list[Check] = [
                 field_path="cargo",
             ),
         ]
+)
+
+
+CHECKS: list[Check] = [
+    RequiredCheck(
+        rules=[
+            RequiredRule("request_type"),
+            RequiredRule("contact.name"),
+            RequiredRule("origin.city"),
+            RequiredRule("origin.country_code"),
+            RequiredRule("destination.city"),
+            RequiredRule("destination.country_code"),
+            RequiredRule("cargo"),
+            RequiredRule(
+                "pickup_date",
+                when=_is_booking,
+                hint="bookings need a loading date; a quote can stay unresolved",
+            ),
+        ],
+        unresolved_path="unresolved",
     ),
+    FormatsCheck(
+        rules=[
+            FormatRule("origin.country_code", "country_code"),
+            FormatRule("destination.country_code", "country_code"),
+            FormatRule("contact.email", "email"),
+            FormatRule("contact.phone", "phone"),
+            FormatRule("pickup_date", "iso_date"),
+            FormatRule("delivery_date", "iso_date"),
+            FormatRule("quote_currency", "currency"),
+        ]
+    ),
+    RangesCheck(
+        numbers=[NumberRange("quote_amount", minimum=0.0, maximum=500_000.0, unit="EUR-equivalent")]
+    ),
+    CONSISTENCY,
     DuplicatesCheck(path="cargo", keys=("description", "weight_kg")),
     EvidenceCheck(
         quotes=quotes_from_attribute("evidence"),
@@ -198,3 +201,12 @@ CHECKS: list[Check] = [
     PiiCheck(allow_paths=("contact.email", "contact.phone", "evidence")),
     RefusalCheck(paths=("notes",)),
 ]
+
+
+def extra_checks() -> list[Check]:
+    """The checks a config file cannot express: they carry Python predicates.
+
+    A ``qagent.toml`` names this function in ``[checks] extra``, so the same rules apply
+    whether the preset is built from code or from the file.
+    """
+    return [CONSISTENCY]

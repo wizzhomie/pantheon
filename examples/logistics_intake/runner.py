@@ -1,15 +1,20 @@
 """Wiring: which client, which model, which prices. Project code, not library code.
 
-This module is the seam the CLI is designed around: ``qagent eval --spec
-examples.logistics_intake.runner:build_guarded`` calls :func:`build_guarded` and knows
-nothing else. Choosing a provider, reading a key and finding a cassette are decisions that
-belong to a project, and putting them here keeps the library free of a second configuration
-system.
+Two entry points, one wiring:
+
+``build_guarded``
+    The whole setup in one call, for ``qagent eval --spec
+    examples.logistics_intake.runner:build_guarded``.
+``build_agent`` / ``build_judge_client``
+    The same agent and the same client as separate factories, for a ``qagent.toml`` that
+    names them. The config file carries the rules; these two functions carry the choices a
+    file cannot make (which provider, which key, which cassette).
 
 Three sources, selected by ``QAGENT_LLM``:
 
 ``stub`` (default)
-    The deterministic demo agent — no network, no key, no money.
+    The deterministic demo agent — no network, no key, no money. Only ``build_guarded``
+    supports it: the demo is not a preset, so a config file cannot name it.
 ``replay``
     A committed cassette of real answers, replayed for free and without a key.
 ``live``
@@ -25,6 +30,7 @@ from datetime import date
 from pathlib import Path
 
 from qagent import (
+    AgentFn,
     GuardedAgent,
     JudgePolicy,
     LLMClient,
@@ -70,17 +76,15 @@ PRICING = Pricing(
 )
 
 
-def build_guarded() -> GuardedAgent[ExtractedIntake]:
-    """Build the guarded agent the CLI runs, from the environment and nothing else."""
+def build_client() -> LLMClient:
+    """The model client for this project: replay of the committed cassette, or live."""
     source = os.environ.get("QAGENT_LLM", "stub").strip().lower()
-    if source == "stub":
-        return build_demo_guarded()
     if source == "replay":
         if not CASSETTE_PATH.exists():
             raise FileNotFoundError(
                 f"no cassette at {CASSETTE_PATH}; record one with QAGENT_LLM=live first"
             )
-        return _llm_guarded(ReplayClient(CASSETTE_PATH, mode="replay"))
+        return ReplayClient(CASSETTE_PATH, mode="replay")
     if source == "live":
         # Imported here, not at module level: the demo and the tests must not need httpx.
         from qagent.llm import OpenAICompatibleClient
@@ -100,21 +104,33 @@ def build_guarded() -> GuardedAgent[ExtractedIntake]:
             # full reasoning behaviour, at roughly ten times the bill.
             extra_body={"reasoning_effort": "none"},
         )
-        return _llm_guarded(_recording(client) if _record_requested() else client)
-    raise ValueError(f"QAGENT_LLM must be stub, replay or live, got {source!r}")
+        return _recording(client) if _record_requested() else client
+    raise ValueError(
+        f"QAGENT_LLM={source!r} has no model to build: the stub runs the demo agent, "
+        "not a preset; use QAGENT_LLM=replay or QAGENT_LLM=live"
+    )
 
 
-def _record_requested() -> bool:
-    """True when the run should also write answers into the cassette."""
-    return os.environ.get("QAGENT_RECORD", "").strip().lower() in {"1", "true", "yes"}
+def build_agent() -> AgentFn:
+    """The agent function a config file points at: ``agent = "...:build_agent"``."""
+    return make_llm_agent(
+        llm=build_client(),
+        model=DEFAULT_MODEL,
+        prompt=AGENT_PROMPT,
+        pricing=PRICING,
+    )
 
 
-def _recording(client: LLMClient) -> ReplayClient:
-    """Wrap a live client so every answer lands in the committed cassette as well."""
-    return ReplayClient(CASSETTE_PATH, inner=client, mode="record")
+def build_judge_client() -> LLMClient:
+    """The judge's client, so a config file configures the judge like the agent."""
+    return build_client()
 
 
-def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:
+def build_guarded() -> GuardedAgent[ExtractedIntake]:
+    """Build the guarded agent the CLI runs, from the environment and nothing else."""
+    if os.environ.get("QAGENT_LLM", "stub").strip().lower() == "stub":
+        return build_demo_guarded()
+    client = build_client()
     agent = make_llm_agent(
         llm=client,
         model=DEFAULT_MODEL,
@@ -131,3 +147,13 @@ def _llm_guarded(client: LLMClient) -> GuardedAgent[ExtractedIntake]:
         limits=RunLimits(max_latency_ms=240_000, max_cost_usd=0.20),
     )
     return guard(agent, PRESET, llm=client, config=config, pricing=PRICING)
+
+
+def _record_requested() -> bool:
+    """True when the run should also write answers into the cassette."""
+    return os.environ.get("QAGENT_RECORD", "").strip().lower() in {"1", "true", "yes"}
+
+
+def _recording(client: LLMClient) -> ReplayClient:
+    """Wrap a live client so every answer lands in the committed cassette as well."""
+    return ReplayClient(CASSETTE_PATH, inner=client, mode="record")

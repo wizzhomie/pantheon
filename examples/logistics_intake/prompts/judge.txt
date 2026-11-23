@@ -1,0 +1,3 @@
+Review the extraction, not the sender. Flag values the email does not support, and facts the
+email states that are missing from the output. An honest "unresolved" entry is correct
+behaviour; a filled field that cannot be pointed at in the email is not.
