@@ -22,7 +22,7 @@ The live runs cost money and are not part of `make bench-dev`. Three of them are
 | Report | What it ran | Result |
 |---|---|---|
 | [`devset_all_baseline`](../../reports/devset_all_baseline/bench.md) | the first prompt, no second look | 8 of 13 matched: 3 of 3 defects, 4 of 4 reviewer cases, **5 of 6 clean changes came back with a condition** |
-| [`devset_all_window`](../../reports/devset_all_window/bench.md) | plus the "you see a window, not the file" rule | 9 of 13 matched: three claims about names and tests outside the diff are gone, and `control-float` passes |
+| [`devset_all_window`](../../reports/devset_all_window/bench.md) | plus the "you see a window, not the file" rule | 9 of 13 matched: findings on clean changes fell from ten to five, the claims about names and tests outside the window from three to one, and `control-float` passes |
 | [`devset_all`](../../reports/devset_all/bench.md) | plus the second reader | 9 of 13 matched: **0 of 6 clean changes held**, 4 of 6 with a non-blocking condition, every defect and every reviewer case still found |
 
 The two off-answer classes are different, and only one of them is a prompt problem.
