@@ -1,53 +1,5 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-build/
-dist/
 .venv/
-venv/
-
-# Tooling
-.pytest_cache/
-.mypy_cache/
-.ruff_cache/
-.coverage
-htmlcov/
-
-# Local env & secrets
-.env
-.env.*
-!.env.example
-
-# Local session handover notes
-memory/
-
-# Project profile: derived by `qagent inspect --write`, regenerated, never hand-edited.
-# The hand-written half of the project context (requirements, invariants, policies) is
-# committed; this file is an artifact of reading the tree.
-.qagent/profile.json
-.qagent/runs/
-# Paid reviews kept for a second run of the same question: derived, machine-local, and
-# explicitly not evidence (a report served from it says so).
-.qagent/cache/
-
-# Run artifacts. Committed on purpose: the stub demo reports (sample_*) that anyone can
-# regenerate with `make sample`, and the live DeepSeek run (baseline/guarded/diff) that the
-# README quotes. Everything else in reports/ is scratch.
-reports/*.json
-reports/*.md
-!reports/README.md
-!reports/sample_*.json
-!reports/sample_*.md
-!reports/baseline.json
-!reports/baseline.md
-!reports/guarded.json
-!reports/guarded.md
-!reports/diff.md
-runs/
-*.jsonl.tmp
-
-# OS / editors
+__pycache__/
+*.pyc
+boxes/
 .DS_Store
-.idea/
-.vscode/
