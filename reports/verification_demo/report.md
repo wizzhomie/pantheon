@@ -3,13 +3,20 @@
 | | |
 |---|---|
 | Verdict | **HOLD** |
-| Run | `20261123T034215-verification-demo` |
+| Run | `verification_demo` |
 | Policy | `verification-demo` |
 | Policy digest | `3cc9da588dc0` |
 | Profile digest | `d577bf110964` |
-| Started | 2026-11-23 03:42 UTC |
+| Started | 2026-11-23 04:20 UTC |
 | Checked | 1 of 1 planned |
-| Spent | 0.3s |
+| Spent | 0.4s |
+
+## Request
+
+| | |
+|---|---|
+| Name | ad-hoc |
+| Policy | `policy.toml` |
 
 ## Why
 
@@ -19,7 +26,7 @@
 
 | Check | Status | Exit | Time | Evidence |
 |---|---|---|---|---|
-| `tests` | fail (exit 1, expected 0) | 1 | 0.33s | `checks/tests.stdout.txt` |
+| `tests` | fail (exit 1, expected 0) | 1 | 0.37s | `checks/tests.stdout.txt` |
 
 ## Findings
 

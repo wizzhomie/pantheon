@@ -197,6 +197,10 @@ class VerificationRun(StrictModel):
     planned: int = Field(default=0, description="checks the plan contained, including skips")
     spent_seconds: float = Field(default=0.0, ge=0)
     error: str | None = Field(default=None, description="the run itself failed, not a check")
+    adopted: list[str] = Field(
+        default_factory=list,
+        description="proposals accepted from the history and merged into this run's policy",
+    )
 
     def by_status(self) -> dict[str, int]:
         counts: dict[str, int] = {}

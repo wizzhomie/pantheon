@@ -1,0 +1,63 @@
+{
+  "schema_version": 1,
+  "id": "p-promote-types-ece7fe",
+  "kind": "promote-check",
+  "title": "Make the types check required",
+  "rationale": "types is optional, so its failures are findings instead of gates. Its purpose: the only check that sees the int that is really a float. 3 of 3 recorded runs failed it; 3 of those still shipped, 0 were already held; requiring it would have held 3 runs (run-1, run-2, run-3) that the verdict let through.",
+  "change": {
+    "check_id": "types",
+    "check_digest": "ece7fe2970a565bdfc0f17edd9cf56f4085938e6ad20b742cc64046a9219390a",
+    "before_optional": true,
+    "after_optional": false
+  },
+  "retrospective": {
+    "runs": 3,
+    "failed": 3,
+    "caught": 3,
+    "already_blocked": 0,
+    "unchanged": 0,
+    "passed": 0,
+    "flips": [
+      "run-1",
+      "run-2",
+      "run-3"
+    ]
+  },
+  "evidence": [
+    {
+      "run_id": "run-1",
+      "verdict": "pass_with_conditions",
+      "check_status": "failed",
+      "would_be": "hold",
+      "finding_ids": [
+        "check-types"
+      ],
+      "started_at": "2026-11-23T04:19:46.392096Z"
+    },
+    {
+      "run_id": "run-2",
+      "verdict": "pass_with_conditions",
+      "check_status": "failed",
+      "would_be": "hold",
+      "finding_ids": [
+        "check-types"
+      ],
+      "started_at": "2026-11-23T04:19:48.059460Z"
+    },
+    {
+      "run_id": "run-3",
+      "verdict": "pass_with_conditions",
+      "check_status": "failed",
+      "would_be": "hold",
+      "finding_ids": [
+        "check-types"
+      ],
+      "started_at": "2026-11-23T04:19:49.276515Z"
+    }
+  ],
+  "policy_digest": "33dd699f5016bf0d08e2190742f34b06c11783181ae79cbf51b7ce4aeb25f8d3",
+  "status": "approved",
+  "note": "Three green runs shipped with an int promise the code breaks; the type gate is cheap and deterministic.",
+  "created_at": "2026-11-23T04:19:52.668445Z",
+  "decided_at": "2026-11-23T04:19:52.668868Z"
+}

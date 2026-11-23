@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "ad-hoc",
+  "policy": "policy.toml",
+  "diff": null,
+  "since": null,
+  "reviewer": null,
+  "instructions": null,
+  "model": null,
+  "max_tokens": 1500,
+  "notes": ""
+}

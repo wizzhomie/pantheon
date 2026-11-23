@@ -21,6 +21,7 @@ from pathlib import Path
 from typing import cast
 
 from .context import ProjectContext, ProjectProfile, detect_profile, read_context, read_profile
+from .evolve import AppliedPolicy, apply_proposals, load_proposals
 from .llm.base import LLMClient
 from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .verify import (
@@ -62,7 +63,8 @@ async def execute(
 ) -> tuple[VerificationReport, Path]:
     """Answer the request: run the checks, review the change when asked, store the verdict."""
     root = Path(repo).resolve()
-    policy = read_policy(_path(root, request.policy))
+    applied = effective_policy(root, _path(root, request.policy))
+    policy = applied.policy
     profile = _profile(root)
 
     context = _context(root)
@@ -82,7 +84,9 @@ async def execute(
             gaps.append(f"the reviewer did not run: {review.error}")
 
     target_dir = Path(out_dir) if out_dir is not None else None
-    run, target = await run_policy(policy, root, out_dir=target_dir, profile=profile)
+    run, target = await run_policy(
+        policy, root, out_dir=target_dir, profile=profile, adopted=applied.adopted
+    )
     findings = findings_from_run(run)
     if review is not None:
         findings.extend(review.findings)
@@ -91,6 +95,11 @@ async def execute(
     (target / REQUEST_JSON).write_text(request.model_dump_json(indent=2) + "\n", encoding="utf-8")
     write_report(report, target)
     return report, target
+
+
+def effective_policy(root: Path, path: Path) -> AppliedPolicy:
+    """The declared policy plus the rules the project has accepted from its own history."""
+    return apply_proposals(read_policy(path), load_proposals(root))
 
 
 def trace_line(report: VerificationReport) -> str | None:
@@ -106,9 +115,12 @@ def trace_line(report: VerificationReport) -> str | None:
 def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
     """What the run would do, without doing any of it."""
     root = Path(repo).resolve()
-    policy = read_policy(_path(root, request.policy))
+    applied = effective_policy(root, _path(root, request.policy))
+    policy = applied.policy
     profile = _profile(root)
     lines = [f"{policy.name}: {request.describe()}"]
+    if applied.adopted:
+        lines.append(f"  accepted rules: {', '.join(applied.adopted)}")
     lines.extend(f"  {line}" for line in describe_plan(build_plan(policy, profile)))
     if request.needs_review:
         diff = load_diff(request, root)
@@ -149,6 +161,8 @@ def render_show(report: VerificationReport) -> str:
         f"  policy: {run.policy_name} · checks {len(run.checks)} of {run.planned} · "
         f"{run.spent_seconds:.1f}s",
     ]
+    if run.adopted:
+        lines.append(f"  rules: {', '.join(run.adopted)}")
     counts = run.by_status()
     if counts:
         lines.append("  checks: " + ", ".join(f"{name} {count}" for name, count in counts.items()))

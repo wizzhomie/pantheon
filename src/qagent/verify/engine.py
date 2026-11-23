@@ -14,9 +14,11 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import re
 import signal
 import time
 import tomllib
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -53,6 +55,9 @@ ARTIFACT_DIR = "checks"
 
 MIN_CHECK_SECONDS = 0.5
 """Below this much remaining budget a check is skipped, not started to die on the floor."""
+
+RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
+"""A run id ends up in file names and in reports, so it may not be a path or a sentence."""
 
 
 def read_policy(path: Path) -> VerificationPolicy:
@@ -105,6 +110,7 @@ async def run_policy(
     *,
     out_dir: Path | None = None,
     profile: ProjectProfile | None = None,
+    adopted: Sequence[str] = (),
 ) -> tuple[VerificationRun, Path]:
     """Execute the plan, write artifacts, return the record.
 
@@ -113,8 +119,8 @@ async def run_policy(
     """
     root = Path(root).resolve()
     started_at = datetime.now(UTC)
-    run_id = f"{started_at:%Y%m%dT%H%M%S}-{policy.name}"
-    target = Path(out_dir) if out_dir is not None else root / ".qagent" / "runs" / run_id
+    base = f"{started_at:%Y%m%dT%H%M%S}-{policy.name}"
+    run_id, target = _run_target(root, base, out_dir)
     artifacts = target / ARTIFACT_DIR
     plan = build_plan(policy, profile)
 
@@ -153,6 +159,7 @@ async def run_policy(
         checks=checks,
         planned=len(plan),
         spent_seconds=round(spent, 3),
+        adopted=list(adopted),
     )
     write_run(run, target)
     return run, target
@@ -245,6 +252,28 @@ async def run_check(
         output_tail=tail,
         reason=reason,
     )
+
+
+def _run_target(root: Path, base: str, out_dir: Path | None) -> tuple[str, Path]:
+    """The run's id and directory, chosen so that two runs never share an id by accident.
+
+    An explicit ``--out`` names the run: ``--out reports/demo`` produces the run ``demo``,
+    which is what a reader needs when the directory is committed. Without one, the id is the
+    start time — and if a run already claimed that second, the next one is ``-2`` rather than
+    silently overwriting it, because a run that is overwritten did not happen.
+    """
+    if out_dir is not None:
+        target = Path(out_dir)
+        if RUN_ID_PATTERN.match(target.name):
+            return target.name, target
+        return base, target
+    attempt = 1
+    while True:
+        run_id = base if attempt == 1 else f"{base}-{attempt}"
+        target = root / ".qagent" / "runs" / run_id
+        if not target.exists():
+            return run_id, target
+        attempt += 1
 
 
 def write_run(run: VerificationRun, out_dir: Path) -> Path:

@@ -7,6 +7,8 @@
 #   make config-check  validate the qagent.toml description of the same preset
 #   make verify   run this project's checks and write .qagent/runs/<id>/report.{json,md}
 #   make verify-demo  the HOLD demo: a planted defect and the report that refuses it
+#   make learn    mine this project's recorded runs for a rule; decides nothing
+#   make evolve-demo  the rule mined from the evolution demo's three recorded runs
 #   make eval     a live model run (needs DEEPSEEK_API_KEY); baseline + diff included
 #
 # The library is not pip-installed in this checkout, hence PYTHONPATH=src. The `.` is what
@@ -21,7 +23,7 @@ SPEC := examples.logistics_intake.runner:build_guarded
 
 .DEFAULT_GOAL := check
 
-.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo
+.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo learn evolve-demo
 
 check: lint typecheck test
 
@@ -45,8 +47,16 @@ verify:
 verify-demo:
 	PATH="$(CURDIR)/.venv/bin:$$PATH" $(PYTHON) -m qagent verify \
 		--repo examples/verification_demo \
-		--policy examples/verification_demo/policy.toml \
+		--policy policy.toml \
 		--out reports/verification_demo || test $$? -eq 1  # HOLD is the expected result here
+
+learn:
+	$(PYTHON) -m qagent learn --repo .
+
+evolve-demo:
+	$(PYTHON) -m qagent learn --repo examples/evolve_demo \
+		--policy examples/evolve_demo/policy.toml \
+		--history examples/evolve_demo/history
 
 demo:
 	$(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \

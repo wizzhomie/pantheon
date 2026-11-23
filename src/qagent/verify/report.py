@@ -104,8 +104,11 @@ def render_markdown(report: VerificationReport) -> str:
         f"| Checked | {len(run.checks)} of {run.planned} planned |",
         f"| Spent | {run.spent_seconds:.1f}s |",
     ]
+    if run.adopted:
+        header.append(f"| Accepted rules | {_rule_list(run.adopted)} |")
     blocks = [
         "\n".join(header),
+        _rules_note(run),
         _request_section(report.request),
         _reasons_section(report.verdict),
         _checks_section(run),
@@ -142,6 +145,22 @@ def read_report(path: Path) -> VerificationReport:
     """Parse a report back; a report that cannot be parsed is not evidence."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return VerificationReport.model_validate(data)
+
+
+def _rules_note(run: VerificationRun) -> str:
+    """The policy of this run is the declared policy plus what the project accepted."""
+    if not run.adopted:
+        return ""
+    return (
+        "This run also used rules the project accepted from its own history: "
+        + _rule_list(run.adopted)
+        + ". Each one is a file in `.qagent/proposals/`, with the recorded runs\n"
+        "behind it; the declared policy was not edited."
+    )
+
+
+def _rule_list(rules: list[str]) -> str:
+    return ", ".join("`" + rule + "`" for rule in rules)
 
 
 def _request_section(request: VerificationRequest | None) -> str:

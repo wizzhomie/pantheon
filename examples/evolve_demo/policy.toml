@@ -1,0 +1,28 @@
+# The checks this demo project declares, and the point of the demo: `types` is optional.
+#
+# It is a real gate — it is the only thing that sees the annotation in app.py being broken —
+# but the project's policy lets it report without blocking. Two members of the team have
+# already scrolled past a "PASS WITH CONDITIONS" that carried this exact failure.
+
+name = "evolve-demo"
+
+[budget]
+max_seconds = 120
+max_checks = 4
+
+[[checks]]
+id = "tests"
+name = "test suite"
+argv = ["python", "-m", "pytest", "-q"]
+timeout_s = 60
+purpose = "the suite that is green while the annotation is wrong"
+
+[[checks]]
+id = "types"
+name = "mypy"
+# `--explicit-package-bases` is only here because this demo lives inside the qagent
+# checkout's own `examples` package; it tells mypy to take the demo directory as the root.
+argv = ["python", "-m", "mypy", "--explicit-package-bases", "."]
+timeout_s = 60
+optional = true
+purpose = "the only check that sees the int that is really a float"

@@ -60,3 +60,7 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 packages = ["qagent", "examples"]
+# The evolve demo plants a type error on purpose: it is the defect its own policy is there to
+# find. Checking it with the project's rules would make qagent fail on its own fixture, so it
+# is excluded here and checked by `qagent verify` in the demo instead.
+exclude = ["^examples/evolve_demo/"]

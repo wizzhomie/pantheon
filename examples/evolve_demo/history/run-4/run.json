@@ -1,0 +1,40 @@
+{
+  "run_id": "run-4",
+  "policy_name": "evolve-demo",
+  "policy_digest": "d3483d185955337de90f30d8047b81ab51af51e13cc01f7516ea7b15b57e587c",
+  "profile_digest": "987f265b5273713d42b972db9f8e2bfbfcd42f0ff987bca1f38b2ccf434e4c93",
+  "started_at": "2026-11-23T04:20:05.266556Z",
+  "finished_at": "2026-11-23T04:20:05.773251Z",
+  "checks": [
+    {
+      "check_id": "tests",
+      "name": "test suite",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 357.2,
+      "stdout_path": "checks/tests.stdout.txt",
+      "stderr_path": null,
+      "output_tail": "..                                                                       [100%]\n2 passed in 0.02s",
+      "optional": false,
+      "reason": null
+    },
+    {
+      "check_id": "types",
+      "name": "mypy",
+      "status": "failed",
+      "exit_code": 1,
+      "duration_ms": 148.2,
+      "stdout_path": "checks/types.stdout.txt",
+      "stderr_path": null,
+      "output_tail": "app.py:17: error: Returning Any from function declared to return \"int\"  [no-any-return]\nFound 1 error in 1 file (checked 2 source files)",
+      "optional": false,
+      "reason": "exit 1, expected 0"
+    }
+  ],
+  "planned": 2,
+  "spent_seconds": 0.506,
+  "error": null,
+  "adopted": [
+    "p-promote-types-ece7fe"
+  ]
+}

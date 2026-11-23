@@ -13,8 +13,10 @@ by what the coding agent said about its own work.
 > examples with committed live runs and cassettes. The verification loop is being built phase by
 > phase; the plan and the decisions are in [`docs/roadmap.md`](docs/roadmap.md). What works
 > already: the project profile (`qagent inspect`), the deterministic engine (`qagent run`), the
-> end-to-end pass — checks → findings → verdict → report (`qagent verify`) — and the independent
-> reviewer, which proposes findings about a diff and has each one checked against the file.
+> end-to-end pass — checks → findings → verdict → report (`qagent verify`) — the independent
+> reviewer, which proposes findings about a diff and has each one checked against the file, and
+> evolution of the rules (`qagent learn`): the loop proposes a change to its own checks, proves it
+> on the recorded runs, and waits for a human's approval.
 
 ---
 
@@ -123,6 +125,7 @@ engine turns that evidence into a verdict.
 | Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
+| Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
@@ -132,6 +135,8 @@ qagent verify --repo .                     # run, decide a verdict, write the re
 qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
 qagent verify --repo . --request request.toml      # the same, described in a file
 qagent show .qagent/runs/<run id>                  # explain a stored run, run nothing
+qagent learn --repo .                      # what the recorded runs argue should change, and why
+qagent learn --repo . --approve <id> --note "why"     # record the decision on a proposal
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
@@ -149,6 +154,15 @@ findings, computes the verdict in code, and writes `report.json` + `report.md` i
 directory. The exit code is `0` for `PASS` / `PASS WITH CONDITIONS`, `1` for `HOLD`, `2` for
 `INCONCLUSIVE` — a pipeline can stop on it without parsing prose. On this repository, `make verify`
 gives `PASS` with three checks in about two seconds and no model call.
+
+`qagent learn` is the other half: the loop not only verifies, it proposes **what** to verify. It
+reads the decided runs, finds an optional check that failed in runs that shipped anyway, and
+re-decides those same runs with that check required — same verdict code, same recorded evidence.
+Nothing is executed and nothing is spent. The proposal is data: what would change, which runs
+justify it, how many verdicts it would have stopped. Only a human can accept it: `--approve`
+writes a file in the project, and `policy.toml` stays as its author wrote it. Details in
+[`docs/roadmap.md`](docs/roadmap.md), and the demo is
+[`examples/evolve_demo/`](examples/evolve_demo/README.md).
 
 ### Example 0 — a claim the verdict does not believe (HOLD)
 
@@ -168,6 +182,16 @@ and an anchor that read the working tree without asking whether the diff had sho
 report is [`reports/review_self/report.md`](reports/review_self/report.md), and
 [its README](reports/review_self/README.md) says what happened to each finding. A real model call,
 8 827 input tokens, 4.1 s.
+
+### Example 0c — a rule the history earned
+
+[`examples/evolve_demo/`](examples/evolve_demo/README.md) is a project with a real defect: the
+annotation promises an `int`, the function returns a `float`, the tests are green, and the type
+check sees it — but that check is optional in the policy. Three real runs in `history/` all look the
+same: `PASS WITH CONDITIONS`, the type check failed, the change shipped. `make evolve-demo` proposes
+making it required and says which three verdicts that would have stopped. After `--approve`, the
+next run over the same defect is `HOLD` — same evidence, a different rule, and the report's header
+names the rule that was in force.
 
 ### Example 1 — logistics intake (32 cases)
 
@@ -230,7 +254,7 @@ new role is actually used.
 | 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `qagent verify --diff` with a reviewer |
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
-| 7 | Verification evolution: proposed rules, validation, promotion | planned |
+| 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
 | 8 | Risk-based plans, sandbox, mutation testing, holdout evaluation | planned |
 
 ## Docs

@@ -1,0 +1,2 @@
+app.py:17: error: Returning Any from function declared to return "int"  [no-any-return]
+Found 1 error in 1 file (checked 2 source files)

@@ -21,6 +21,10 @@ executes its checks, and ``verify`` does both plus findings, a verdict and a rep
 on the command line turns the independent reviewer on — opt-in, because it is the only part
 that costs money. ``--request`` names the same things in a file, and ``show`` reads a stored
 run back without executing anything: an explanation must not be a second experiment.
+
+``learn`` reads the runs that already have a verdict and proposes a rule the history argues
+for; the only write it can make is a decision file in ``.qagent/proposals/``. The declared
+policy is never rewritten, and a proposal nobody approved changes nothing.
 """
 
 from __future__ import annotations
@@ -28,6 +32,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import importlib
+import json
 import os
 import sys
 from collections.abc import Callable, Sequence
@@ -43,7 +48,20 @@ from .context import (
     write_profile,
 )
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
+from .evolve import (
+    IGNORED_REASON,
+    History,
+    Proposal,
+    ProposalStatus,
+    applicability,
+    audit,
+    load_history,
+    load_proposals,
+    mine,
+    save_proposal,
+)
 from .orchestrator import (
+    effective_policy,
     execute,
     exit_code_for,
     plan_lines,
@@ -166,6 +184,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_verify(args)
         if args.command == "show":
             return _run_show(args)
+        if args.command == "learn":
+            return _run_learn(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -292,6 +312,26 @@ def _build_parser() -> argparse.ArgumentParser:
         help="a request file (name, policy, change, reviewer, budget) instead of flags",
     )
 
+    learn = subcommands.add_parser(
+        "learn",
+        help="propose a rule from the recorded runs; approve or reject it by hand",
+    )
+    learn.add_argument("--repo", type=Path, default=Path("."), help="repository to learn about")
+    learn.add_argument(
+        "--policy", type=Path, help="policy file; defaults to .qagent/policy.toml"
+    )
+    learn.add_argument(
+        "--history",
+        type=Path,
+        action="append",
+        help="a run directory or a directory of runs; repeatable, defaults to .qagent/runs",
+    )
+    decision = learn.add_mutually_exclusive_group()
+    decision.add_argument("--approve", metavar="ID", help="accept a proposal and record why")
+    decision.add_argument("--reject", metavar="ID", help="refuse a proposal and record why")
+    learn.add_argument("--note", default="", help="the reason, stored with the decision")
+    learn.add_argument("--json", action="store_true", help="machine-readable output")
+
     shower = subcommands.add_parser(
         "show", help="read a stored run back and explain it, without running anything"
     )
@@ -366,7 +406,8 @@ def _run_inspect(args: argparse.Namespace) -> int:
 
 def _run_command(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
-    policy = read_policy(args.policy)
+    applied = effective_policy(repo, args.policy)
+    policy = applied.policy
     profile = _profile_or_none(repo)
     plan = build_plan(policy, profile)
     budget = policy.budget
@@ -375,10 +416,16 @@ def _run_command(args: argparse.Namespace) -> int:
             f"{policy.name}: {len(plan)} checks, "
             f"budget {budget.max_seconds:g}s / {budget.max_checks} checks"
         )
+        if applied.adopted:
+            print(f"  accepted rules: {', '.join(applied.adopted)}")
         for line in describe_plan(plan):
             print(f"  {line}")
         return EXIT_OK
-    run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
+    run, target = asyncio.run(
+        run_policy(policy, repo, out_dir=args.out, profile=profile, adopted=applied.adopted)
+    )
+    if applied.adopted:
+        print(f"accepted rules: {', '.join(applied.adopted)}")
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
@@ -441,6 +488,8 @@ def _run_verify(args: argparse.Namespace) -> int:
 
     report, target = asyncio.run(execute(request, repo, out_dir=args.out))
     run = report.run
+    if run.adopted:
+        print(f"accepted rules: {', '.join(run.adopted)}")
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
@@ -463,6 +512,158 @@ def _run_verify(args: argparse.Namespace) -> int:
         print(f"  {reason.code}: {reason.detail}")
     print(f"report: {target / 'report.json'} and {target / 'report.md'}")
     return exit_code_for(report)
+
+
+def _run_learn(args: argparse.Namespace) -> int:
+    """Mine the recorded runs for a rule; approving or rejecting one is the only write."""
+    repo = Path(args.repo)
+    if args.note and not (args.approve or args.reject):
+        raise ValueError("--note only means something with --approve or --reject")
+    policy_path = args.policy or repo / ".qagent" / "policy.toml"
+    if not policy_path.is_file():
+        raise ValueError(f"no policy at {policy_path}; point --policy at the project's policy")
+    policy = read_policy(policy_path)
+    history = load_history(args.history or [repo / ".qagent" / "runs"])
+    stored = load_proposals(repo)
+    mined = mine(history, policy, existing=stored)
+
+    identifier = args.approve or args.reject
+    if identifier is not None:
+        status: ProposalStatus = "approved" if args.approve else "rejected"
+        known = {proposal.id: proposal for proposal in [*stored, *mined]}
+        proposal = known.get(identifier)
+        if proposal is None:
+            raise ValueError(
+                f"no proposal {identifier}; run `qagent learn` to see what the history argues for"
+            )
+        if proposal.status != "proposed":
+            when = f" on {proposal.decided_at:%Y-%m-%d}" if proposal.decided_at else ""
+            raise ValueError(f"{identifier} was already {proposal.status}{when}; nothing changed")
+        if status == "approved":
+            state = applicability(proposal, policy)
+            if state not in ("applicable", "pending"):
+                raise ValueError(f"{identifier} cannot be approved: {IGNORED_REASON[state]}")
+        updated = proposal.decided(status, note=args.note)
+        path = save_proposal(repo, updated)
+        if args.json:
+            print(updated.model_dump_json(indent=2))
+        else:
+            print(f"{status}: {updated.id} -> {path}")
+            if status == "approved":
+                print("next: run `qagent verify`; the rule is merged over the policy, unedited")
+            else:
+                print("the history will not propose this rule again while the command is unchanged")
+        return EXIT_OK
+
+    if args.json:
+        print(json.dumps(_learn_payload(policy, history, mined, stored), indent=2))
+        return EXIT_OK
+
+    _print_learn_header(policy, history)
+    if mined:
+        print("proposed")
+        for proposal in mined:
+            _print_proposal(proposal, policy, indent="  ")
+    elif stored:
+        print("nothing new: every rule the history argues for has already been decided")
+    else:
+        print(
+            "no rule earned a proposal: no optional check failed in at least two recorded runs "
+            "that the verdict still let through"
+        )
+    if stored:
+        print("decided")
+        for proposal in stored:
+            _print_proposal(proposal, policy, indent="  ", with_audit=True, history=history)
+    return EXIT_OK
+
+
+def _learn_payload(
+    policy: VerificationPolicy,
+    history: History,
+    mined: list[Proposal],
+    stored: list[Proposal],
+) -> dict[str, Any]:
+    return {
+        "policy": {
+            "name": policy.name,
+            "checks": len(policy.checks),
+            "digest": policy.digest(),
+        },
+        "history": {
+            "runs": len(history.runs),
+            "digest": history.digest(),
+            "verdicts": history.verdicts(),
+            "sources": history.sources,
+            "skipped": [item.model_dump() for item in history.skipped],
+        },
+        "proposals": [_as_json(proposal, policy) for proposal in [*mined, *stored]],
+    }
+
+
+def _count(number: int, singular: str, plural: str | None = None) -> str:
+    if number == 1:
+        return f"1 {singular}"
+    return f"{number} {plural or singular + 's'}"
+
+
+def _as_json(proposal: Proposal, policy: VerificationPolicy) -> dict[str, Any]:
+    payload: dict[str, Any] = json.loads(proposal.model_dump_json())
+    payload["applicability"] = applicability(proposal, policy)
+    return payload
+
+
+def _print_learn_header(policy: VerificationPolicy, history: History) -> None:
+    span = history.span()
+    when = f"{span[0]:%Y-%m-%d %H:%M} → {span[1]:%H:%M}" if span else "no decided runs"
+    verdicts = ", ".join(f"{status} {count}" for status, count in history.verdicts().items())
+    print(f"history: {_count(len(history.runs), 'run')} ({when}); verdicts: {verdicts or 'none'}")
+    for item in history.skipped[:3]:
+        print(f"  skipped {item.path}: {item.reason}")
+    if len(history.skipped) > 3:
+        print(f"  skipped {len(history.skipped) - 3} more")
+    print(f"policy: {policy.name}, {len(policy.checks)} checks, digest {policy.digest()[:12]}")
+
+
+def _print_proposal(
+    proposal: Proposal,
+    policy: VerificationPolicy,
+    *,
+    indent: str,
+    with_audit: bool = False,
+    history: History | None = None,
+) -> None:
+    state = applicability(proposal, policy)
+    label = {
+        "applicable": "applied",
+        "pending": "waiting",
+        "satisfied": "already in the policy",
+        "stale": "stale",
+        "obsolete": "obsolete",
+        "rejected": "rejected",
+    }[state]
+    detail = "" if state == proposal.status else f", {label}"
+    marker = f" [{proposal.status}{detail}]"
+    print(f"{indent}{proposal.id}{marker} {proposal.title}")
+    change = proposal.change
+    before = "optional" if change.before_optional else "required"
+    after = "optional" if change.after_optional else "required"
+    print(f"{indent}  change: {change.check_id}: {before} -> {after}")
+    counts = proposal.retrospective
+    print(
+        f"{indent}  evidence: {counts.failed} of {counts.runs} recorded runs failed it; "
+        f"{counts.caught} still shipped, {counts.already_blocked} were already held"
+    )
+    if state in ("stale", "obsolete"):
+        print(f"{indent}  ignored: {IGNORED_REASON[state]}")
+    if proposal.note:
+        print(f"{indent}  note: {proposal.note}")
+    if with_audit and proposal.status == "approved" and state == "applicable" and history:
+        after_adoption = audit(proposal, history)
+        print(
+            f"{indent}  since the decision: {_count(after_adoption.runs, 'run')}, "
+            f"{after_adoption.failed} failed, {after_adoption.held} held"
+        )
 
 
 def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequest:

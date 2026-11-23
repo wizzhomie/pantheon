@@ -1,0 +1,82 @@
+{
+  "schema_version": 1,
+  "run": {
+    "run_id": "run-3",
+    "policy_name": "evolve-demo",
+    "policy_digest": "33dd699f5016bf0d08e2190742f34b06c11783181ae79cbf51b7ce4aeb25f8d3",
+    "profile_digest": "fc0fcd9ec853e07571d2f7523b11cdf7a2debc9918e9a20418e2096df99df254",
+    "started_at": "2026-11-23T04:19:49.276515Z",
+    "finished_at": "2026-11-23T04:19:49.773168Z",
+    "checks": [
+      {
+        "check_id": "tests",
+        "name": "test suite",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_ms": 348.3,
+        "stdout_path": "checks/tests.stdout.txt",
+        "stderr_path": null,
+        "output_tail": "..                                                                       [100%]\n2 passed in 0.01s",
+        "optional": false,
+        "reason": null
+      },
+      {
+        "check_id": "types",
+        "name": "mypy",
+        "status": "failed",
+        "exit_code": 1,
+        "duration_ms": 147.4,
+        "stdout_path": "checks/types.stdout.txt",
+        "stderr_path": null,
+        "output_tail": "app.py:17: error: Returning Any from function declared to return \"int\"  [no-any-return]\nFound 1 error in 1 file (checked 2 source files)",
+        "optional": true,
+        "reason": "exit 1, expected 0"
+      }
+    ],
+    "planned": 2,
+    "spent_seconds": 0.496,
+    "error": null,
+    "adopted": []
+  },
+  "findings": [
+    {
+      "id": "check-types",
+      "title": "mypy failed",
+      "kind": "check-failure",
+      "status": "confirmed",
+      "severity": "major",
+      "source": "check",
+      "detail": "exit 1, expected 0",
+      "location": null,
+      "requirement": null,
+      "evidence": [
+        "types",
+        "checks/types.stdout.txt"
+      ]
+    }
+  ],
+  "verdict": {
+    "status": "pass_with_conditions",
+    "reasons": [
+      {
+        "code": "non-blocking-finding",
+        "detail": "check-types (major): mypy failed"
+      }
+    ],
+    "blocking_findings": []
+  },
+  "request": {
+    "schema_version": 1,
+    "name": "ad-hoc",
+    "policy": "policy.toml",
+    "diff": null,
+    "since": null,
+    "reviewer": null,
+    "instructions": null,
+    "model": null,
+    "max_tokens": 1500,
+    "notes": ""
+  },
+  "context": null,
+  "review": null
+}
