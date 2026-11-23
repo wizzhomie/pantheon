@@ -3,7 +3,9 @@ requires = ["hatchling>=1.25"]
 build-backend = "hatchling.build"
 
 [project]
-name = "qagent"
+# The distribution is `qagent-qa` because `qagent` on PyPI belongs to an unrelated project; the
+# import stays `qagent`, and so does the repository name (design.md §13, ADR-010).
+name = "qagent-qa"
 dynamic = ["version"]
 description = "Embedded QA for LLM agents: deterministic checks, LLM judge, bounded self-correction and offline regression."
 readme = "README.md"
