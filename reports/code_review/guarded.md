@@ -1,4 +1,4 @@
-# Evaluation report — `guarded` · `20261123T024302-guarded-884af5b`
+# Evaluation report — `guarded` · `20261123T023057-guarded-528de59`
 
 | | |
 |---|---|
@@ -6,8 +6,8 @@
 | Preset hash | `c9a511c59f183b67ed4bff3c24fe1bc74f62991e91d85a8436ed53060e6c7edc` |
 | Dataset hash | `7f2d27466d490eafe26352117e8d00a5a6681125e5fa35235ce212f927a9d7e6` |
 | Cases | 24 |
-| Commit | `884af5b` |
-| Created | 2026-11-23 02:43 UTC |
+| Commit | `528de59` |
+| Created | 2026-11-23 02:30 UTC |
 | Agent model | `deepseek-flash` |
 | Judge | `deepseek-v4-pro` |
 
@@ -28,7 +28,7 @@
 | Escalation rate | 20.8% |
 | Retry rate | 4.2% |
 | Retry recovery rate | 100.0% |
-| Latency p50 / p95 | 2 ms / 2 ms |
+| Latency p50 / p95 | 2,922 ms / 4,716 ms |
 | Cost, total | $0.0477 |
 | Cost per case | $0.0020 |
 | Cost per passed case | $0.0023 |

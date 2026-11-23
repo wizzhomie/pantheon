@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_serializer, field_validator
 
 from .base import StrictModel
 from .issues import Issue, Severity
@@ -42,6 +42,15 @@ class Rubric(StrictModel):
     criteria: list[Criterion] = Field(min_length=1, max_length=12)
     pass_score: float = Field(default=0.75, ge=0, le=1)
     blocking: frozenset[Severity] = frozenset({"error", "critical"})
+
+    @field_serializer("blocking")
+    def _blocking_in_order(self, value: frozenset[Severity]) -> list[Severity]:
+        """A set has no order of its own; pin one so dumps and hashes are stable.
+
+        Without this, the same rubric hashes differently in every process, because
+        ``frozenset`` iteration follows the per-run string hash seed.
+        """
+        return sorted(value)
 
     @field_validator("criteria")
     @classmethod

@@ -69,6 +69,12 @@ def test_blocking_severities_are_configurable(
     assert passed is True
 
 
+def test_a_rubric_serialises_in_a_fixed_order(rubric: Rubric) -> None:
+    # The blocking severities are a set; a raw dump follows the per-process hash seed and
+    # would make preset fingerprints differ between two runs of the same code.
+    assert rubric.model_dump(mode="json")["blocking"] == ["critical", "error"]
+
+
 def test_duplicate_criterion_ids_are_rejected() -> None:
     criterion = Criterion(id="aa", title="A", description="A", weight=0.5)
     with pytest.raises(ValidationError):

@@ -167,3 +167,24 @@ def test_metrics_are_aggregated_from_the_records(rubric: object) -> None:
     assert report.metrics.cases == 2
     assert report.metrics.pass_rate_final == 0.5
     assert report.metrics.false_pass_rate == 0.5
+
+
+REPORTS = Path(__file__).resolve().parents[2] / "reports"
+
+
+def test_every_committed_report_renders_its_own_markdown() -> None:
+    """A report is a pair: the markdown must be the rendering of the json next to it.
+
+    The pair drifted once — a replay rewrote the markdown while the live json stayed —
+    and a reader could not tell which numbers were the run's.
+    """
+    import json
+
+    checked = 0
+    for path in sorted(REPORTS.rglob("*.json")):
+        if path.stem.startswith("sample_") or "diff" in path.stem:
+            continue  # stub reports carry a hand-written banner; diffs have another shape
+        report = EvalReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
+        assert path.with_suffix(".md").read_text(encoding="utf-8") == render_markdown(report)
+        checked += 1
+    assert checked >= 4

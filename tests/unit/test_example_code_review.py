@@ -140,7 +140,22 @@ def test_the_config_file_describes_this_example(capsys) -> None:  # type: ignore
 
 def test_the_replay_command_reproduces_the_live_numbers(tmp_path: Path) -> None:
     out = tmp_path / "replay.json"
-    assert main(["replay", "--config", str(CONFIG), "--out", str(out)]) == 0
+    # Both paths must land in tmp_path: without --markdown the command falls back to the
+    # config's [report] markdown and overwrites the committed live report.
+    assert (
+        main(
+            [
+                "replay",
+                "--config",
+                str(CONFIG),
+                "--out",
+                str(out),
+                "--markdown",
+                str(tmp_path / "replay.md"),
+            ]
+        )
+        == 0
+    )
     metrics = json.loads(out.read_text(encoding="utf-8"))["metrics"]
     assert metrics["pass_rate_final"] == 0.875
     assert metrics["false_pass_rate"] == 0.0
