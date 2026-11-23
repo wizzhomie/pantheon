@@ -139,6 +139,11 @@ checked.
   commit. Verdict `PASS WITH CONDITIONS`, four proposals, all four quotes confirmed by the anchor,
   and three of the four turned out to be real problems in the code that had just been written.
   Read [`review_self/README.md`](review_self/README.md) for the outcome of each finding.
+- [`verification_demo_review/`](verification_demo_review/report.md) — the HOLD demo with a live
+  reviewer and the project's own requirements. The finding `F1` cites `R1`, and the traceability
+  row for `R1` is `failed` with both the finding and the check that failed for the same reason.
+  416 + 153 tokens, 1.5 s. Produced by `qagent verify --diff change.diff` with
+  `qagent.review.factory:from_env`; the scripted `make verify-demo` stays free.
 
 ## Holdout bench
 
@@ -175,8 +180,8 @@ condition is now named on the report's `Result:` line, never hidden behind the h
 
 ### A note on finding ids
 
-The live reports here — `review_self/`, `holdout_reviewer/`, `holdout_all/` — were produced while
+The first live reports — `review_self/`, `holdout_reviewer/`, `holdout_all/` — were produced while
 reviewer findings were still numbered `R1`, `R2`, …: the same prefix as requirement ids, which sit
-next to them in the traceability table. Findings are now `F1`, `F2`, …; the committed reports keep
-the ids of the version that produced them, and a fresh run prints `F1`. A requirement is `R1` in
-every report, old and new.
+next to them in the traceability table. Findings are now `F1`, `F2`, …; those reports keep the ids
+of the version that produced them, and `verification_demo_review/` is the first one written after
+the rename. A requirement is `R1` in every report, old and new.

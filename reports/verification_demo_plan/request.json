@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
   "name": "ad-hoc",
-  "policy": "policy.toml",
+  "policy": ".qagent/policy.toml",
   "diff": "change.diff",
   "since": null,
   "reviewer": "qagent.review.scripted:from_env",

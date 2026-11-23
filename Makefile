@@ -48,13 +48,13 @@ verify:
 verify-demo:
 	PATH="$(CURDIR)/.venv/bin:$$PATH" $(PYTHON) -m qagent verify \
 		--repo examples/verification_demo \
-		--policy policy.toml --no-cache \
+		--policy .qagent/policy.toml --no-cache \
 		--out reports/verification_demo || test $$? -eq 1  # HOLD is the expected result here
 
 plan-demo:
 	QAGENT_REVIEW_RESPONSE='{"findings": []}' PATH="$(CURDIR)/.venv/bin:$$PATH" \
 		$(PYTHON) -m qagent verify --repo examples/verification_demo \
-		--policy policy.toml --diff change.diff \
+		--policy .qagent/policy.toml --diff change.diff \
 		--reviewer qagent.review.scripted:from_env \
 		--review-model "scripted (no model call)" --no-cache \
 		--out reports/verification_demo_plan || test $$? -eq 1

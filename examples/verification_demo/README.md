@@ -13,12 +13,13 @@ make verify-demo          # from the repository root
 
 ```bash
 qagent verify --repo examples/verification_demo \
-    --policy examples/verification_demo/policy.toml \
+    --policy .qagent/policy.toml \
     --out reports/verification_demo
 ```
 
 The committed result is [`reports/verification_demo/report.md`](../../reports/verification_demo/report.md):
-verdict `HOLD`, one reason (`check-failed`), one finding (`check-tests`), and the artifact
+verdict `HOLD`, one reason (`check-failed`), one finding (`check-tests`), a traceability row for
+`R1` and `I1`, and the artifact
 [`checks/tests.stdout.txt`](../../reports/verification_demo/checks/tests.stdout.txt) holding the
 failing assertion. Exit code is `1`, so a pipeline can stop on it without parsing the report.
 
@@ -29,6 +30,35 @@ would in a real repository.
 
 The report pair is generated, not hand-written: `report.md` is the rendering of `report.json`,
 and a test in `tests/unit/test_verify_verdict.py` re-renders every committed pair.
+
+## The arrow: a finding that cites the requirement it breaks
+
+The project also carries its own knowledge — [`.qagent/context.toml`](.qagent/context.toml) —
+with one requirement and one invariant: `R1` says a line is counted as `price × quantity` and is
+guarded by the `tests` check; `I1` says a destructive migration is marked by a human and is guarded
+by `sql`. Both are `approved`, which is the part that matters: only approved promises bind.
+
+Run the demo with a live reviewer and the arrow becomes visible:
+
+```bash
+qagent verify --repo examples/verification_demo --policy .qagent/policy.toml \
+    --diff change.diff --reviewer qagent.review.factory:from_env \
+    --out reports/verification_demo_review
+```
+
+The committed result is
+[`reports/verification_demo_review/report.md`](../../reports/verification_demo_review/report.md):
+the reviewer's finding `F1` names `R1`, the traceability row `R1` is `failed`, and it lists both
+the check that failed for the same reason (`tests`) and the finding that cites it. Nothing in that
+sentence is taken from the model: the model proposed "this ignores quantity", the anchor confirmed
+the quote, and the report put the three facts in one row.
+
+That run is the answer to a fair question a reader should ask — if the reviewer never cites a
+requirement, is the traceability real? A first live run on a different change cited nothing; the
+findings it made were about implementation risks that no approved promise covered, so citing one
+would have been a lie. The demo shows the other side: where the promise *is* broken, the citation
+appears. Both outcomes are computed by code (`Finding.requirement` is kept only when the id is
+approved), and both are visible in the report.
 
 ## The plan under a change: a gate that was not needed
 

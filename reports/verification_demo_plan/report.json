@@ -4,16 +4,16 @@
     "run_id": "verification_demo_plan",
     "policy_name": "verification-demo",
     "policy_digest": "47540c3f1954d0105c086a987cd1ef2fdbf07172908a9fc1773260e416581d52",
-    "profile_digest": "94226da23fa7a108d0eb4e8388d5745ca3fae583e883611c18b8c72947e21fe0",
-    "started_at": "2026-11-23T06:54:14.289815Z",
-    "finished_at": "2026-11-23T06:54:14.649724Z",
+    "profile_digest": "798ebe72f213e32f22f1800a8fff35d08f55e285821ddb3d700ab0e784da4fc4",
+    "started_at": "2026-11-23T07:28:23.749962Z",
+    "finished_at": "2026-11-23T07:28:24.090342Z",
     "checks": [
       {
         "check_id": "tests",
         "name": "test suite",
         "status": "failed",
         "exit_code": 1,
-        "duration_ms": 358.5,
+        "duration_ms": 339.0,
         "stdout_path": "checks/tests.stdout.txt",
         "stderr_path": null,
         "output_tail": "..F                                                                      [100%]\n=================================== FAILURES ===================================\n______________________ test_quantity_multiplies_the_price ______________________\n\n    def test_quantity_multiplies_the_price() -> None:\n>       assert total([Item(\"pen\", 2.0, quantity=3)]) == 6.0\nE       AssertionError: assert 2.0 == 6.0\nE        +  where 2.0 = total([Item(name='pen', price=2.0, quantity=3)])\n\ntest_app.py:19: AssertionError\n=========================== short test summary info ============================\nFAILED test_app.py::test_quantity_multiplies_the_price - AssertionError: asse...\n1 failed, 2 passed in 0.02s",
@@ -36,7 +36,7 @@
       }
     ],
     "planned": 2,
-    "spent_seconds": 0.359,
+    "spent_seconds": 0.34,
     "error": null,
     "adopted": [],
     "sandbox": {
@@ -77,7 +77,7 @@
   "request": {
     "schema_version": 1,
     "name": "ad-hoc",
-    "policy": "policy.toml",
+    "policy": ".qagent/policy.toml",
     "diff": "change.diff",
     "since": null,
     "reviewer": "qagent.review.scripted:from_env",
@@ -86,7 +86,36 @@
     "max_tokens": 1500,
     "notes": ""
   },
-  "context": null,
+  "context": {
+    "schema_version": 1,
+    "architecture": {
+      "baseline": "Инвойс: сумма по позициям, тест проекта и гейт миграций. Ровно один подложенный дефект.",
+      "target": "Демо остаётся демо: задача не в продукте, а в том, чтобы отчёт показал, какую проверку и\nкакое требование задел дефект."
+    },
+    "requirements": [
+      {
+        "id": "R1",
+        "title": "Invoice total counts every item as price × quantity",
+        "status": "approved",
+        "detail": "The total is the sum of `price * quantity` over the items: one pen bought three times costs\nthree pens. The demo defect drops the quantity, so every line counts once.",
+        "checks": [
+          "tests"
+        ]
+      }
+    ],
+    "invariants": [
+      {
+        "id": "I1",
+        "title": "A destructive migration must be marked by a human",
+        "status": "approved",
+        "detail": "The migration gate is selected only for changes that touch `migrations/`.",
+        "checks": [
+          "sql"
+        ]
+      }
+    ],
+    "milestones": []
+  },
   "review": {
     "status": "ok",
     "model": "scripted (no model call)",

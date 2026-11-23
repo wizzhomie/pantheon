@@ -6,10 +6,10 @@
 | Run | `verification_demo_plan` |
 | Policy | `verification-demo` |
 | Policy digest | `47540c3f1954` |
-| Profile digest | `94226da23fa7` |
-| Started | 2026-11-23 06:54 UTC |
+| Profile digest | `798ebe72f213` |
+| Started | 2026-11-23 07:28 UTC |
 | Checked | 2 of 2 planned |
-| Spent | 0.4s |
+| Spent | 0.3s |
 | Sandbox | 1024 MB memory, 16 MB per file |
 
 ## Request
@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | Name | ad-hoc |
-| Policy | `policy.toml` |
+| Policy | `.qagent/policy.toml` |
 | Change | diff `change.diff` |
 | Reviewer | `qagent.review.scripted:from_env` |
 
@@ -43,7 +43,7 @@ Path-scoped checks run only when the change touches the paths they guard; a run 
 
 | Check | Status | Exit | Time | Evidence |
 |---|---|---|---|---|
-| `tests` | fail (exit 1, expected 0) | 1 | 0.36s | `checks/tests.stdout.txt` |
+| `tests` | fail (exit 1, expected 0) | 1 | 0.34s | `checks/tests.stdout.txt` |
 | `sql` | not selected (no changed path matches migrations/**) | — | 0.00s | `—` |
 
 ## Review
@@ -64,6 +64,17 @@ Path-scoped checks run only when the change touches the paths they guard; a run 
 | Finding | Severity | Status | Kind | Where |
 |---|---|---|---|---|
 | **check-tests** — test suite failed | blocking | confirmed | check-failure | — |
+
+## Traceability
+
+2 approved, 1 failed, 1 not-selected.
+
+| Requirement | Status | Checks | Findings |
+|---|---|---|---|
+| **R1** — Invoice total counts every item as price × quantity | failed | `tests` | — |
+| **I1** — A destructive migration must be marked by a human | not-selected | `sql` | — |
+
+Confirmed findings with no approved requirement: **check-tests**.
 
 ## How this verdict was reached
 

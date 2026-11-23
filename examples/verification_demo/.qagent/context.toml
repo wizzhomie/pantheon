@@ -1,0 +1,34 @@
+# What this demo project promises, and which promise the planted defect breaks.
+#
+# The demo is small on purpose: one requirement, one check, one defect. It shows the arrow
+# the contour exists for — requirement → check → finding → verdict — and it shows it in the
+# report, where a finding that cites R1 sits next to the check that failed for the same
+# reason.
+
+schema_version = 1
+
+[architecture]
+baseline = """\
+Инвойс: сумма по позициям, тест проекта и гейт миграций. Ровно один подложенный дефект.
+"""
+target = """\
+Демо остаётся демо: задача не в продукте, а в том, чтобы отчёт показал, какую проверку и
+какое требование задел дефект.
+"""
+
+[[requirements]]
+id = "R1"
+title = "Invoice total counts every item as price × quantity"
+status = "approved"
+detail = """\
+The total is the sum of `price * quantity` over the items: one pen bought three times costs
+three pens. The demo defect drops the quantity, so every line counts once.
+"""
+checks = ["tests"]
+
+[[invariants]]
+id = "I1"
+title = "A destructive migration must be marked by a human"
+status = "approved"
+detail = "The migration gate is selected only for changes that touch `migrations/`."
+checks = ["sql"]

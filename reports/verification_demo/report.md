@@ -6,8 +6,8 @@
 | Run | `verification_demo` |
 | Policy | `verification-demo` |
 | Policy digest | `47540c3f1954` |
-| Profile digest | `94226da23fa7` |
-| Started | 2026-11-23 06:54 UTC |
+| Profile digest | `798ebe72f213` |
+| Started | 2026-11-23 07:28 UTC |
 | Checked | 2 of 2 planned |
 | Spent | 0.4s |
 | Sandbox | 1024 MB memory, 16 MB per file |
@@ -17,7 +17,7 @@
 | | |
 |---|---|
 | Name | ad-hoc |
-| Policy | `policy.toml` |
+| Policy | `.qagent/policy.toml` |
 
 ## Sandbox
 
@@ -33,7 +33,7 @@ These are resource ceilings, not isolation: a check can still reach the network 
 
 | Check | Status | Exit | Time | Evidence |
 |---|---|---|---|---|
-| `tests` | fail (exit 1, expected 0) | 1 | 0.35s | `checks/tests.stdout.txt` |
+| `tests` | fail (exit 1, expected 0) | 1 | 0.34s | `checks/tests.stdout.txt` |
 | `sql` | pass | 0 | 0.03s | `checks/sql.stdout.txt` |
 
 ## Findings
@@ -41,6 +41,17 @@ These are resource ceilings, not isolation: a check can still reach the network 
 | Finding | Severity | Status | Kind | Where |
 |---|---|---|---|---|
 | **check-tests** — test suite failed | blocking | confirmed | check-failure | — |
+
+## Traceability
+
+2 approved, 1 covered, 1 failed.
+
+| Requirement | Status | Checks | Findings |
+|---|---|---|---|
+| **R1** — Invoice total counts every item as price × quantity | failed | `tests` | — |
+| **I1** — A destructive migration must be marked by a human | covered | `sql` | — |
+
+Confirmed findings with no approved requirement: **check-tests**.
 
 ## How this verdict was reached
 
