@@ -217,7 +217,7 @@ run and the cassette are committed in [`reports/`](reports/README.md) and
 A reviewer that must point at the planted bug by line and verbatim quote. Cheap anchor checks
 reject an invented quote, a line outside the file and a verdict that contradicts the findings, for
 free, before any judge is asked. Live run: **87.5% final, 0 false passes** (12.5% before), $0.0477
-for 24 cases, p50 2.9 s. This example is also the template for how the verification loop will
+for 24 cases, p50 2.9 s. This example is also the template the verification loop now uses to
 validate findings: [`examples/code_review/`](examples/code_review/README.md).
 
 ### A request is a file
@@ -267,7 +267,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits and the holdout bench are done; a live holdout and mutation testing are ahead |
+| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer are done; mutation testing is ahead |
 
 ## Docs
 

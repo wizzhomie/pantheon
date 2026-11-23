@@ -1,7 +1,7 @@
 {
   "suite": "holdout",
   "reviewer": "scripted (no model call)",
-  "started_at": "2026-11-23T06:59:49.218518Z",
+  "started_at": "2026-11-23T07:04:43.629545Z",
   "cases": [
     {
       "id": "control-clean",
@@ -9,10 +9,13 @@
       "actual": "pass",
       "matched": true,
       "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.339
+      "spent_seconds": 1.357
     },
     {
       "id": "control-unrelated",
@@ -20,10 +23,13 @@
       "actual": "pass",
       "matched": true,
       "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.358
+      "spent_seconds": 1.334
     },
     {
       "id": "mutant-arithmetic",
@@ -31,10 +37,13 @@
       "actual": "hold",
       "matched": true,
       "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
       "reasons": [
         "check-failed: required check tests failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.351
+      "spent_seconds": 1.687
     },
     {
       "id": "mutant-sql",
@@ -42,10 +51,13 @@
       "actual": "hold",
       "matched": true,
       "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
       "reasons": [
         "check-failed: required check sql failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.39
+      "spent_seconds": 1.374
     },
     {
       "id": "mutant-types",
@@ -53,10 +65,13 @@
       "actual": "hold",
       "matched": true,
       "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
       "reasons": [
         "check-failed: required check types failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.412
+      "spent_seconds": 1.329
     }
   ]
 }
