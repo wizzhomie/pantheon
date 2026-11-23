@@ -1,53 +1,53 @@
 {
-  "run_id": "20261123T022750-guarded-57fbd2e",
-  "created_at": "2026-11-23T02:27:50.031558Z",
-  "git_sha": "57fbd2e",
+  "run_id": "20261123T023057-guarded-528de59",
+  "created_at": "2026-11-23T02:30:57.462038Z",
+  "git_sha": "528de59",
   "mode": "guarded",
   "preset_name": "code_review",
-  "preset_hash": "86294bebb6779870d3e9b0d216153c92b7ba534dc824fdde390414d16e82e15b",
-  "dataset_hash": "2be6d9aa1c03e9f8563cf5a16ff3e4523404f5abd091e0d7196e77d8b96e490a",
+  "preset_hash": "c9a511c59f183b67ed4bff3c24fe1bc74f62991e91d85a8436ed53060e6c7edc",
+  "dataset_hash": "7f2d27466d490eafe26352117e8d00a5a6681125e5fa35235ce212f927a9d7e6",
   "llm": {
     "agent": "deepseek-flash",
     "judge": "deepseek-v4-pro"
   },
   "metrics": {
-    "cases": 18,
-    "pass_rate_first_attempt": 0.7778,
-    "pass_rate_final": 0.8333,
-    "retry_rate": 0.0556,
+    "cases": 24,
+    "pass_rate_first_attempt": 0.7917,
+    "pass_rate_final": 0.875,
+    "retry_rate": 0.0417,
     "retry_recovery_rate": 1.0,
-    "escalation_rate": 0.2222,
+    "escalation_rate": 0.2083,
     "false_pass_rate": 0.0,
-    "field_accuracy_macro": 0.8333,
+    "field_accuracy_macro": 0.875,
     "hallucination_rate": 0.0,
-    "latency_p50_ms": 2439.663,
-    "latency_p95_ms": 4588.026,
-    "prompt_tokens": 32473,
-    "completion_tokens": 2483,
-    "cost_usd_total": 0.035405,
-    "cost_usd_per_case": 0.001967,
-    "cost_usd_per_passed_case": 0.00236,
+    "latency_p50_ms": 2921.62,
+    "latency_p95_ms": 4716.406,
+    "prompt_tokens": 43365,
+    "completion_tokens": 3329,
+    "cost_usd_total": 0.04768,
+    "cost_usd_per_case": 0.001987,
+    "cost_usd_per_passed_case": 0.00227,
     "by_category": {
       "happy_path": {
-        "cases": 9,
-        "pass_rate_first_attempt": 0.8889,
-        "pass_rate_final": 0.8889,
-        "escalation_rate": 0.1111,
-        "field_accuracy": 0.8889
+        "cases": 12,
+        "pass_rate_first_attempt": 0.8333,
+        "pass_rate_final": 0.9167,
+        "escalation_rate": 0.1667,
+        "field_accuracy": 0.9167
       },
       "edge_case": {
-        "cases": 6,
-        "pass_rate_first_attempt": 0.6667,
-        "pass_rate_final": 0.8333,
-        "escalation_rate": 0.3333,
-        "field_accuracy": 0.8333
+        "cases": 8,
+        "pass_rate_first_attempt": 0.75,
+        "pass_rate_final": 0.875,
+        "escalation_rate": 0.25,
+        "field_accuracy": 0.875
       },
       "adversarial": {
-        "cases": 3,
-        "pass_rate_first_attempt": 0.6667,
-        "pass_rate_final": 0.6667,
-        "escalation_rate": 0.3333,
-        "field_accuracy": 0.6667
+        "cases": 4,
+        "pass_rate_first_attempt": 0.75,
+        "pass_rate_final": 0.75,
+        "escalation_rate": 0.25,
+        "field_accuracy": 0.75
       }
     }
   },
@@ -65,7 +65,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2830.526,
+      "latency_ms": 2778.123,
       "cost_usd": 0.00194694
     },
     {
@@ -80,7 +80,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 3212.439,
+      "latency_ms": 3387.171,
       "cost_usd": 0.00202398
     },
     {
@@ -99,8 +99,8 @@
       "failure_codes": [
         "critical_issue"
       ],
-      "latency_ms": 4357.072,
-      "cost_usd": 0.00247716
+      "latency_ms": 4716.406,
+      "cost_usd": 0.00256032
     },
     {
       "case_id": "cr-04",
@@ -114,8 +114,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2448.386,
-      "cost_usd": 0.00200058
+      "latency_ms": 2921.62,
+      "cost_usd": 0.0020085
     },
     {
       "case_id": "cr-05",
@@ -129,8 +129,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 3192.803,
-      "cost_usd": 0.0019551
+      "latency_ms": 3054.839,
+      "cost_usd": 0.00196302
     },
     {
       "case_id": "cr-06",
@@ -144,8 +144,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2427.096,
-      "cost_usd": 0.00203244
+      "latency_ms": 3233.261,
+      "cost_usd": 0.00206016
     },
     {
       "case_id": "cr-07",
@@ -163,7 +163,7 @@
       "failure_codes": [
         "critical_issue"
       ],
-      "latency_ms": 4588.026,
+      "latency_ms": 5158.376,
       "cost_usd": 0.002634
     },
     {
@@ -181,7 +181,7 @@
         "C3_QUOTE_NOT_ON_LINE",
         "no_progress"
       ],
-      "latency_ms": 2200.833,
+      "latency_ms": 2515.733,
       "cost_usd": 0.0006711
     },
     {
@@ -196,8 +196,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2106.651,
-      "cost_usd": 0.0019566
+      "latency_ms": 2989.794,
+      "cost_usd": 0.0019962
     },
     {
       "case_id": "cr-10",
@@ -211,8 +211,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 1990.191,
-      "cost_usd": 0.00197172
+      "latency_ms": 2850.487,
+      "cost_usd": 0.0019638
     },
     {
       "case_id": "cr-11",
@@ -230,8 +230,8 @@
       "failure_codes": [
         "critical_issue"
       ],
-      "latency_ms": 4016.481,
-      "cost_usd": 0.002475
+      "latency_ms": 4423.541,
+      "cost_usd": 0.00245916
     },
     {
       "case_id": "cr-12",
@@ -245,8 +245,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2317.07,
-      "cost_usd": 0.00190566
+      "latency_ms": 2751.64,
+      "cost_usd": 0.00191358
     },
     {
       "case_id": "cr-13",
@@ -260,8 +260,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2439.663,
-      "cost_usd": 0.00197052
+      "latency_ms": 2924.878,
+      "cost_usd": 0.00193344
     },
     {
       "case_id": "cr-14",
@@ -275,7 +275,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2786.33,
+      "latency_ms": 2703.359,
       "cost_usd": 0.00197844
     },
     {
@@ -290,8 +290,8 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2733.38,
-      "cost_usd": 0.00189738
+      "latency_ms": 2598.154,
+      "cost_usd": 0.00185778
     },
     {
       "case_id": "cr-16",
@@ -305,7 +305,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2151.52,
+      "latency_ms": 2538.845,
       "cost_usd": 0.0018501
     },
     {
@@ -320,7 +320,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2170.78,
+      "latency_ms": 2241.073,
       "cost_usd": 0.00178812
     },
     {
@@ -335,8 +335,100 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 2227.005,
+      "latency_ms": 2705.428,
       "cost_usd": 0.00186984
+    },
+    {
+      "case_id": "cr-19",
+      "category": "happy_path",
+      "status": "passed",
+      "first_attempt_passed": true,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [],
+      "latency_ms": 4112.592,
+      "cost_usd": 0.00200706
+    },
+    {
+      "case_id": "cr-20",
+      "category": "edge_case",
+      "status": "passed",
+      "first_attempt_passed": true,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [],
+      "latency_ms": 3140.549,
+      "cost_usd": 0.00195714
+    },
+    {
+      "case_id": "cr-21",
+      "category": "happy_path",
+      "status": "passed",
+      "first_attempt_passed": true,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [],
+      "latency_ms": 2471.333,
+      "cost_usd": 0.00195198
+    },
+    {
+      "case_id": "cr-22",
+      "category": "adversarial",
+      "status": "passed",
+      "first_attempt_passed": true,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [],
+      "latency_ms": 2927.919,
+      "cost_usd": 0.00194358
+    },
+    {
+      "case_id": "cr-23",
+      "category": "happy_path",
+      "status": "escalated",
+      "first_attempt_passed": false,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [
+        "critical_issue"
+      ],
+      "latency_ms": 4176.563,
+      "cost_usd": 0.00248148
+    },
+    {
+      "case_id": "cr-24",
+      "category": "edge_case",
+      "status": "passed",
+      "first_attempt_passed": true,
+      "final_passed": true,
+      "retries": 0,
+      "field_accuracy": 1.0,
+      "missing_fields": [],
+      "wrong_fields": [],
+      "hallucinated_fields": [],
+      "failure_codes": [],
+      "latency_ms": 2459.396,
+      "cost_usd": 0.00186012
     }
   ]
 }

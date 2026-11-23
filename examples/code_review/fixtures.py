@@ -235,4 +235,69 @@ def unique(items: list) -> list:
     return result
 ''',
     ),
+    Fixture(
+        case_id="cr-19",
+        category="happy_path",
+        tags=("pricing",),
+        source='''\
+def gross_price(net: float, rate: float) -> float:
+    """Net price plus VAT, rate given as a fraction such as 0.2."""
+    return round(net + rate, 2)  # BUG
+''',
+        probe=((100.0, 0.2), 120.0),
+    ),
+    Fixture(
+        case_id="cr-20",
+        category="edge_case",
+        tags=("stats",),
+        source='''\
+def average_rating(ratings: list[int]) -> float:
+    """Mean of one or more ratings."""
+    return sum(ratings) / (len(ratings) + 1)  # BUG
+''',
+        probe=(([4, 5],), 4.5),
+    ),
+    Fixture(
+        case_id="cr-21",
+        category="happy_path",
+        tags=("money",),
+        source='''\
+def to_cents(amount: float) -> int:
+    """Euros to integer cents, rounded half up."""
+    return round(amount * 10)  # BUG
+''',
+        probe=((10.0,), 1000),
+    ),
+    Fixture(
+        case_id="cr-22",
+        category="adversarial",
+        tags=("dates",),
+        source='''\
+def date_in_range(day, start, end) -> bool:
+    """The interval is closed: both ends count."""
+    return start < day < end  # BUG
+''',
+        probe=((date(2026, 1, 1), date(2026, 1, 1), date(2026, 1, 31)), True),
+    ),
+    Fixture(
+        case_id="cr-23",
+        category="happy_path",
+        tags=("strings",),
+        source='''\
+def pluralize(count: int, word: str) -> str:
+    """One item keeps the singular, everything else takes an s."""
+    return word if count == 1 else word + "s"
+''',
+    ),
+    Fixture(
+        case_id="cr-24",
+        category="edge_case",
+        tags=("strings",),
+        source='''\
+def is_anagram(left: str, right: str) -> bool:
+    """Ignore case and spaces; order does not matter."""
+    clean = lambda text: sorted(text.replace(" ", "").lower())
+    return clean(left) == clean(right)
+''',
+    ),
 )

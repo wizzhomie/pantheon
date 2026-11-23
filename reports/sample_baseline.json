@@ -4,7 +4,7 @@
   "git_sha": "stub",
   "mode": "baseline",
   "preset_name": "logistics_intake",
-  "preset_hash": "ff2b19b01158675328938c7fae873cb95ddfac71b3b5e00688c57ca5afdfcd91",
+  "preset_hash": "0f88a657a555e39060d67dc1129ed22b24304e250b87e64cee31613a14597a69",
   "dataset_hash": "59b12a301566c8ae6783d080780286b8428e5cdab40a8dfca3c24148a7c5effd",
   "llm": {
     "agent": "demo-stub",
@@ -20,8 +20,8 @@
     "false_pass_rate": 0.25,
     "field_accuracy_macro": 0.9771,
     "hallucination_rate": 0.0312,
-    "latency_p50_ms": 0.123,
-    "latency_p95_ms": 0.294,
+    "latency_p50_ms": 0.127,
+    "latency_p95_ms": 0.301,
     "prompt_tokens": 0,
     "completion_tokens": 0,
     "cost_usd_total": 0.0,
@@ -65,7 +65,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 1.739,
+      "latency_ms": 1.759,
       "cost_usd": 0.0
     },
     {
@@ -80,7 +80,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.182,
+      "latency_ms": 0.232,
       "cost_usd": 0.0
     },
     {
@@ -97,7 +97,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.184,
+      "latency_ms": 0.144,
       "cost_usd": 0.0
     },
     {
@@ -112,7 +112,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.294,
+      "latency_ms": 0.301,
       "cost_usd": 0.0
     },
     {
@@ -129,7 +129,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.135,
+      "latency_ms": 0.172,
       "cost_usd": 0.0
     },
     {
@@ -144,7 +144,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.121,
+      "latency_ms": 0.131,
       "cost_usd": 0.0
     },
     {
@@ -163,7 +163,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.159,
+      "latency_ms": 0.141,
       "cost_usd": 0.0
     },
     {
@@ -178,7 +178,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.12,
+      "latency_ms": 0.118,
       "cost_usd": 0.0
     },
     {
@@ -193,7 +193,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.126,
+      "latency_ms": 0.115,
       "cost_usd": 0.0
     },
     {
@@ -225,7 +225,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.135,
+      "latency_ms": 0.123,
       "cost_usd": 0.0
     },
     {
@@ -240,7 +240,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.126,
+      "latency_ms": 0.128,
       "cost_usd": 0.0
     },
     {
@@ -255,7 +255,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.113,
+      "latency_ms": 0.111,
       "cost_usd": 0.0
     },
     {
@@ -270,7 +270,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.116,
+      "latency_ms": 0.112,
       "cost_usd": 0.0
     },
     {
@@ -285,7 +285,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.162,
+      "latency_ms": 0.142,
       "cost_usd": 0.0
     },
     {
@@ -300,7 +300,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.115,
+      "latency_ms": 0.107,
       "cost_usd": 0.0
     },
     {
@@ -315,7 +315,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.13,
+      "latency_ms": 0.127,
       "cost_usd": 0.0
     },
     {
@@ -330,7 +330,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.128,
+      "latency_ms": 0.149,
       "cost_usd": 0.0
     },
     {
@@ -345,7 +345,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.229,
+      "latency_ms": 0.197,
       "cost_usd": 0.0
     },
     {
@@ -360,7 +360,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.123,
+      "latency_ms": 0.122,
       "cost_usd": 0.0
     },
     {
@@ -375,7 +375,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.115,
+      "latency_ms": 0.114,
       "cost_usd": 0.0
     },
     {
@@ -392,7 +392,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.113,
+      "latency_ms": 0.13,
       "cost_usd": 0.0
     },
     {
@@ -407,7 +407,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.126,
+      "latency_ms": 0.119,
       "cost_usd": 0.0
     },
     {
@@ -422,7 +422,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.123,
+      "latency_ms": 0.161,
       "cost_usd": 0.0
     },
     {
@@ -440,7 +440,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.108,
+      "latency_ms": 0.157,
       "cost_usd": 0.0
     },
     {
@@ -455,7 +455,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.12,
+      "latency_ms": 0.135,
       "cost_usd": 0.0
     },
     {
@@ -472,7 +472,7 @@
       ],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.121,
+      "latency_ms": 0.113,
       "cost_usd": 0.0
     },
     {
@@ -491,7 +491,7 @@
         "cargo.0.weight_kg"
       ],
       "failure_codes": [],
-      "latency_ms": 0.123,
+      "latency_ms": 0.118,
       "cost_usd": 0.0
     },
     {
@@ -506,7 +506,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.119,
+      "latency_ms": 0.176,
       "cost_usd": 0.0
     },
     {
@@ -521,7 +521,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.121,
+      "latency_ms": 0.127,
       "cost_usd": 0.0
     },
     {
@@ -536,7 +536,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.12,
+      "latency_ms": 0.112,
       "cost_usd": 0.0
     },
     {
@@ -551,7 +551,7 @@
       "wrong_fields": [],
       "hallucinated_fields": [],
       "failure_codes": [],
-      "latency_ms": 0.117,
+      "latency_ms": 0.121,
       "cost_usd": 0.0
     }
   ]

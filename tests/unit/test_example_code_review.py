@@ -54,9 +54,9 @@ def test_the_committed_dataset_matches_the_builder() -> None:
         target = Path(directory) / "dataset.jsonl"
         target.write_text(build_text(), encoding="utf-8")
         assert Dataset.load(target).digest() == committed.digest()
-    assert len(committed.cases) == 18
+    assert len(committed.cases) == 24
     broken = [case for case in committed.cases if case.expected["bug_lines"]]
-    assert len(broken) == 14
+    assert len(broken) == 18
     assert {case.category for case in committed.cases} == {
         "happy_path",
         "edge_case",
@@ -142,6 +142,6 @@ def test_the_replay_command_reproduces_the_live_numbers(tmp_path: Path) -> None:
     out = tmp_path / "replay.json"
     assert main(["replay", "--config", str(CONFIG), "--out", str(out)]) == 0
     metrics = json.loads(out.read_text(encoding="utf-8"))["metrics"]
-    assert metrics["pass_rate_final"] == 0.8333
+    assert metrics["pass_rate_final"] == 0.875
     assert metrics["false_pass_rate"] == 0.0
-    assert metrics["escalation_rate"] == 0.2222
+    assert metrics["escalation_rate"] == 0.2083

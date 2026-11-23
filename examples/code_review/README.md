@@ -18,7 +18,7 @@ Two things make this example different from the logistics one:
 | [`schema.py`](schema.py) | `Finding` and `Review` | a finding anchored to a line and a quote |
 | [`checks.py`](checks.py) | `C1`–`C4` | quote exists, line exists, quote is on that line, verdict agrees |
 | [`scoring.py`](scoring.py) | recall plus a spurious-finding veto | whole-answer scoring through `[scoring] custom` |
-| [`fixtures.py`](fixtures.py) | 18 snippets, 14 with planted bugs | bugs are marked in source and verified by a probe |
+| [`fixtures.py`](fixtures.py) | 24 snippets, 18 with planted bugs | bugs are marked in source and verified by a probe |
 | [`qagent.toml`](qagent.toml) | the whole preset, as data | the config path this library is built around |
 
 Supporting files: [`build_dataset.py`](build_dataset.py) turns the fixtures into the committed

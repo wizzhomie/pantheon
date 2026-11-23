@@ -12,18 +12,18 @@
 
 | Metric | A | B | Δ | Better |
 |---|---|---|---|---|
-| Pass, first attempt | 88.9% | 83.3% | -5.6 pp | worse |
-| Pass, final | 88.9% | 94.4% | +5.5 pp | better |
-| Field accuracy (macro) | 88.9% | 94.4% | +5.5 pp | better |
+| Pass, first attempt | 91.7% | 87.5% | -4.2 pp | worse |
+| Pass, final | 91.7% | 95.8% | +4.2 pp | better |
+| Field accuracy (macro) | 91.7% | 95.8% | +4.2 pp | better |
 | Retry recovery | 0.0% | 100.0% | +100.0 pp | better |
 | Hallucination rate | 0.0% | 0.0% | +0.0 pp | same |
-| False pass rate | 11.1% | 5.6% | -5.5 pp | better |
+| False pass rate | 8.3% | 4.2% | -4.2 pp | better |
 | Cost, total | $0.0000 | $0.0000 | +0.0000 | same |
 | Cost per case | $0.0000 | $0.0000 | +0.0000 | same |
 | Cost per passed case | $0.0000 | $0.0000 | +0.0000 | same |
 | Latency p50 | 0 ms | 0 ms | +0 ms | worse |
-| Latency p95 | 2 ms | 0 ms | -2 ms | better |
-| Retry rate | 0.0% | 11.1% | +11.1 pp | — |
+| Latency p95 | 0 ms | 0 ms | -0 ms | better |
+| Retry rate | 0.0% | 8.3% | +8.3 pp | — |
 | Escalation rate | 0.0% | 0.0% | +0.0 pp | — |
 
 ## Changed cases

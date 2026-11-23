@@ -84,11 +84,11 @@ the README can link to them; replace them only with another stub run, and use `m
 The second example has its own folder, because its numbers answer a different question: not "did
 the extraction match the email" but "did the review find the planted bug and invent nothing".
 
-### Live run: 18 cases, 2026-11-23
+### Live run: 24 cases, 2026-11-23
 
 [`code_review/guarded.*`](code_review/guarded.md) is a real run of `deepseek-flash` with
 `deepseek-v4-pro` as the judge; every answer is in
-`examples/code_review/cassettes/deepseek-flash.jsonl` (36 requests, 20 KB). Reasoning was off at the
+`examples/code_review/cassettes/deepseek-flash.jsonl` (48 requests). Reasoning was off at the
 provider, as in the logistics run (U37).
 
 [`code_review/baseline.*`](code_review/baseline.md) was produced by replaying the same committed
@@ -97,19 +97,20 @@ against itself rather than two samples of the endpoint.
 
 | | baseline | guarded |
 |---|---|---|
-| Pass, final | 83.3% | 83.3% |
-| False pass rate | 16.7% | **0.0%** |
-| Escalation rate | 0.0% | 22.2% (4 of 18) |
+| Pass, final | 87.5% | 87.5% |
+| False pass rate | 12.5% | **0.0%** |
+| Escalation rate | 0.0% | 20.8% (5 of 24) |
 | Retry recovery | — | 100% (1 of 1) |
-| Cost, total | $0.0051 | $0.0354 |
-| Cost per passed case | $0.0003 | $0.0024 |
-| Latency p50 / p95 | — / — | 2.4 s / 4.6 s |
+| Cost, total | $0.0068 | $0.0477 |
+| Cost per passed case | $0.0003 | $0.0023 |
+| Latency p50 / p95 | — / — | 2.9 s / 4.7 s |
 
-The interesting column is the middle one. Three "looks fine" answers would have shipped in
-`baseline` mode; the judge noticed the missed defect and escalated them (`critical_issue`). One more
-pointed at the right line with the wrong quote, which the free anchor check caught
-(`C3_QUOTE_NOT_ON_LINE`), and it escalated when the retry did not fix it (`no_progress`). The pass
-rate did not move — correctness did not improve — but no wrong answer was accepted.
+The interesting column is the middle one. Three "looks fine" answers on buggy code would have
+shipped in `baseline` mode, and one invented defect on clean code would have gone out as a false
+alarm; the judge escalated all four (`critical_issue`). One more pointed at the right line with the
+wrong quote, which the free anchor check caught (`C3_QUOTE_NOT_ON_LINE`), and it escalated when the
+retry did not fix it (`no_progress`). The pass rate did not move — correctness did not improve — but
+no wrong answer was accepted.
 
 ### Stub run: demo agent, no model calls
 

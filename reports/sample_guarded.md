@@ -8,7 +8,7 @@
 | | |
 |---|---|
 | Preset | `logistics_intake` |
-| Preset hash | `ff2b19b01158675328938c7fae873cb95ddfac71b3b5e00688c57ca5afdfcd91` |
+| Preset hash | `0f88a657a555e39060d67dc1129ed22b24304e250b87e64cee31613a14597a69` |
 | Dataset hash | `59b12a301566c8ae6783d080780286b8428e5cdab40a8dfca3c24148a7c5effd` |
 | Cases | 32 |
 | Commit | `stub` |

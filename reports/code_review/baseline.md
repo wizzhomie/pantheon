@@ -1,13 +1,13 @@
-# Evaluation report — `baseline` · `20261123T022758-baseline-57fbd2e`
+# Evaluation report — `baseline` · `20261123T023104-baseline-528de59`
 
 | | |
 |---|---|
 | Preset | `code_review` |
-| Preset hash | `86294bebb6779870d3e9b0d216153c92b7ba534dc824fdde390414d16e82e15b` |
-| Dataset hash | `2be6d9aa1c03e9f8563cf5a16ff3e4523404f5abd091e0d7196e77d8b96e490a` |
-| Cases | 18 |
-| Commit | `57fbd2e` |
-| Created | 2026-11-23 02:27 UTC |
+| Preset hash | `c9a511c59f183b67ed4bff3c24fe1bc74f62991e91d85a8436ed53060e6c7edc` |
+| Dataset hash | `7f2d27466d490eafe26352117e8d00a5a6681125e5fa35235ce212f927a9d7e6` |
+| Cases | 24 |
+| Commit | `528de59` |
+| Created | 2026-11-23 02:31 UTC |
 | Agent model | `deepseek-flash` |
 | Judge | `deepseek-v4-pro` |
 
@@ -15,11 +15,11 @@
 
 | Metric | Value | Meaning |
 |---|---|---|
-| Pass, first attempt | 83.3% | accepted on attempt 1 and correct |
-| Pass, final | 83.3% | correct after the loop |
-| Field accuracy (macro) | 83.3% | weighted match of the expected fields |
+| Pass, first attempt | 87.5% | accepted on attempt 1 and correct |
+| Pass, final | 87.5% | correct after the loop |
+| Field accuracy (macro) | 87.5% | weighted match of the expected fields |
 | Hallucination rate | 0.0% | a forbidden value appeared |
-| False pass rate | 16.7% | the loop accepted a wrong answer |
+| False pass rate | 12.5% | the loop accepted a wrong answer |
 
 ## Loop
 
@@ -28,19 +28,19 @@
 | Escalation rate | 0.0% |
 | Retry rate | 0.0% |
 | Retry recovery rate | 0.0% |
-| Latency p50 / p95 | 0 ms / 2 ms |
-| Cost, total | $0.0051 |
+| Latency p50 / p95 | 0 ms / 0 ms |
+| Cost, total | $0.0068 |
 | Cost per case | $0.0003 |
 | Cost per passed case | $0.0003 |
-| Tokens (prompt / completion) | 13,385 / 901 |
+| Tokens (prompt / completion) | 17,843 / 1,229 |
 
 ## By category
 
 | Category | Cases | Pass, first | Pass, final | Escalation | Field accuracy |
 |---|---|---|---|---|---|
-| adversarial | 3 | 66.7% | 66.7% | 0.0% | 66.7% |
-| edge_case | 6 | 83.3% | 83.3% | 0.0% | 83.3% |
-| happy_path | 9 | 88.9% | 88.9% | 0.0% | 88.9% |
+| adversarial | 4 | 75.0% | 75.0% | 0.0% | 75.0% |
+| edge_case | 8 | 87.5% | 87.5% | 0.0% | 87.5% |
+| happy_path | 12 | 91.7% | 91.7% | 0.0% | 91.7% |
 
 ## Cases
 
@@ -64,7 +64,13 @@
 | `cr-16` | happy_path | passed | yes | 100.0% | — | 0 | $0.0002 |
 | `cr-17` | happy_path | passed | yes | 100.0% | — | 0 | $0.0002 |
 | `cr-18` | happy_path | passed | yes | 100.0% | — | 0 | $0.0002 |
+| `cr-19` | happy_path | passed | yes | 100.0% | — | 0 | $0.0003 |
+| `cr-20` | edge_case | passed | yes | 100.0% | — | 0 | $0.0003 |
+| `cr-21` | happy_path | passed | yes | 100.0% | — | 0 | $0.0003 |
+| `cr-22` | adversarial | passed | yes | 100.0% | — | 0 | $0.0003 |
+| `cr-23` | happy_path | passed | yes | 100.0% | — | 0 | $0.0002 |
+| `cr-24` | edge_case | passed | yes | 100.0% | — | 0 | $0.0002 |
 
 ## Notes
 
-- 16.7% of cases were accepted by the loop but are wrong against the golden values.
+- 12.5% of cases were accepted by the loop but are wrong against the golden values.

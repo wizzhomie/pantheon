@@ -8,9 +8,9 @@
 | | |
 |---|---|
 | Preset | `code_review` |
-| Preset hash | `266915ae0a15d75e7cf63855b645ef6bb5be55f66dcbc9634309ccfc8eb29467` |
-| Dataset hash | `2be6d9aa1c03e9f8563cf5a16ff3e4523404f5abd091e0d7196e77d8b96e490a` |
-| Cases | 18 |
+| Preset hash | `3e0e914b1463c8a6492224b7c47c636e68e0c4c2214a3855a0a85a6e3304b3e1` |
+| Dataset hash | `7f2d27466d490eafe26352117e8d00a5a6681125e5fa35235ce212f927a9d7e6` |
+| Cases | 24 |
 | Commit | `stub` |
 | Created | 2026-11-23 02:00 UTC |
 | Agent model | `demo-stub` |
@@ -20,11 +20,11 @@
 
 | Metric | Value | Meaning |
 |---|---|---|
-| Pass, first attempt | 88.9% | accepted on attempt 1 and correct |
-| Pass, final | 88.9% | correct after the loop |
-| Field accuracy (macro) | 88.9% | weighted match of the expected fields |
+| Pass, first attempt | 91.7% | accepted on attempt 1 and correct |
+| Pass, final | 91.7% | correct after the loop |
+| Field accuracy (macro) | 91.7% | weighted match of the expected fields |
 | Hallucination rate | 0.0% | a forbidden value appeared |
-| False pass rate | 11.1% | the loop accepted a wrong answer |
+| False pass rate | 8.3% | the loop accepted a wrong answer |
 
 ## Loop
 
@@ -33,7 +33,7 @@
 | Escalation rate | 0.0% |
 | Retry rate | 0.0% |
 | Retry recovery rate | 0.0% |
-| Latency p50 / p95 | 0 ms / 2 ms |
+| Latency p50 / p95 | 0 ms / 0 ms |
 | Cost, total | $0.0000 |
 | Cost per case | $0.0000 |
 | Cost per passed case | $0.0000 |
@@ -43,9 +43,9 @@
 
 | Category | Cases | Pass, first | Pass, final | Escalation | Field accuracy |
 |---|---|---|---|---|---|
-| adversarial | 3 | 100.0% | 100.0% | 0.0% | 100.0% |
-| edge_case | 6 | 66.7% | 66.7% | 0.0% | 66.7% |
-| happy_path | 9 | 100.0% | 100.0% | 0.0% | 100.0% |
+| adversarial | 4 | 100.0% | 100.0% | 0.0% | 100.0% |
+| edge_case | 8 | 75.0% | 75.0% | 0.0% | 75.0% |
+| happy_path | 12 | 100.0% | 100.0% | 0.0% | 100.0% |
 
 ## Cases
 
@@ -69,7 +69,13 @@
 | `cr-16` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `cr-17` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
 | `cr-18` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-19` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-20` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-21` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-22` | adversarial | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-23` | happy_path | passed | yes | 100.0% | — | 0 | $0.0000 |
+| `cr-24` | edge_case | passed | yes | 100.0% | — | 0 | $0.0000 |
 
 ## Notes
 
-- 11.1% of cases were accepted by the loop but are wrong against the golden values.
+- 8.3% of cases were accepted by the loop but are wrong against the golden values.
