@@ -42,3 +42,9 @@ runs/
 .DS_Store
 .idea/
 .vscode/
+
+# Agent instruction files are private to the machine: never committed.
+AGENTS.md
+CLAUDE.md
+AGENTS.local.md
+CLAUDE.local.md
