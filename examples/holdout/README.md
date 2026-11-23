@@ -20,6 +20,10 @@ The committed result is [`reports/holdout/bench.md`](../../reports/holdout/bench
 model call. The live half of the suite costs cents and is described under [the reviewer
 layer](#the-reviewer-layer).
 
+The bench runs the project's own tools, so it needs what that project needs: `pytest` and `mypy`
+on `PATH`. Without them a check cannot start, the run reports it as a failure, and every case
+comes out `HOLD` — which is why CI installs both before running the suite.
+
 ## How a case is built
 
 `base/` is a whole little project: an invoice total, its tests, a migration guard and the policy
