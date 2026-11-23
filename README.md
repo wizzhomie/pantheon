@@ -114,6 +114,24 @@ case, judge included.
 Three customization levels, none of which needs a fork: config (L1), your checks and rubric (L2),
 your agent/judge/sinks (L3).
 
+### The same cartridge as a file
+
+The preset above can be a `qagent.toml` instead, so a new project starts from a settings file
+rather than from a copy of this library's wiring:
+
+```bash
+qagent init --dir ./qa             # starter config plus a one-case dataset
+qagent check --config qagent.toml  # validate the file and the dataset, run nothing
+qagent eval --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
+```
+
+[`examples/logistics_intake/qagent.toml`](examples/logistics_intake/qagent.toml) describes the same
+preset as `preset.py`: both build a preset with the same fingerprint, and a replay run through the
+file reproduces the committed numbers. Two things stay code, because a file cannot choose a
+provider or read a key — `agent = "module:factory"` and `judge_client = "module:factory"`. A check
+with a Python predicate is named under `[checks] extra`; a domain retry hint under
+`retry_builder`.
+
 ### Modes
 
 | Mode | Behaviour | When |

@@ -4,6 +4,7 @@
 #   make demo     the demo agent through the CLI: no key, no network, no money
 #   make sample   regenerate the committed stub reports
 #   make replay   the committed live cassette: same numbers, no key, no network
+#   make config-check  validate the qagent.toml description of the same preset
 #   make eval     a live model run (needs DEEPSEEK_API_KEY); baseline + diff included
 #
 # The library is not pip-installed in this checkout, hence PYTHONPATH=src. The `.` is what
@@ -13,11 +14,12 @@ PYTHON ?= .venv/bin/python
 export PYTHONPATH := src
 
 DATASET := examples/logistics_intake/dataset.jsonl
+CONFIG := examples/logistics_intake/qagent.toml
 SPEC := examples.logistics_intake.runner:build_guarded
 
 .DEFAULT_GOAL := check
 
-.PHONY: check lint typecheck test demo sample replay eval baseline diff
+.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check
 
 check: lint typecheck test
 
@@ -29,6 +31,9 @@ typecheck:
 
 test:
 	$(PYTHON) -m pytest
+
+config-check:
+	$(PYTHON) -m qagent check --config $(CONFIG)
 
 demo:
 	$(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \

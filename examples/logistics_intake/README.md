@@ -17,6 +17,11 @@ the 32 labelled cases.
 | [`preset.py`](preset.py) | `PRESET`: rubric, prompt, scoring spec, retry hook | the one object `guard()` needs |
 | [`agent.py`](agent.py) | one model call, feedback appended on retry | the entire integration surface |
 | [`runner.py`](runner.py) | client/model/pricing wiring | the `module:factory` the CLI calls |
+| [`qagent.toml`](qagent.toml) | the same preset as data | the file-based path: `qagent eval --config` |
+
+`qagent.toml` is not a summary of `preset.py`: it builds the same preset (a test asserts the two
+fingerprints are equal), and a replay run through the file gives the same numbers.
+Prompts live in [`prompts/`](prompts/) text files, read by both paths, so they cannot drift.
 
 Two supporting files: [`build_dataset.py`](build_dataset.py) generates the committed
 `dataset.jsonl` and refuses to write it if a citation is not in its email, and

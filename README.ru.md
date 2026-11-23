@@ -115,6 +115,23 @@ one_shot = await guarded.with_mode("baseline").run(Case(case_id="mail-42", paylo
 Три уровня кастомизации, ни один не требует форка: конфиг (L1), свои проверки и рубрика (L2), свой
 агент/судья/приёмники (L3).
 
+### Тот же пресет — файлом
+
+Пресет выше можно записать в `qagent.toml`, и тогда новый проект начинается с файла настроек, а не
+с копии обвязки библиотеки:
+
+```bash
+qagent init --dir ./qa             # заготовка конфига и датасет из одного кейса
+qagent check --config qagent.toml  # проверить файл и датасет, ничего не запуская
+qagent eval --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
+```
+
+[`examples/logistics_intake/qagent.toml`](examples/logistics_intake/qagent.toml) описывает тот же
+пресет, что `preset.py`: у обоих одинаковый отпечаток, а прогон через файл из кассеты даёт те же
+цифры. Кодом остаются две вещи, которые файл решить не может, — выбор провайдера и ключ:
+`agent = "module:factory"` и `judge_client = "module:factory"`. Проверка с питоновским условием
+называется в `[checks] extra`, подсказка к повтору — в `retry_builder`.
+
 ### Режимы
 
 | Режим | Поведение | Когда |

@@ -1,13 +1,15 @@
-"""Command line: evaluate a dataset and compare two reports.
+"""Command line: init a project file, check it, evaluate a dataset, compare reports.
 
-The library owns the loop; the project owns its wiring. That is why ``eval`` takes a
-``module:factory`` reference instead of a preset name: building clients, choosing a replay
-directory and reading keys is project code, and the CLI must not grow a second, half-working
-configuration system next to it.
+Two ways in, on purpose:
 
-The factory is a zero-argument callable returning a :class:`GuardedAgent`. ``--mode``
-overrides its mode, which is how a baseline and a guarded report are produced from one
-setup.
+``--config qagent.toml``
+    The recommended path: the cartridge and the run policy come from a file, and only the
+    agent and the judge client are code (``module:factory``).
+``--spec module:factory``
+    The original path: a project that wants to build the whole ``GuardedAgent`` itself.
+
+``--mode`` overrides the configured mode, which is how a baseline and a guarded report are
+produced from one setup.
 """
 
 from __future__ import annotations
@@ -21,10 +23,88 @@ from pathlib import Path
 from typing import Any
 
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
+from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
+
+CONFIG_TEMPLATE = '''\
+# One project, one file. Run it with: qagent eval --config qagent.toml
+name = "my-project"
+dataset = "dataset.jsonl"
+# The output schema and the agent are the only two things a file cannot describe.
+schema = "myproject.schemas:Ticket"
+agent = "myproject.agent:build_agent"
+# The judge needs a client; drop this line if the judge is disabled below.
+judge_client = "myproject.agent:build_judge_client"
+
+mode = "guarded"
+agent_prompt_file = "prompts/agent.txt"
+judge_instructions_file = "prompts/judge.txt"
+
+[report]
+out = "reports/guarded.json"
+markdown = "reports/guarded.md"
+
+[limits]
+max_cost_usd = 0.05
+max_latency_ms = 30000
+
+[retry]
+max_attempts = 2
+
+[judge]
+enabled = true
+model = "the-judge-model"
+max_tokens = 900
+
+[rubric]
+pass_score = 0.75
+
+[[rubric.criteria]]
+id = "grounding"
+title = "Grounding"
+description = "5: every filled value is stated in the input. 1: a value is invented."
+weight = 0.5
+
+[[rubric.criteria]]
+id = "completeness"
+title = "Completeness"
+description = "5: nothing the input states is missing. 1: half of it is missing."
+weight = 0.5
+
+[scoring]
+min_field_accuracy = 1.0
+
+[[scoring.fields]]
+path = "priority"
+comparator = "normalized"
+
+[[scoring.fields]]
+path = "summary"
+comparator = "fuzzy"
+
+[checks.required]
+rules = [{ path = "priority" }, { path = "summary" }]
+
+[checks.formats]
+rules = [{ path = "priority", kind = "enum", allowed = ["P1", "P2", "P3", "P4"] }]
+
+[checks.evidence]
+required_paths = ["summary"]
+
+[[pricing]]
+model = "the-agent-model"
+input_usd_per_mtok = 0.30
+output_usd_per_mtok = 1.20
+checked_at = 2026-11-23
+'''
+
+DATASET_TEMPLATE = (
+    '{"case_id":"case-01","category":"happy_path","payload":"a customer message goes here",'
+    '"expected":{"priority":"P3","summary":"what the message asks for"}}\n'
+)
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -33,6 +113,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     try:
         if args.command == "eval":
             return _run_eval(args)
+        if args.command == "check":
+            return _run_check(args)
+        if args.command == "init":
+            return _run_init(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -47,17 +131,29 @@ def _build_parser() -> argparse.ArgumentParser:
     subcommands = parser.add_subparsers(dest="command", required=True)
 
     run = subcommands.add_parser("eval", help="run a dataset through a guarded agent")
-    run.add_argument(
+    source = run.add_mutually_exclusive_group(required=True)
+    source.add_argument(
+        "--config",
+        type=Path,
+        metavar="PATH",
+        help="qagent.toml describing the project (recommended)",
+    )
+    source.add_argument(
         "--spec",
-        required=True,
         metavar="MODULE:FACTORY",
         help="zero-argument factory returning GuardedAgent, e.g. examples.intake.runner:build",
     )
-    run.add_argument("--dataset", required=True, type=Path, help="dataset JSONL")
-    run.add_argument("--out", required=True, type=Path, help="JSON report to write")
+    run.add_argument("--dataset", type=Path, help="override the dataset from the config")
+    run.add_argument("--out", type=Path, help="JSON report to write")
     run.add_argument("--markdown", type=Path, help="Markdown report to write")
     run.add_argument("--mode", choices=["guarded", "baseline", "shadow"])
     run.add_argument("--concurrency", type=int, default=4)
+
+    check = subcommands.add_parser("check", help="validate a config and its dataset, run nothing")
+    check.add_argument("--config", required=True, type=Path, metavar="PATH")
+
+    init = subcommands.add_parser("init", help="write a starter config and dataset")
+    init.add_argument("--dir", type=Path, default=Path("."), help="where to write the files")
 
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
@@ -67,18 +163,66 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _run_eval(args: argparse.Namespace) -> int:
-    guarded = load_guarded(args.spec)
+    guarded, dataset_path, out, markdown = _resolve_eval(args)
     if args.mode:
         guarded = guarded.with_mode(args.mode)
-    dataset = Dataset.load(args.dataset)
+    dataset = Dataset.load(dataset_path)
     report = asyncio.run(evaluate(guarded, dataset, concurrency=args.concurrency))
-    write_json(report, args.out)
-    if args.markdown:
-        write_markdown(report, args.markdown)
+    write_json(report, out)
+    if markdown:
+        write_markdown(report, markdown)
     print(
         f"{report.run_id}: {report.metrics.cases} cases, "
-        f"pass {report.metrics.pass_rate_final:.1%} -> {args.out}"
+        f"pass {report.metrics.pass_rate_final:.1%} -> {out}"
     )
+    return EXIT_OK
+
+
+def _resolve_eval(
+    args: argparse.Namespace,
+) -> tuple[GuardedAgent[Any], Path, Path, Path | None]:
+    if args.config is not None:
+        config = ProjectConfig.load(args.config)
+        guarded = build_guarded(config)
+        out = args.out or (Path(config.report.out) if config.report.out else None)
+        markdown = args.markdown or (
+            Path(config.report.markdown) if config.report.markdown else None
+        )
+        if out is None:
+            raise ValueError("--out is required when the config has no [report] out")
+        return guarded, Path(config.dataset), out, markdown
+    if args.out is None or args.dataset is None:
+        raise ValueError("--dataset and --out are required with --spec")
+    return load_guarded(args.spec), args.dataset, args.out, args.markdown
+
+
+def _run_check(args: argparse.Namespace) -> int:
+    config = ProjectConfig.load(args.config)
+    notes = validate(config)
+    dataset = Dataset.load(Path(config.dataset))
+    categories = sorted({case.category for case in dataset.cases})
+    print(
+        f"{config.name}: {len(dataset.cases)} cases ({', '.join(categories)}), "
+        f"checks {len(config.checks.required.rules) if config.checks.required else 0} required, "
+        f"rubric {len(config.rubric.criteria)} criteria"
+    )
+    for note in notes:
+        print(f"note: {note}")
+    return EXIT_OK
+
+
+def _run_init(args: argparse.Namespace) -> int:
+    target: Path = args.dir
+    target.mkdir(parents=True, exist_ok=True)
+    config_path = target / "qagent.toml"
+    dataset_path = target / "dataset.jsonl"
+    if config_path.exists():
+        raise ValueError(f"{config_path} already exists; not overwriting it")
+    config_path.write_text(CONFIG_TEMPLATE, encoding="utf-8")
+    if not dataset_path.exists():
+        dataset_path.write_text(DATASET_TEMPLATE, encoding="utf-8")
+    print(f"wrote {config_path} and {dataset_path}; edit the module names, then: ")
+    print(f"  qagent check --config {config_path}")
     return EXIT_OK
 
 

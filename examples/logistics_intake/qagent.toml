@@ -1,0 +1,156 @@
+# The same preset as `preset.py`, written as data: this file is the project's whole
+# cartridge. Run it with: qagent eval --config examples/logistics_intake/qagent.toml
+# Check it with:        qagent check --config examples/logistics_intake/qagent.toml
+#
+# Only two things stay code: the agent factory and the judge client factory, because
+# they choose a provider, read a key and find a cassette. Everything else is here.
+name = "logistics_intake"
+dataset = "dataset.jsonl"
+schema = "examples.logistics_intake.schema:ExtractedIntake"
+agent = "examples.logistics_intake.runner:build_agent"
+judge_client = "examples.logistics_intake.runner:build_judge_client"
+# Domain hints appended to the generic retry feedback; a file cannot hold a function.
+retry_builder = "examples.logistics_intake.preset:build_retry"
+mode = "guarded"
+agent_model = "deepseek-flash"
+agent_prompt_file = "prompts/agent.txt"
+judge_instructions_file = "prompts/judge.txt"
+
+[limits]
+max_cost_usd = 0.20
+max_latency_ms = 240000
+
+[retry]
+max_attempts = 2
+
+[judge]
+enabled = true
+model = "deepseek-v4-pro"
+max_tokens = 8000
+
+[rubric]
+pass_score = 0.75
+[[rubric.criteria]]
+id = "grounding"
+title = "Grounding"
+description = "5: every filled value is stated in the email and its quote is verbatim. 1: a value is invented, or its quote is not in the email."
+weight = 0.5
+[[rubric.criteria]]
+id = "completeness"
+title = "Completeness"
+description = "5: every fact the email states is extracted, and what it does not state is listed in unresolved. 1: a stated fact is missing or an unstated one is filled instead of being marked unresolved."
+weight = 0.3
+[[rubric.criteria]]
+id = "usability"
+title = "Usability"
+description = "5: the intake can be priced and booked without opening the email. 1: a colleague would have to re-read the email to act on it."
+weight = 0.2
+
+[scoring]
+min_field_accuracy = 1.0
+[[scoring.fields]]
+path = "request_type"
+comparator = "exact"
+[[scoring.fields]]
+path = "contact.name"
+comparator = "normalized"
+[[scoring.fields]]
+path = "contact.email"
+comparator = "normalized"
+[[scoring.fields]]
+path = "origin.city"
+comparator = "normalized"
+[[scoring.fields]]
+path = "origin.country_code"
+comparator = "exact"
+[[scoring.fields]]
+path = "destination.city"
+comparator = "normalized"
+[[scoring.fields]]
+path = "destination.country_code"
+comparator = "exact"
+[[scoring.fields]]
+path = "cargo.0.description"
+comparator = "fuzzy"
+tolerance = 0.85
+[[scoring.fields]]
+path = "cargo.0.quantity"
+comparator = "numeric"
+[[scoring.fields]]
+path = "cargo.0.weight_kg"
+comparator = "numeric"
+tolerance = 0.5
+[[scoring.fields]]
+path = "pickup_date"
+comparator = "exact"
+[[scoring.fields]]
+path = "delivery_date"
+comparator = "exact"
+[[scoring.fields]]
+path = "quote_amount"
+comparator = "numeric"
+tolerance = 0.01
+[[scoring.fields]]
+path = "quote_currency"
+comparator = "exact"
+[[scoring.fields]]
+path = "cargo_requirements"
+comparator = "set"
+
+[checks.required]
+unresolved_path = "unresolved"
+rules = [
+  { path = "request_type" },
+  { path = "contact.name" },
+  { path = "origin.city" },
+  { path = "origin.country_code" },
+  { path = "destination.city" },
+  { path = "destination.country_code" },
+  { path = "cargo" },
+  { path = "pickup_date", when_field = "request_type", when_equals = "booking", hint = "bookings need a loading date; a quote can stay unresolved" },
+]
+
+[checks.formats]
+rules = [
+  { path = "origin.country_code", kind = "country_code" },
+  { path = "destination.country_code", kind = "country_code" },
+  { path = "contact.email", kind = "email" },
+  { path = "contact.phone", kind = "phone" },
+  { path = "pickup_date", kind = "iso_date" },
+  { path = "delivery_date", kind = "iso_date" },
+  { path = "quote_currency", kind = "currency" },
+]
+
+[checks.ranges]
+numbers = [{ path = "quote_amount", minimum = 0.0, maximum = 500000.0, unit = "EUR-equivalent" }]
+
+# A check with a Python predicate cannot be a table: name its factory instead.
+[checks]
+extra = ["examples.logistics_intake.checks:extra_checks"]
+
+[checks.duplicates]
+path = "cargo"
+keys = ["description", "weight_kg"]
+
+[checks.evidence]
+required_paths = ["origin.city", "destination.city"]
+
+[checks.pii]
+allow_paths = ["contact.email", "contact.phone", "evidence"]
+
+[checks.refusal]
+paths = ["notes"]
+
+[[pricing]]
+model = "deepseek-flash"
+input_usd_per_mtok = 0.30
+output_usd_per_mtok = 1.20
+checked_at = 2026-11-22
+source = "https://api-docs.deepseek.com/quick_start/pricing"
+
+[[pricing]]
+model = "deepseek-v4-pro"
+input_usd_per_mtok = 1.32
+output_usd_per_mtok = 3.96
+checked_at = 2026-11-22
+source = "https://api-docs.deepseek.com/quick_start/pricing"
