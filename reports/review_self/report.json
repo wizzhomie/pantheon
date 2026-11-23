@@ -1,0 +1,211 @@
+{
+  "schema_version": 1,
+  "run": {
+    "run_id": "20261123T034403-qagent-default",
+    "policy_name": "qagent-default",
+    "policy_digest": "de31e738c4cf7444ad931a29146be106a4ff30823248ed353ed6987566901291",
+    "profile_digest": "55125591b46fa7e4ed5b0594116c2b9bbccfae296b9715c7ec1db3ca126e9429",
+    "started_at": "2026-11-23T03:44:03.825192Z",
+    "finished_at": "2026-11-23T03:44:06.330072Z",
+    "checks": [
+      {
+        "check_id": "tests",
+        "name": "test suite",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_ms": 2260.8,
+        "stdout_path": "checks/tests.stdout.txt",
+        "stderr_path": null,
+        "output_tail": "........................................................................ [ 14%]\n........................................................................ [ 29%]\n........................................................................ [ 43%]\n........................................................................ [ 58%]\n........................................................................ [ 73%]\n........................................................................ [ 87%]\n.............................................................            [100%]",
+        "optional": false,
+        "reason": null
+      },
+      {
+        "check_id": "lint",
+        "name": "ruff",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_ms": 34.1,
+        "stdout_path": "checks/lint.stdout.txt",
+        "stderr_path": null,
+        "output_tail": "All checks passed!",
+        "optional": false,
+        "reason": null
+      },
+      {
+        "check_id": "types",
+        "name": "mypy --strict",
+        "status": "passed",
+        "exit_code": 0,
+        "duration_ms": 208.8,
+        "stdout_path": "checks/types.stdout.txt",
+        "stderr_path": null,
+        "output_tail": "Success: no issues found in 101 source files",
+        "optional": false,
+        "reason": null
+      }
+    ],
+    "planned": 3,
+    "spent_seconds": 2.505,
+    "error": null
+  },
+  "findings": [
+    {
+      "id": "R1",
+      "title": "Byte ceiling measured in characters, not bytes",
+      "kind": "defect",
+      "status": "confirmed",
+      "severity": "minor",
+      "source": "reviewer",
+      "detail": "max_bytes is compared against len(text) (characters) and the slice text[:max_bytes] cuts characters, so a diff of multi-byte UTF-8 can exceed the stated byte ceiling (up to ~4x) and the prompt budget is not actually enforced in bytes. The name and docstring promise bytes.",
+      "location": {
+        "file": "src/qagent/review/diff.py",
+        "line": 85,
+        "quote": "truncated = len(text) > max_bytes"
+      },
+      "evidence": []
+    },
+    {
+      "id": "R2",
+      "title": "Anchor compares model path against diff paths without normalisation",
+      "kind": "risk",
+      "status": "confirmed",
+      "severity": "major",
+      "source": "reviewer",
+      "detail": "diff.paths holds paths after _safe_path stripping and prefix removal, but proposal.file is used verbatim. A model citing './src/x.py' or a path with a trailing space resolves to the same file via _resolve yet fails this membership check and is marked unverified, so a correct finding is silently downgraded. The check should compare resolved paths, not raw strings.",
+      "location": {
+        "file": "src/qagent/review/reviewer.py",
+        "line": 130,
+        "quote": "if proposal.file not in diff.paths:"
+      },
+      "evidence": []
+    },
+    {
+      "id": "R3",
+      "title": "Anchor reads the working tree, not the diff's new-file content",
+      "kind": "risk",
+      "status": "confirmed",
+      "severity": "major",
+      "source": "reviewer",
+      "detail": "The quote is checked against the file on disk, while the model was shown the diff. For a deleted file (status 'deleted', path still in diff.paths) read_text fails and every finding becomes 'file does not exist'; for a modified file the on-disk line numbers may differ from the diff's new-file numbering if the working tree has moved on. The anchor should verify against the DiffLine text the model actually saw.",
+      "location": {
+        "file": "src/qagent/review/reviewer.py",
+        "line": 139,
+        "quote": "actual = _normalise(lines[proposal.line - 1])"
+      },
+      "evidence": []
+    },
+    {
+      "id": "R4",
+      "title": "No test evidence for anchoring and severity rules in the change",
+      "kind": "test-gap",
+      "status": "confirmed",
+      "severity": "minor",
+      "source": "reviewer",
+      "detail": "The change introduces anchor(), _severity(), _parse() and parse_diff() with non-trivial rules (blocking downgrade for non-defects, quote-elsewhere detection, fence stripping, path traversal refusal) but no tests are part of the diff; per project rules each new behaviour needs a test.",
+      "location": {
+        "file": "src/qagent/review/reviewer.py",
+        "line": 78,
+        "quote": "anchor(index + 1, proposal, root, diff) for index, proposal in enumerate(proposed.findings)"
+      },
+      "evidence": []
+    }
+  ],
+  "verdict": {
+    "status": "pass_with_conditions",
+    "reasons": [
+      {
+        "code": "non-blocking-finding",
+        "detail": "R1 (minor): Byte ceiling measured in characters, not bytes"
+      },
+      {
+        "code": "non-blocking-finding",
+        "detail": "R2 (major): Anchor compares model path against diff paths without normalisation"
+      },
+      {
+        "code": "non-blocking-finding",
+        "detail": "R3 (major): Anchor reads the working tree, not the diff's new-file content"
+      },
+      {
+        "code": "non-blocking-finding",
+        "detail": "R4 (minor): No test evidence for anchoring and severity rules in the change"
+      }
+    ],
+    "blocking_findings": []
+  },
+  "review": {
+    "status": "ok",
+    "model": "deepseek-flash",
+    "diff_digest": "208612dc9d3237f53fe3210513a22f99fab88f9d26ffb0d5712c9ab351acd9d7",
+    "files_reviewed": 7,
+    "proposed": 4,
+    "confirmed": 4,
+    "unverified": 0,
+    "findings": [
+      {
+        "id": "R1",
+        "title": "Byte ceiling measured in characters, not bytes",
+        "kind": "defect",
+        "status": "confirmed",
+        "severity": "minor",
+        "source": "reviewer",
+        "detail": "max_bytes is compared against len(text) (characters) and the slice text[:max_bytes] cuts characters, so a diff of multi-byte UTF-8 can exceed the stated byte ceiling (up to ~4x) and the prompt budget is not actually enforced in bytes. The name and docstring promise bytes.",
+        "location": {
+          "file": "src/qagent/review/diff.py",
+          "line": 85,
+          "quote": "truncated = len(text) > max_bytes"
+        },
+        "evidence": []
+      },
+      {
+        "id": "R2",
+        "title": "Anchor compares model path against diff paths without normalisation",
+        "kind": "risk",
+        "status": "confirmed",
+        "severity": "major",
+        "source": "reviewer",
+        "detail": "diff.paths holds paths after _safe_path stripping and prefix removal, but proposal.file is used verbatim. A model citing './src/x.py' or a path with a trailing space resolves to the same file via _resolve yet fails this membership check and is marked unverified, so a correct finding is silently downgraded. The check should compare resolved paths, not raw strings.",
+        "location": {
+          "file": "src/qagent/review/reviewer.py",
+          "line": 130,
+          "quote": "if proposal.file not in diff.paths:"
+        },
+        "evidence": []
+      },
+      {
+        "id": "R3",
+        "title": "Anchor reads the working tree, not the diff's new-file content",
+        "kind": "risk",
+        "status": "confirmed",
+        "severity": "major",
+        "source": "reviewer",
+        "detail": "The quote is checked against the file on disk, while the model was shown the diff. For a deleted file (status 'deleted', path still in diff.paths) read_text fails and every finding becomes 'file does not exist'; for a modified file the on-disk line numbers may differ from the diff's new-file numbering if the working tree has moved on. The anchor should verify against the DiffLine text the model actually saw.",
+        "location": {
+          "file": "src/qagent/review/reviewer.py",
+          "line": 139,
+          "quote": "actual = _normalise(lines[proposal.line - 1])"
+        },
+        "evidence": []
+      },
+      {
+        "id": "R4",
+        "title": "No test evidence for anchoring and severity rules in the change",
+        "kind": "test-gap",
+        "status": "confirmed",
+        "severity": "minor",
+        "source": "reviewer",
+        "detail": "The change introduces anchor(), _severity(), _parse() and parse_diff() with non-trivial rules (blocking downgrade for non-defects, quote-elsewhere detection, fence stripping, path traversal refusal) but no tests are part of the diff; per project rules each new behaviour needs a test.",
+        "location": {
+          "file": "src/qagent/review/reviewer.py",
+          "line": 78,
+          "quote": "anchor(index + 1, proposal, root, diff) for index, proposal in enumerate(proposed.findings)"
+        },
+        "evidence": []
+      }
+    ],
+    "prompt_tokens": 8827,
+    "completion_tokens": 623,
+    "spent_seconds": 4.057,
+    "error": null
+  }
+}

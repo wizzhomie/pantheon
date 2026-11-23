@@ -82,9 +82,10 @@ def parse_diff(text: str, *, max_bytes: int = MAX_DIFF_BYTES, max_files: int = M
     Anything the reviewer cannot cite is dropped rather than guessed: binary files, mode
     changes without hunks, and paths outside the project.
     """
-    truncated = len(text) > max_bytes
+    truncated = len(text.encode("utf-8")) > max_bytes
     if truncated:
-        text = text[:max_bytes]
+        # Cut on a byte boundary, not a character one: a prompt budget is bytes on the wire.
+        text = text.encode("utf-8")[:max_bytes].decode("utf-8", errors="ignore")
     files: list[FileChange] = []
     current: _Builder | None = None
 
@@ -201,9 +202,21 @@ def _safe_path(value: str | None) -> str | None:
     """Paths in a diff come from the outside; a climbing path is refused, not resolved."""
     if value is None:
         return None
-    path = value.strip()
+    path = normalise_path(value)
     if not path or path == "/dev/null":
         return None
     if path.startswith("/") or ".." in path.split("/"):
         return None
     return path
+
+
+def normalise_path(value: str) -> str:
+    """``./src//app.py`` and ``src/app.py`` name the same file; compare the normal form.
+
+    A model quoting a path it read in the diff may still add ``./`` or double a slash. That is
+    formatting, not a lie, so the anchor normalises instead of rejecting the finding.
+    """
+    path = value.strip().replace("\\", "/")
+    while path.startswith("./"):
+        path = path[2:]
+    return "/".join(part for part in path.split("/") if part not in ("", "."))

@@ -19,7 +19,7 @@ from pathlib import Path
 from ..contracts.findings import Finding, FindingSeverity, Location
 from ..llm.base import LLMClient, LLMRequest, Message
 from .contracts import ProposedFinding, ProposedReview, ReviewerConfig, ReviewOutcome
-from .diff import Diff
+from .diff import Diff, normalise_path
 from .prompt import build_user_message, system_message
 
 MAX_REPO_FILES = 50_000
@@ -123,11 +123,18 @@ def _severity(proposal: ProposedFinding) -> tuple[FindingSeverity, bool]:
 
 
 def _anchor_problem(proposal: ProposedFinding, root: Path, diff: Diff) -> str | None:
-    """Why the claim does not hold, or ``None`` when the repository agrees with it."""
+    """Why the claim does not hold, or ``None`` when the repository agrees with it.
+
+    The cited line must be one the reviewer was actually shown: a finding about a line the
+    diff never contained is a finding about code the model did not read.
+    """
     path = _resolve(root, proposal.file)
     if path is None:
         return "path is outside the project"
-    if proposal.file not in diff.paths:
+    change = next(
+        (item for item in diff.files if item.path == normalise_path(proposal.file)), None
+    )
+    if change is None:
         return "file is not part of the change"
     try:
         text = path.read_text(encoding="utf-8", errors="replace")
@@ -136,6 +143,8 @@ def _anchor_problem(proposal: ProposedFinding, root: Path, diff: Diff) -> str | 
     lines = text.splitlines()
     if proposal.line > len(lines):
         return f"line {proposal.line} is outside the file ({len(lines)} lines)"
+    if not any(line.number == proposal.line for line in change.lines):
+        return f"line {proposal.line} is not part of the change"
     actual = _normalise(lines[proposal.line - 1])
     quoted = _normalise(proposal.quote)
     if actual == quoted:

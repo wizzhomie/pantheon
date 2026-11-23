@@ -153,6 +153,16 @@ the test suite, and produces [`reports/verification_demo/report.md`](reports/ver
 No model was asked whether the tests pass: the exit code is the evidence. The demo project is
 [`examples/verification_demo/`](examples/verification_demo/README.md).
 
+### Example 0b — the reviewer on its own commit
+
+On 2026-11-23 the reviewer read the diff of the commit that introduced it: four proposals, all
+four quotes confirmed by the anchor, and three of the four were real problems in code written
+minutes earlier — a byte ceiling counted in characters, a path comparison without normalisation,
+and an anchor that read the working tree without asking whether the diff had shown that line. The
+report is [`reports/review_self/report.md`](reports/review_self/report.md), and
+[its README](reports/review_self/README.md) says what happened to each finding. A real model call,
+8 827 input tokens, 4.1 s.
+
 ### Example 1 — logistics intake (32 cases)
 
 An email → structured fields step, guarded: 59.4% correct on the first attempt, **81.2% after the

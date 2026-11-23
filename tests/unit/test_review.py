@@ -475,3 +475,24 @@ def test_since_reads_the_change_from_git(
     assert code == 0
     report = json.loads((project / "run" / "report.json").read_text(encoding="utf-8"))
     assert report["review"]["files_reviewed"] == 1
+
+
+def test_the_byte_ceiling_counts_bytes_not_characters() -> None:
+    """A UTF-8 diff is bigger on the wire than ``len(text)``; the prompt budget is bytes."""
+    text = "diff --git a/ф.py b/ф.py\n--- a/ф.py\n+++ b/ф.py\n@@ -1 +1 @@\n-я\n+я\n" + "я" * 200
+
+    assert parse_diff(text, max_bytes=300).truncated
+
+
+def test_a_path_with_a_dot_prefix_still_anchors(tmp_path: Path) -> None:
+    found = anchored(tmp_path, file="./app.py")
+
+    assert found.status == "confirmed"
+
+
+def test_a_line_the_diff_never_showed_cannot_be_confirmed(tmp_path: Path) -> None:
+    """The reviewer may only cite what it was shown; the docstring is not in the diff."""
+    found = anchored(tmp_path, line=1, quote='"""A tiny invoice total, with one planted defect')
+
+    assert found.status == "unverified"
+    assert "not part of the change" in found.detail

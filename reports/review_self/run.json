@@ -1,0 +1,49 @@
+{
+  "run_id": "20261123T034403-qagent-default",
+  "policy_name": "qagent-default",
+  "policy_digest": "de31e738c4cf7444ad931a29146be106a4ff30823248ed353ed6987566901291",
+  "profile_digest": "55125591b46fa7e4ed5b0594116c2b9bbccfae296b9715c7ec1db3ca126e9429",
+  "started_at": "2026-11-23T03:44:03.825192Z",
+  "finished_at": "2026-11-23T03:44:06.330072Z",
+  "checks": [
+    {
+      "check_id": "tests",
+      "name": "test suite",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 2260.8,
+      "stdout_path": "checks/tests.stdout.txt",
+      "stderr_path": null,
+      "output_tail": "........................................................................ [ 14%]\n........................................................................ [ 29%]\n........................................................................ [ 43%]\n........................................................................ [ 58%]\n........................................................................ [ 73%]\n........................................................................ [ 87%]\n.............................................................            [100%]",
+      "optional": false,
+      "reason": null
+    },
+    {
+      "check_id": "lint",
+      "name": "ruff",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 34.1,
+      "stdout_path": "checks/lint.stdout.txt",
+      "stderr_path": null,
+      "output_tail": "All checks passed!",
+      "optional": false,
+      "reason": null
+    },
+    {
+      "check_id": "types",
+      "name": "mypy --strict",
+      "status": "passed",
+      "exit_code": 0,
+      "duration_ms": 208.8,
+      "stdout_path": "checks/types.stdout.txt",
+      "stderr_path": null,
+      "output_tail": "Success: no issues found in 101 source files",
+      "optional": false,
+      "reason": null
+    }
+  ],
+  "planned": 3,
+  "spent_seconds": 2.505,
+  "error": null
+}
