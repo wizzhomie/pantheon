@@ -1,57 +1,62 @@
 {
   "suite": "holdout",
   "reviewer": "scripted (no model call)",
-  "started_at": "2026-11-23T06:56:27.001944Z",
+  "started_at": "2026-11-23T06:59:49.218518Z",
   "cases": [
     {
       "id": "control-clean",
       "expected": "pass",
       "actual": "pass",
       "matched": true,
+      "confirmed": 0,
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.333
+      "spent_seconds": 1.339
     },
     {
       "id": "control-unrelated",
       "expected": "pass",
       "actual": "pass",
       "matched": true,
+      "confirmed": 0,
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.309
+      "spent_seconds": 1.358
     },
     {
       "id": "mutant-arithmetic",
       "expected": "hold",
       "actual": "hold",
       "matched": true,
+      "confirmed": 0,
       "reasons": [
         "check-failed: required check tests failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.369
+      "spent_seconds": 1.351
     },
     {
       "id": "mutant-sql",
       "expected": "hold",
       "actual": "hold",
       "matched": true,
+      "confirmed": 0,
       "reasons": [
         "check-failed: required check sql failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.345
+      "spent_seconds": 1.39
     },
     {
       "id": "mutant-types",
       "expected": "hold",
       "actual": "hold",
       "matched": true,
+      "confirmed": 0,
       "reasons": [
         "check-failed: required check types failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.3
+      "spent_seconds": 1.412
     }
   ]
 }

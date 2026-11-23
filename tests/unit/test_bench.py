@@ -61,7 +61,8 @@ def test_the_suite_is_discovered_as_data() -> None:
         "reviewer-percent",
         "reviewer-swallow",
     ]
-    assert [case.expected for case in cases].count("hold") == 6
+    assert [case.expected for case in cases].count("hold") == 3
+    assert [case.expected for case in cases].count("finding") == 3
     assert sum(1 for case in cases if case.needs_reviewer) == 3
     assert all(case.note for case in cases)
 
@@ -87,12 +88,14 @@ def test_the_layers_partition_the_suite() -> None:
 
 def test_a_defect_the_checks_cannot_see_is_not_claimed_as_caught(tmp_path: Path) -> None:
     """With a scripted reviewer a reviewer-only case must pass its checks and still miss."""
-    suite = one_case(tmp_path, "reviewer-injection", "hold", needs_reviewer=True)
+    suite = one_case(tmp_path, "reviewer-injection", "finding", needs_reviewer=True)
 
     report, _ = asyncio.run(run_suite(suite, reviewer=SCRIPTED, model=LABEL, layer="reviewer"))
 
     assert report.cases[0].actual == "pass"
-    assert (report.caught, report.missed) == (0, 1)
+    assert (report.cases[0].confirmed, report.cases[0].detected) == (0, False)
+    assert (report.detected, report.missed) == (0, 1)
+    assert report.summary() == "0 of 1 reviewer cases detected"
 
 
 def test_a_miss_and_a_false_alarm_are_different_numbers() -> None:

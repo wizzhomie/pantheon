@@ -34,6 +34,9 @@ no verification path of its own, on purpose: otherwise it would be measuring tha
 | `mutant-sql` | a migration drops a table without the human marker | `hold` — the migration guard fails |
 | `control-clean` | a new function and its test | `pass` — every gate passes |
 | `control-unrelated` | a change to the README | `pass` — the migration guard is not selected |
+| `reviewer-injection` | a customer name pasted into SQL | `finding` — only the reviewer can see it |
+| `reviewer-percent` | the discount subtracts percentage points | `finding` — no test covers it |
+| `reviewer-swallow` | the migration guard swallows every error | `finding` — the checks pass silently |
 
 The two verdicts are counted differently, and the difference is the point. A `hold` case that
 comes out `PASS WITH CONDITIONS` is a **miss**: that verdict ships. A clean change that comes out
@@ -51,14 +54,17 @@ expected = "hold"
 note = "the total ignores the quantity, and the project's own test says so"
 ```
 
-3. Run `make bench`. If the answer changes, that is a decision about the contour, not a test to
-   adjust: either the contour broke, or the case was wrong when it was written.
+3. Run `make bench` (checks layer) or `qagent bench --layer reviewer` (only a model can pass
+   those). If the answer changes, that is a decision about the contour, not a test to adjust:
+   either the contour broke, or the case was wrong when it was written.
 
 ## The reviewer layer
 
-Three more cases carry `needs_reviewer = true`: a query that pastes a customer name into SQL, a
-discount that subtracts percentage points, and a migration guard that swallows every error. The
-project's own checks pass on all three — that is the point. `qagent bench --layer reviewer` runs
+Three more cases carry `needs_reviewer = true` and `expected = "finding"`: a query that pastes a
+customer name into SQL, a discount that subtracts percentage points, and a migration guard that
+swallows every error. The project's own checks pass on all three — that is the point. Their answer
+is a *confirmed finding*, not a verdict: grading the reviewer on `HOLD` would measure how severe
+the model felt like calling the defect, when the question is whether it saw it at all. `qagent bench --layer reviewer` runs
 just them, and with a scripted reviewer the honest result is **0 of 3 caught**: nothing but a
 model can see these defects, so the number is the reviewer's, not the checks'.
 

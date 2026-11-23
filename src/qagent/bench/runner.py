@@ -33,6 +33,7 @@ from .contracts import (
     BenchLayer,
     BenchReport,
     CaseResult,
+    matches,
 )
 
 
@@ -136,11 +137,16 @@ async def _run_case(
     )
     started = time.monotonic()
     report, _ = await execute(request, project, out_dir=work / "runs" / case.id)
+    confirmed = sum(
+        1 for finding in report.findings if finding.source == "reviewer" and finding.status
+        == "confirmed"
+    )
     return CaseResult(
         id=case.id,
         expected=case.expected,
         actual=report.verdict.status,
-        matched=report.verdict.status == case.expected,
+        matched=matches(case.expected, report.verdict.status, confirmed),
+        confirmed=confirmed,
         reasons=[f"{reason.code}: {reason.detail}" for reason in report.verdict.reasons],
         spent_seconds=round(time.monotonic() - started, 3),
     )
@@ -189,6 +195,8 @@ def render_bench(report: BenchReport) -> str:
         else:
             mark = f"**{case.actual}**"
         reason = case.reasons[0] if case.reasons else "—"
+        if case.expected == "finding":
+            reason = f"{case.confirmed} confirmed finding(s); {reason}"
         lines.append(
             f"| `{case.id}` | {case.expected} | {case.actual} | {mark} | {reason} |"
         )

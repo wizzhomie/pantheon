@@ -1,3 +1,3 @@
-expected = "hold"
+expected = "finding"
 needs_reviewer = true
 note = "the migration guard swallows every error, so a destructive migration passes silently"

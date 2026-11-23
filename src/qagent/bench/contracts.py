@@ -19,8 +19,14 @@ from pydantic import Field
 from ..contracts.base import StrictModel
 from ..verify.verdict import VerdictStatus
 
-BenchExpected = Literal["pass", "pass_with_conditions", "hold", "inconclusive"]
-"""The answer the suite committed to, in the same vocabulary the verdict uses."""
+BenchExpected = Literal["pass", "pass_with_conditions", "hold", "inconclusive", "finding"]
+"""The answer the suite committed to.
+
+Four values name a verdict; ``finding`` names the reviewer layer's question instead — "was the
+defect found at all", not "how severe did the model call it". Grading a reviewer on the verdict
+would measure its severity calibration rather than its eyes, and a confirmed finding is what a
+human can act on either way.
+"""
 
 CASE_FILE = "case.toml"
 CHANGE_FILE = "change.diff"
@@ -54,7 +60,8 @@ class CaseResult(StrictModel):
     id: str
     expected: BenchExpected
     actual: VerdictStatus
-    matched: bool = Field(description="the verdict is exactly the expected one")
+    matched: bool = Field(description="the case produced the answer the suite committed to")
+    confirmed: int = Field(default=0, ge=0, description="reviewer findings the anchor accepted")
     reasons: list[str] = Field(default_factory=list, description="the verdict's own reasons")
     spent_seconds: float = Field(default=0.0, ge=0)
 
@@ -64,18 +71,35 @@ class CaseResult(StrictModel):
         return self.expected == "hold" and self.actual == "hold"
 
     @property
+    def detected(self) -> bool:
+        """A reviewer-layer case: at least one confirmed finding, whatever the severity."""
+        return self.expected == "finding" and self.confirmed > 0
+
+    @property
     def missed(self) -> bool:
-        return self.expected == "hold" and self.actual != "hold"
+        """A planted defect, or a reviewer case, that the contour did not catch at all."""
+        if self.expected == "finding":
+            return not self.detected
+        if self.expected == "hold":
+            return not self.caught
+        return False
 
     @property
     def false_alarm(self) -> bool:
         """A clean change the contour held — the cost of catching defects too eagerly."""
-        return self.expected != "hold" and self.actual == "hold"
+        return self.expected in ("pass", "pass_with_conditions") and self.actual == "hold"
 
     @property
     def unexpected(self) -> bool:
         """Neither caught nor a false alarm: the verdict is not the one the suite named."""
         return not self.matched and not self.missed and not self.false_alarm
+
+
+def matches(expected: BenchExpected, actual: VerdictStatus, confirmed: int) -> bool:
+    """Did the case produce the answer it committed to?"""
+    if expected == "finding":
+        return confirmed > 0
+    return actual == expected
 
 
 class BenchReport(StrictModel):
@@ -92,7 +116,13 @@ class BenchReport(StrictModel):
 
     @property
     def controls(self) -> list[CaseResult]:
-        return [case for case in self.cases if case.expected != "hold"]
+        return [
+            case for case in self.cases if case.expected in ("pass", "pass_with_conditions")
+        ]
+
+    @property
+    def detected(self) -> int:
+        return sum(1 for case in self.cases if case.detected)
 
     @property
     def caught(self) -> int:
@@ -116,7 +146,12 @@ class BenchReport(StrictModel):
 
     def summary(self) -> str:
         """One sentence fit for a terminal and for the head of the report."""
-        return (
-            f"{self.caught} of {len(self.defects)} planted defects held, "
-            f"{self.false_alarms} of {len(self.controls)} clean changes held"
-        )
+        parts: list[str] = []
+        if self.defects:
+            parts.append(f"{self.caught} of {len(self.defects)} planted defects held")
+        reviewer_cases = [case for case in self.cases if case.expected == "finding"]
+        if reviewer_cases:
+            parts.append(f"{self.detected} of {len(reviewer_cases)} reviewer cases detected")
+        if self.controls:
+            parts.append(f"{self.false_alarms} of {len(self.controls)} clean changes held")
+        return ", ".join(parts) or "no cases"
