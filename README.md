@@ -267,7 +267,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer are done, false alarms included (0 of 2 clean changes held on a live run); mutation testing is ahead |
+| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer are done, false alarms included (0 of 2 clean changes held on a live run); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change |
 
 ## Docs
 

@@ -101,8 +101,13 @@ change can never be hidden behind the headline.
 
 ## What is not measured here
 
-Mutation testing proper (mutating the project's code and checking that its own suite notices) is
-still ahead: the three `mutant-*` cases play that role for now, one planted defect per tool. The
-prompts are not tuned against this suite — a case whose answer was adjusted because a model
+A general mutator is deliberately not here. Mutation testing rewrites the project's code and asks
+whether its own suite notices — that is an adequacy audit of the whole project, not a gate on one
+change: it mutates the tree, takes minutes, and fits neither a check's timeout nor a run's budget.
+The three `mutant-*` cases answer the same question at the scale of a change, one planted defect per
+tool. If a project wants the full audit, it is `mutmut` or `cosmic-ray` run against that project,
+not a feature of the contour — qagent runs a project's tooling, it does not reimplement it.
+
+The prompts are not tuned against this suite — a case whose answer was adjusted because a model
 disagreed with it stops being a holdout. Nothing here measures whether the reviewer stays accurate
 as the diff grows; the cases are deliberately small enough to read in one screen.
