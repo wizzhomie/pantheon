@@ -34,13 +34,21 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any, cast
 
-from .context import ProjectProfile, detect_profile, read_profile, write_profile
+from .context import (
+    ProjectProfile,
+    check_context,
+    detect_profile,
+    read_context,
+    read_profile,
+    write_profile,
+)
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
 from .llm.base import LLMClient
 from .project import ProjectConfig, build_guarded, validate
 from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .runtime.facade import GuardedAgent
 from .verify import (
+    VerificationPolicy,
     build_plan,
     build_report,
     decide,
@@ -146,6 +154,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_init(args)
         if args.command == "inspect":
             return _run_inspect(args)
+        if args.command == "context":
+            return _run_context(args)
         if args.command == "run":
             return _run_command(args)
         if args.command == "verify":
@@ -211,6 +221,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="write .qagent/profile.json inside the repository"
     )
     inspect.add_argument("--json", action="store_true", help="print the profile as JSON")
+
+    context = subcommands.add_parser(
+        "context",
+        help="show the project's requirements, invariants and milestones; check their links",
+    )
+    context.add_argument("--repo", type=Path, default=Path("."), help="project to read")
+    context.add_argument("--json", action="store_true", help="print the context as JSON")
+    context.add_argument(
+        "--check",
+        action="store_true",
+        help="validate the links between promises and the checks in the policy",
+    )
 
     run = subcommands.add_parser(
         "run", help="run the project's own checks and keep the evidence"
@@ -348,6 +370,47 @@ def _run_command(args: argparse.Namespace) -> int:
         print(f"blocking: {', '.join(check.check_id for check in blocking)}")
         return EXIT_FAILURE
     return EXIT_OK
+
+
+def _run_context(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    context = read_context(repo)
+    if args.json:
+        print(context.model_dump_json(indent=2))
+        return EXIT_OK
+    print(f"context: {context.summary()} · digest {context.digest()[:12]}")
+    if context.architecture.baseline:
+        print(f"  baseline: {_one_line(context.architecture.baseline)}")
+    if context.architecture.target:
+        print(f"  target:   {_one_line(context.architecture.target)}")
+    for heading, items in (
+        ("requirements", context.requirements),
+        ("invariants", context.invariants),
+        ("milestones", context.milestones),
+    ):
+        if not items:
+            continue
+        print(f"  {heading}:")
+        for item in items:
+            checks = f"  [{', '.join(item.checks)}]" if item.checks else ""
+            print(f"    {item.id} ({item.status}) {item.title}{checks}")
+    if not args.check:
+        return EXIT_OK
+    problems = check_context(context, _policy_or_none(repo))
+    for problem in problems:
+        print(f"  {problem.level}: {problem.detail}")
+    if not problems:
+        print("  links checked: no problems")
+    return EXIT_FAILURE if any(problem.level == "error" for problem in problems) else EXIT_OK
+
+
+def _one_line(text: str) -> str:
+    return " ".join(text.split())
+
+
+def _policy_or_none(repo: Path) -> VerificationPolicy | None:
+    path = repo / ".qagent" / "policy.toml"
+    return read_policy(path) if path.is_file() else None
 
 
 def _run_verify(args: argparse.Namespace) -> int:

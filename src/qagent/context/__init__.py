@@ -15,13 +15,35 @@ describes it (``.qagent/profile.json``), so a reviewer can read why a check was 
 from __future__ import annotations
 
 from .detect import detect_profile
+from .knowledge import (
+    Architecture,
+    ContextItem,
+    ContextProblem,
+    ItemKind,
+    ItemStatus,
+    ProblemLevel,
+    ProjectContext,
+    check_context,
+    context_path,
+    read_context,
+)
 from .profile import ProfileTool, ProjectProfile, profile_path, read_profile, write_profile
 
 __all__ = [
+    "Architecture",
+    "ContextItem",
+    "ContextProblem",
+    "ItemKind",
+    "ItemStatus",
+    "ProblemLevel",
     "ProfileTool",
+    "ProjectContext",
     "ProjectProfile",
+    "check_context",
+    "context_path",
     "detect_profile",
     "profile_path",
+    "read_context",
     "read_profile",
     "write_profile",
 ]
