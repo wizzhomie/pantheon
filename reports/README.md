@@ -155,4 +155,20 @@ cases whose defect the project's own tools cannot see: a pasted-in SQL string, a
 as percentage points, a migration guard that swallows every error. `deepseek-flash` found all
 three, called each one blocking, and the verdict for each was `HOLD`; with a scripted reviewer the
 same cases are 0 of 3, which is what makes the number the reviewer's. Produced by
-`qagent bench --layer reviewer` with a live model; the scripted `make bench` stays free.
+`qagent bench --layer reviewer` with a live model; the scripted `make bench` stays free. This was
+the first live run and predates the token row, so it has no token count.
+
+### The whole suite, live
+
+[`holdout_all/bench.md`](holdout_all/bench.md) is the number to quote now: `--layer all` reviews
+**every** case, so one run measures both halves of the reviewer question. `deepseek-flash`,
+2026-11-23: **3 of 3 planted defects held, 3 of 3 reviewer cases detected, 0 of 2 clean changes
+held** — 8 of 8 cases, 26.7 s, 3 798 tokens in and 1 615 out. The two clean changes were reviewed
+by the model and came back clean, which is the precision half the reviewer-only report could not
+measure.
+
+That run also corrected the suite: on its first attempt the reviewer returned one *true but minor*
+finding on `control-clean` — the new function's error paths had no tests — and the verdict became
+`PASS WITH CONDITIONS`. The case was made genuinely clean (four tests added) instead of loosening
+the grading, and the second run matched all eight. A clean case that still comes back with a
+condition is now named on the report's `Result:` line, never hidden behind the headline.
