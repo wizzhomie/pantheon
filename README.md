@@ -114,8 +114,10 @@ loop gets its evidence and its ability to measure itself.
 | Preset as a file | schema, checks, rubric, prompts, limits, prices, report — one `qagent.toml` | config and code build the same preset, fingerprint-tested |
 | Offline regression | dataset → run → scoring → metrics → report → diff of two runs | comparable only with matching hashes |
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
+| Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
 
 ```bash
+qagent inspect --repo . --write            # describe the repository: stack, checks, layout
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md

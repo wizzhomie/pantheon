@@ -22,6 +22,12 @@ htmlcov/
 # Local session handover notes
 memory/
 
+# Project profile: derived by `qagent inspect --write`, regenerated, never hand-edited.
+# The hand-written half of the project context (requirements, invariants, policies) is
+# committed; this file is an artifact of reading the tree.
+.qagent/profile.json
+.qagent/runs/
+
 # Run artifacts. Committed on purpose: the stub demo reports (sample_*) that anyone can
 # regenerate with `make sample`, and the live DeepSeek run (baseline/guarded/diff) that the
 # README quotes. Everything else in reports/ is scratch.

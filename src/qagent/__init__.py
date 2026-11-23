@@ -24,6 +24,7 @@ from .config import (
     RetryPolicy,
     RunLimits,
 )
+from .context import ProjectProfile, detect_profile
 from .contracts import (
     AgentFn,
     AgentReply,
@@ -132,6 +133,7 @@ __all__ = [
     "ParseOutcome",
     "Preset",
     "Pricing",
+    "ProjectProfile",
     "QAConfig",
     "ReplayClient",
     "ReportDiff",
@@ -151,6 +153,7 @@ __all__ = [
     "__version__",
     "calibrate",
     "compare",
+    "detect_profile",
     "evaluate",
     "guard",
     "parse_attempt",

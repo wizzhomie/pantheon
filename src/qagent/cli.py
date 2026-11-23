@@ -28,6 +28,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from .context import detect_profile, write_profile
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
 from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
@@ -123,6 +124,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_check(args)
         if args.command == "init":
             return _run_init(args)
+        if args.command == "inspect":
+            return _run_inspect(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -173,6 +176,15 @@ def _build_parser() -> argparse.ArgumentParser:
     init = subcommands.add_parser("init", help="write a starter config and dataset")
     init.add_argument("--dir", type=Path, default=Path("."), help="where to write the files")
 
+    inspect = subcommands.add_parser(
+        "inspect", help="describe a repository: stack, checks, layout, entry points"
+    )
+    inspect.add_argument("--repo", type=Path, default=Path("."), help="repository to read")
+    inspect.add_argument(
+        "--write", action="store_true", help="write .qagent/profile.json inside the repository"
+    )
+    inspect.add_argument("--json", action="store_true", help="print the profile as JSON")
+
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
     diff.add_argument("b", type=Path)
@@ -217,6 +229,26 @@ def _resolve_eval(
     if args.out is None or args.dataset is None:
         raise ValueError("--dataset and --out are required with --spec")
     return load_guarded(args.spec), args.dataset, args.out, args.markdown
+
+
+def _run_inspect(args: argparse.Namespace) -> int:
+    profile = detect_profile(args.repo)
+    if args.json:
+        print(profile.model_dump_json(indent=2))
+        return EXIT_OK
+    print(profile.summary())
+    for tool in profile.tools:
+        print(f"  {tool.name}: {' '.join(tool.command)}  ({tool.source})")
+    if profile.test_paths:
+        print(f"  tests: {', '.join(profile.test_paths)}")
+    if profile.entry_points:
+        print(f"  entry points: {', '.join(profile.entry_points)}")
+    if args.write:
+        target = write_profile(profile, args.repo)
+        print(f"profile: {target}")
+    else:
+        print("profile not written; pass --write to store it in .qagent/profile.json")
+    return EXIT_OK
 
 
 def _run_check(args: argparse.Namespace) -> int:
