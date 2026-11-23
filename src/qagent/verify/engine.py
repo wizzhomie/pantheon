@@ -407,6 +407,14 @@ async def run_check(
             if status == "passed"
             else _exit_reason(exit_code, spec, sandbox, err_text)
         )
+        if status == "failed":
+            missing = _missing_module(spec.argv, err_text)
+            if missing is not None:
+                # `python -m mypy` exits 1 when mypy is not installed. That is a tool the
+                # machine lacks, not a project whose types are broken: calling it a failure
+                # makes the report point at a type error that does not exist.
+                status = "not_applicable"
+                reason = f"the {missing} module is not installed, so the check could not run"
 
     return CheckRun(
         check_id=spec.id,
@@ -420,6 +428,25 @@ async def run_check(
         output_tail=tail,
         reason=reason,
     )
+
+
+_MODULE_MISSING = re.compile(r"No module named ['\"]?(?P<name>[^\s'\"]+)['\"]?")
+
+
+def _missing_module(argv: list[str], stderr: str) -> str | None:
+    """The module a ``python -m`` check could not import, when that is why it failed.
+
+    Only the module named in ``argv`` counts: a *dependency* that is missing inside the
+    project's own tests is a real failure and stays one, while ``python -m mypy`` saying
+    "No module named mypy" is a tool this machine does not have.
+    """
+    if len(argv) < 3 or argv[1] != "-m" or "python" not in Path(argv[0]).name:
+        return None
+    module = argv[2]
+    for match in _MODULE_MISSING.finditer(stderr):
+        if match.group("name") == module:
+            return module
+    return None
 
 
 def _exit_reason(

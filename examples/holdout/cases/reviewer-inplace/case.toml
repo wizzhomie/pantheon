@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "the function promises not to touch the caller's list and sorts it in place"

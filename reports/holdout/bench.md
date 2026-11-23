@@ -1,18 +1,20 @@
-# Holdout bench — 3 of 3 planted defects held, 0 of 2 clean changes held
+# Holdout bench — 3 of 3 planted defects held, 0 of 4 clean changes held
 
 | | |
 |---|---|
 | Suite | `holdout` |
 | Reviewer | `scripted (no model call)` |
-| Cases | 3 of 3 planted defects held, 0 of 2 clean changes held |
-| Started | 2026-11-23 07:04 UTC |
-| Spent | 7.1s |
+| Cases | 3 of 3 planted defects held, 0 of 4 clean changes held |
+| Started | 2026-11-23 15:17 UTC |
+| Spent | 10.7s |
 
 ## Cases
 
 | Case | Expected | Actual | Result | Why |
 |---|---|---|---|---|
 | `control-clean` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
+| `control-refactor` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
+| `control-rounding` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
 | `control-unrelated` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
 | `mutant-arithmetic` | hold | hold | ok | check-failed: required check tests failed: exit 1, expected 0 |
 | `mutant-sql` | hold | hold | ok | check-failed: required check sql failed: exit 1, expected 0 |

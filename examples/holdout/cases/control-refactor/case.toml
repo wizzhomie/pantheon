@@ -1,0 +1,2 @@
+expected = "pass"
+note = "the same total rewritten as a loop: behaviour unchanged, the existing tests still pass"

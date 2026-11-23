@@ -1,0 +1,35 @@
+diff --git a/app.py b/app.py
+index 56ce0da..2f42f3c 100644
+--- a/app.py
++++ b/app.py
+@@ -4,3 +4,8 @@
+ def total(items: list[tuple[float, int]]) -> float:
+     """The price of every item, counted as many times as it was bought."""
+     return sum(price * quantity for price, quantity in items)
++
++
++def vat(amount: float, rate: float = 0.2) -> float:
++    """VAT on an amount, rounded to the nearest cent."""
++    return round(amount * rate, 2)
+diff --git a/test_app.py b/test_app.py
+index ffafb36..9011b26 100644
+--- a/test_app.py
++++ b/test_app.py
+@@ -1,4 +1,4 @@
+-from app import total
++from app import total, vat
+ 
+ 
+ def test_a_single_item_is_counted_once() -> None:
+@@ -11,3 +11,11 @@ def test_quantity_multiplies_the_price() -> None:
+ 
+ def test_an_empty_invoice_is_zero() -> None:
+     assert total([]) == 0.0
++
++
++def test_vat_rounds_to_the_cent() -> None:
++    assert vat(19.99, 0.2) == 4.0
++
++
++def test_vat_of_zero_is_zero() -> None:
++    assert vat(0.0) == 0.0

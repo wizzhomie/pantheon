@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a correct rounded VAT helper with tests for zero and a fractional rate: nothing to hold"

@@ -53,17 +53,21 @@ def test_the_suite_is_discovered_as_data() -> None:
 
     assert [case.id for case in cases] == [
         "control-clean",
+        "control-refactor",
+        "control-rounding",
         "control-unrelated",
         "mutant-arithmetic",
         "mutant-sql",
         "mutant-types",
+        "reviewer-falsy",
         "reviewer-injection",
+        "reviewer-inplace",
         "reviewer-percent",
         "reviewer-swallow",
     ]
     assert [case.expected for case in cases].count("hold") == 3
-    assert [case.expected for case in cases].count("finding") == 3
-    assert sum(1 for case in cases if case.needs_reviewer) == 3
+    assert [case.expected for case in cases].count("finding") == 5
+    assert sum(1 for case in cases if case.needs_reviewer) == 5
     assert all(case.note for case in cases)
 
 
@@ -72,7 +76,7 @@ def test_the_bench_reproduces_the_committed_answers() -> None:
 
     assert report.passed, [(case.id, case.actual) for case in report.cases]
     assert (report.caught, report.missed, report.false_alarms) == (3, 0, 0)
-    assert report.summary() == "3 of 3 planted defects held, 0 of 2 clean changes held"
+    assert report.summary() == "3 of 3 planted defects held, 0 of 4 clean changes held"
     assert target is None
 
 
@@ -82,8 +86,14 @@ def test_the_layers_partition_the_suite() -> None:
     checks_layer = [case.id for case in cases if not case.needs_reviewer]
     reviewer_layer = [case.id for case in cases if case.needs_reviewer]
 
-    assert len(checks_layer) == 5
-    assert reviewer_layer == ["reviewer-injection", "reviewer-percent", "reviewer-swallow"]
+    assert len(checks_layer) == 7
+    assert reviewer_layer == [
+        "reviewer-falsy",
+        "reviewer-injection",
+        "reviewer-inplace",
+        "reviewer-percent",
+        "reviewer-swallow",
+    ]
 
 
 def test_a_defect_the_checks_cannot_see_is_not_claimed_as_caught(tmp_path: Path) -> None:

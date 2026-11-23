@@ -90,6 +90,43 @@ def test_a_missing_program_is_an_error_not_a_failure(tmp_path: Path) -> None:
     assert check.blocking  # a check that could not run is not a pass
 
 
+def test_a_module_that_is_not_installed_is_not_applicable(tmp_path: Path) -> None:
+    run, _ = asyncio.run(
+        run_one(spec(argv=[sys.executable, "-m", "qagent-not-installed-xyz"]), tmp_path)
+    )
+
+    check = run.checks[0]
+    assert check.status == "not_applicable"
+    assert check.reason == (
+        "the qagent-not-installed-xyz module is not installed, so the check could not run"
+    )
+    assert not check.blocking
+
+
+def test_a_missing_dependency_inside_the_check_stays_a_failure(tmp_path: Path) -> None:
+    """A tool that cannot import *its own* dependency is a broken project, not an absent tool."""
+    (tmp_path / "faketool.py").write_text(
+        "import sys\nsys.stderr.write(\"ModuleNotFoundError: No module named 'dep_xyz'\\n\")\n"
+        "sys.exit(1)\n",
+        encoding="utf-8",
+    )
+
+    run, _ = asyncio.run(
+        run_one(
+            spec(
+                argv=[sys.executable, "-m", "faketool"],
+                env={"PYTHONPATH": str(tmp_path)},
+            ),
+            tmp_path,
+        )
+    )
+
+    check = run.checks[0]
+    assert check.status == "failed"
+    assert check.reason == "exit 1, expected 0"
+    assert check.blocking
+
+
 def test_a_timeout_is_its_own_status(tmp_path: Path) -> None:
     run, _ = asyncio.run(
         run_one(spec(argv=code("import time; time.sleep(30)"), timeout_s=0.3), tmp_path)

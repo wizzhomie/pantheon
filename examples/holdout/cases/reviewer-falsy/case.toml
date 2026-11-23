@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "a falsy check turns an explicit quantity of zero into one item; no test passes zero"
