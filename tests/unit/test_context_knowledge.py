@@ -22,7 +22,7 @@ from qagent.context import (
     check_context,
     read_context,
 )
-from qagent.verify import CommandSpec, VerificationPolicy
+from qagent.verify import CommandSpec, VerificationPolicy, read_policy
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -181,6 +181,15 @@ def test_this_repository_context_is_valid() -> None:
 
     assert context.requirements
     assert [problem for problem in problems if problem.level == "error"] == []
+
+
+def test_the_verification_demo_states_promises_its_checks_cover() -> None:
+    """The demo is read as an example: a broken link in it would teach the wrong lesson."""
+    demo = ROOT / "examples" / "verification_demo"
+    context = read_context(demo)
+
+    assert check_context(context, read_policy(demo / ".qagent" / "policy.toml")) == []
+    assert [item.id for item in context.approved()] == ["R1", "I1"]
 
 
 # --- the command -------------------------------------------------------------------------
