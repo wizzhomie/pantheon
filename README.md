@@ -168,6 +168,32 @@ The stub run replays golden answers with one scripted defect each, so it measure
 model: 75% → 94% correct, false passes 25% → 3%, two escalations. Use it to see the mechanics
 without a key; use the live reports for what a model actually does.
 
+## A second example: code review on seeded bugs
+
+A reviewer model gets a small Python function and must point at the defects: line number, verbatim
+quote, one sentence. The bugs are planted, so the correct answer exists before the model runs and
+costs nothing to label. [`examples/code_review`](examples/code_review/README.md) is the cartridge as
+**data** — a `qagent.toml`, five checks, a custom scoring function, and 18 fixtures whose bugs a
+probe proves observable (the committed dataset is refused if a "bug" does not change behaviour).
+
+| | |
+|---|---|
+| Live run, DeepSeek `deepseek-flash` | [guarded report](reports/code_review/guarded.md) · [baseline vs guarded](reports/code_review/diff.md) |
+| Stub run, no model calls | [sample report](reports/code_review/sample_guarded.md) · [sample diff](reports/code_review/sample_diff.md) |
+| The cartridge | [`examples/code_review/README.md`](examples/code_review/README.md) |
+| Run it | `qagent check --config examples/code_review/qagent.toml` · `make sample` (free) · `QAGENT_LLM=replay` |
+
+The live run (18 cases, 2026-11-23, reasoning off) answers 83.3% correctly — and the number that
+matters is the other one: without the loop 16.7% of answers were wrong yet accepted, with it 0%.
+Three confident "ok" reviews were escalated by the judge, which noticed the missed bug; one review
+pointed at the right line with the wrong wording, was stopped by the anchor check, and escalated
+when the retry did not fix it. The suite costs $0.0354 ($0.0020 per case), because the checks that
+catch invented lines are free and run before any model is asked.
+
+The honest limit is in the example's name: it measures **bug detection**, not review quality. Style,
+architecture and taste are not scored, and a reviewer that flagged every line would fail on spurious
+findings instead of looking thorough.
+
 ## Offline regression
 
 The same preset scores a dataset. Pass rates are **ground truth** against the golden values, not

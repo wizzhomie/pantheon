@@ -1,0 +1,65 @@
+# A whole QA project as data: schema, checks, rubric, scoring, prompts, budgets, prices.
+# Run it with: qagent eval --config examples/code_review/qagent.toml
+# Check it with: qagent check --config examples/code_review/qagent.toml
+name = "code_review"
+dataset = "dataset.jsonl"
+schema = "examples.code_review.schema:Review"
+agent = "examples.code_review.runner:build_agent"
+judge_client = "examples.code_review.runner:build_judge_client"
+mode = "guarded"
+agent_model = "deepseek-flash"
+agent_prompt_file = "prompts/agent.txt"
+judge_instructions_file = "prompts/judge.txt"
+
+[report]
+out = "../../reports/code_review/guarded.json"
+markdown = "../../reports/code_review/guarded.md"
+
+[limits]
+max_cost_usd = 0.10
+max_latency_ms = 240000
+
+[retry]
+max_attempts = 2
+
+[judge]
+enabled = true
+model = "deepseek-v4-pro"
+max_tokens = 2000
+
+[rubric]
+pass_score = 0.75
+
+[[rubric.criteria]]
+id = "anchoring"
+title = "Anchoring"
+description = "5: every finding points at the right line and its quote is verbatim. 1: a finding cannot be located in the snippet at all."
+weight = 0.6
+
+[[rubric.criteria]]
+id = "usefulness"
+title = "Usefulness"
+description = "5: each message names the wrong behaviour, so a developer can fix it without re-reading the function. 1: the message is vague or just repeats the line."
+weight = 0.4
+
+# Whole-answer scoring: the planted bugs must all be found and nothing else reported.
+[scoring]
+custom = "examples.code_review.scoring:score_review"
+
+# Checks a table cannot express: they are a couple of Python predicates.
+[checks]
+extra = ["examples.code_review.checks:extra_checks"]
+
+[[pricing]]
+model = "deepseek-flash"
+input_usd_per_mtok = 0.30
+output_usd_per_mtok = 1.20
+checked_at = 2026-11-23
+source = "https://api-docs.deepseek.com/quick_start/pricing"
+
+[[pricing]]
+model = "deepseek-v4-pro"
+input_usd_per_mtok = 1.32
+output_usd_per_mtok = 3.96
+checked_at = 2026-11-23
+source = "https://api-docs.deepseek.com/quick_start/pricing"

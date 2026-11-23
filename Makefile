@@ -34,6 +34,7 @@ test:
 
 config-check:
 	$(PYTHON) -m qagent check --config $(CONFIG)
+	$(PYTHON) -m qagent check --config examples/code_review/qagent.toml
 
 demo:
 	$(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \
@@ -41,6 +42,7 @@ demo:
 
 sample:
 	$(PYTHON) -m examples.logistics_intake.sample
+	$(PYTHON) -m examples.code_review.sample
 
 replay:
 	QAGENT_LLM=replay $(PYTHON) -m qagent eval --spec $(SPEC) --dataset $(DATASET) \
