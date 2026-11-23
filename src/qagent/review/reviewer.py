@@ -19,6 +19,7 @@ from pathlib import Path
 
 from ..contracts.findings import Finding, FindingSeverity, Location
 from ..llm.base import LLMClient, LLMRequest, Message
+from .cache import ReviewCache
 from .contracts import ProposedFinding, ProposedReview, ReviewerConfig, ReviewOutcome
 from .diff import Diff, normalise_path
 from .prompt import build_user_message, system_message
@@ -33,6 +34,7 @@ async def review_diff(
     config: ReviewerConfig,
     *,
     requirements: Sequence[tuple[str, str]] = (),
+    cache: ReviewCache | None = None,
 ) -> ReviewOutcome:
     """Ask the model about the change, then check every answer against the repository.
 
@@ -53,6 +55,12 @@ async def review_diff(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
+    cache_key = cache.key(request) if cache is not None else None
+    if cache is not None and cache_key is not None:
+        stored = cache.load(cache_key)
+        if stored is not None:
+            return stored
+
     try:
         response = await client.complete(request)
     except Exception as exc:  # a reviewer failure must not take the run down
@@ -84,7 +92,7 @@ async def review_diff(
         anchor(index + 1, proposal, root, diff, approved=approved)
         for index, proposal in enumerate(proposed.findings)
     ]
-    return ReviewOutcome(
+    outcome = ReviewOutcome(
         status="ok",
         model=response.model,
         diff_digest=diff.digest(),
@@ -98,6 +106,9 @@ async def review_diff(
         completion_tokens=response.completion_tokens,
         spent_seconds=round(time.monotonic() - started, 3),
     )
+    if cache is not None and cache_key is not None:
+        cache.store(cache_key, outcome)
+    return outcome
 
 
 def anchor(

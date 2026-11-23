@@ -24,6 +24,7 @@ from .context import ProjectContext, ProjectProfile, detect_profile, read_contex
 from .evolve import AppliedPolicy, apply_proposals, load_proposals
 from .llm.base import LLMClient
 from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
+from .review.cache import ReviewCache
 from .verify import (
     SandboxRecord,
     VerificationReport,
@@ -63,6 +64,7 @@ async def execute(
     repo: str | Path,
     *,
     out_dir: str | Path | None = None,
+    use_cache: bool = True,
 ) -> tuple[VerificationReport, Path]:
     """Answer the request: run the checks, review the change when asked, store the verdict."""
     root = Path(repo).resolve()
@@ -84,6 +86,7 @@ async def execute(
             _client(request),
             _reviewer_config(request, root),
             requirements=requirements,
+            cache=ReviewCache(root) if use_cache else None,
         )
         if review.status == "failed":
             gaps.append(f"the reviewer did not run: {review.error}")
@@ -210,8 +213,9 @@ def render_show(report: VerificationReport) -> str:
         if report.review.status == "failed":
             lines.append(f"  review: failed ({report.review.error})")
         else:
+            cached = " (cached)" if report.review.cached else ""
             lines.append(
-                f"  review: {report.review.model}, {report.review.proposed} proposed, "
+                f"  review: {report.review.model}{cached}, {report.review.proposed} proposed, "
                 f"{report.review.confirmed} confirmed"
             )
     traced = trace_line(report)

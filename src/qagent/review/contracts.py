@@ -76,4 +76,8 @@ class ReviewOutcome(StrictModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     spent_seconds: float = Field(default=0.0, ge=0)
+    cached: bool = Field(
+        default=False,
+        description="served from the review cache; the tokens were paid on the original call",
+    )
     error: str | None = Field(default=None, description="why the review did not happen")

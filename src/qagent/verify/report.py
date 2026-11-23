@@ -278,18 +278,22 @@ def _review_section(review: ReviewOutcome | None) -> str:
             f"The reviewer did not run: {review.error or 'no reason recorded'}.\n\n"
             "No finding in this report comes from a model."
         )
+    model = f"`{review.model}`" + (" (cached)" if review.cached else "")
+    tokens = f"{review.prompt_tokens} in / {review.completion_tokens} out"
+    if review.cached:
+        tokens += " (paid once, on the original review)"
     lines = [
         "## Review",
         "",
         "| | |",
         "|---|---|",
-        f"| Model | `{review.model}` |",
+        f"| Model | {model} |",
         f"| Diff | `{review.diff_digest[:12]}` |",
         f"| Files reviewed | {review.files_reviewed} |",
         f"| Proposed | {review.proposed} |",
         f"| Confirmed by the anchor | {review.confirmed} |",
         f"| Unverified | {review.unverified} |",
-        f"| Tokens | {review.prompt_tokens} in / {review.completion_tokens} out |",
+        f"| Tokens | {tokens} |",
         f"| Time | {review.spent_seconds:.1f}s |",
     ]
     return "\n".join(lines)

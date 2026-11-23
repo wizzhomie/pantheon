@@ -312,6 +312,11 @@ def _build_parser() -> argparse.ArgumentParser:
     verify.add_argument("--review-model", default=None, help="model name for the review call")
     verify.add_argument("--review-max-tokens", type=int, default=1500)
     verify.add_argument(
+        "--no-cache",
+        action="store_true",
+        help="call the reviewer even when the same question is already cached",
+    )
+    verify.add_argument(
         "--request",
         type=Path,
         metavar="PATH",
@@ -516,7 +521,9 @@ def _run_verify(args: argparse.Namespace) -> int:
             print(line)
         return EXIT_OK
 
-    report, target = asyncio.run(execute(request, repo, out_dir=args.out))
+    report, target = asyncio.run(
+        execute(request, repo, out_dir=args.out, use_cache=not args.no_cache)
+    )
     run = report.run
     if run.adopted:
         print(f"accepted rules: {', '.join(run.adopted)}")
