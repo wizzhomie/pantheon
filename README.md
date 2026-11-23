@@ -2,259 +2,180 @@
 
 [![ci](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml)
 
-**Embedded QA for LLM agents.** A small, preset-driven library that puts quality control *inside*
-the step that returns structured data: deterministic checks → LLM judge → bounded correction loop →
-escalation, plus an offline regression suite that reuses the same preset.
+**Independent verification for AI-assisted development.** You hand it a change — a commit, a diff,
+a dataset run — and it returns findings and a verdict backed by evidence it collected itself, not
+by what the coding agent said about its own work.
 
 *[Читать по-русски →](README.ru.md)*
 
-> **Status: phases 0–8 — the core, a complete example, and a real run.** Contracts, nine
-> deterministic checks, the model layer, the rubric judge, the guarded loop, offline regression
-> with report diff, and `examples/logistics_intake`: 32 labelled cases, a committed DeepSeek run
-> (pass 59% → 81%, false passes 41% → 19%) and the cassette that replays it without a key or a
-> bill. The cheap mode (`make demo`, no model calls) still runs in seconds.
+> **Where the project is right now.** The evaluation core works and is measured: deterministic
+> checks, a rubric judge, a bounded correction loop, offline regression with report diff, two
+> examples with committed live runs and cassettes, 388 tests. The verification loop — project
+> context, budgeted plans, tool execution in a target repository, findings and verdicts — is
+> being built now, phase by phase; the plan and the decisions are in
+> [`docs/roadmap.md`](docs/roadmap.md). **There is no `verify` command yet**: this README
+> describes what runs today and what is coming, and keeps the two apart.
 
 ---
 
 ## Why
 
-Any LLM step that must return structure (extract fields, parse an invoice, fill a ticket, build tool
-arguments) fails in four ways:
+An AI agent finishes a task and reports: done, tests pass, requirements met, no regressions.
+None of that is evidence. The failure modes are boring and expensive:
 
-| Failure | Looks like | Why it hurts |
+| Claim | What actually happens | Cost |
 |---|---|---|
-| Format | not JSON, truncated, wrong type | fails loudly — the harmless case |
-| **Fabrication** | a plausible value that is not in the input | never fails; it ships |
-| Omission | the input had it, the output doesn't | surfaces days later |
-| Logic | pickup after delivery, 300 t of cargo | priced on wrong numbers |
+| "Tests pass" | they pass on a subset, or were weakened to pass | a regression ships |
+| "Done" | the happy path is done, the edge cases are not | found by a user |
+| "Requirements met" | something plausible was built, not the requested thing | rework |
+| "No regressions" | nobody ran the paths that regressed | incident |
+| "Architecture respected" | the layer was imported directly, tomorrow it is load-bearing | slow rot |
 
-A schema validates the first row only. **The expensive failure is a schema-valid, beautifully
-formatted invention.** Offline evals tell you what happened yesterday; they don't stop today's bad
-answer.
+The principle this project is built around:
 
-`qagent` covers both halves with one set of rules: the checks that gate a live run are the checks
-that score a regression run.
+> **AI-generated claims are not verification evidence.**
+
+Tool output, reproducible checks and findings that can be re-derived are evidence. Text is not. A
+verification system has to get its own access to the data, run the available tools itself, and
+conclude from what it saw — including saying "I could not check this".
 
 ## What it is / isn't
 
 | It is | It isn't |
 |---|---|
-| A library (`pip install -e .` for now, not on PyPI), dropped into an existing pipeline | An agent framework — no graphs, no tool routing |
-| A wrapper around **any** `case → structured output` function | A vendor lock-in to one SDK or provider |
-| A preset-driven kit: core = mechanism, domain = your preset | A prompt library for one specific task |
-| An offline harness: dataset, metrics, version diff, judge calibration | A SaaS eval platform with a dashboard |
+| An independent verification loop around a project: context → plan → evidence → findings → verdict | A coding agent, an IDE, or a CI platform |
+| A library and a CLI (`pip install -e .` for now, not on PyPI) | A service, a dashboard, or a multi-tenant platform |
+| A universal core: the same mechanics for any repository | A collection of hardcoded rules about specific projects |
+| Measured against planted defects, with its own evaluation loop | A prompt library, or a wrapper around one vendor SDK |
 
-Scope limit: **steps that return structure**. Free-form chat answers are out of scope — without a
-contract there is nothing to check against.
+Deliberately out of scope: writing or changing the verified project, autonomous self-improvement,
+reimplementing static analyzers that already exist, and any "run everything by default" mode —
+verification is selective and budgeted by design ([why](docs/roadmap.md)).
 
-## How it works
+## How it works (target)
 
 ```mermaid
 flowchart LR
-    A[your agent] --> B[deterministic checks<br/>schema · formats · ranges · evidence · PII]
-    B -->|blocked| E[escalate / human review]
-    B -->|clean| C[LLM judge<br/>rubric → verdict]
-    C -->|failed| D[feedback<br/>issues + fix instructions]
-    D -->|attempt < max| A
-    C -->|passed| Z[done + trace]
-    E --> Z
+    R[request<br/>commit · diff · dataset] --> P[plan<br/>what to check and what it costs]
+    P --> D[deterministic tools<br/>tests · lint · types · custom]
+    D --> C[context<br/>requirements · invariants · milestones]
+    C --> V[independent reviewer<br/>diff + evidence]
+    V --> F[findings<br/>file · line · quote · severity]
+    F --> D2{verdict by code}
+    D2 -->|PASS| OK[ship]
+    D2 -->|WITH CONDITIONS · HOLD · INCONCLUSIVE| HU[human decides]
+    OK --> REP[report: what ran, what it cost, what was not checked]
+    HU --> REP
 ```
 
-1. **Wrap.** `agent(case, feedback)` — your function, any internals.
-2. **Check.** Cheap, deterministic, no tokens: schema, required fields, ISO formats, ranges,
-   cross-field rules, quoted evidence, PII, truncation, refusals.
-3. **Judge.** A model scores your rubric; **the code computes `passed`** from the weights, not the model.
-4. **Correct.** Structured feedback with concrete instructions; at most 2 attempts, under a cost
-   and latency budget.
-5. **Decide.** `passed` / `passed_after_retry` / `escalated` (with reason) / `failed`, always with a
-   trace of tokens, cost and time.
+1. **Context.** What this project is, how it is built, what it promises, what must not break.
+2. **Plan.** Cheap deterministic checks first, money spent only where they leave a question.
+3. **Evidence.** Every check produces a structured result with captured output; a check that did
+   not run is `error` or `not applicable`, never `ok`.
+4. **Review.** A model reads the diff and the evidence and proposes findings — but each finding
+   must be anchored: the file exists, the line is in range, the quote is verbatim on that line.
+   A finding that fails the anchor is reported as unverified, not silently dropped.
+5. **Verdict.** The code computes it from gates, evidence and policy — never from a score the
+   model produced: `PASS`, `PASS WITH CONDITIONS`, `HOLD`, `INCONCLUSIVE`.
+6. **Report.** Scope, checks, findings, evidence, limitations, what was skipped and why, what it
+   cost.
 
-### Preset = "cartridge"
+## Two levels: core and project
 
-The core knows nothing about your domain. You bring:
+The core knows how to verify; it knows nothing about your project. Knowledge about the project
+lives in the project itself, in `.qagent/`: profile, architecture baseline and target, milestones,
+requirements, invariants, verification policies. It is committed with the code and reviewed like
+the code, because it goes stale at the same speed. QAgent stays a tool, not a store of other
+people's projects.
 
-```python
-PRESET = Preset(
-    name="logistics_intake",
-    output_model=ExtractedIntake,          # Pydantic v2 contract
-    checks=[required(...), formats(...), EvidenceCheck(paths=["origin", "cargo.weight"])],
-    rubric=Rubric(criteria=[...]),         # weights + descriptions, data not prose
-    agent_prompt=PROMPT,
-    agent_model="deepseek-flash",
-    scoring=ScoringSpec(fields=[...]),     # for offline comparison
-)
-```
+Verification modes (`pre-commit`, `change review`, `feature evaluation`, `architecture review`,
+`security audit`, `regression`, `dataset evaluation`, `full audit`) are **data**: each is a policy
+file naming mandatory gates, depth and cost ceiling. The code path is one.
 
-A complete version of this — schema, eight checks, rubric, prompt, 32 labelled cases and a
-scoring spec — is [`examples/logistics_intake`](examples/logistics_intake/README.md).
+## Selective and budgeted
 
-Wrap the agent once, then run cases:
+There is no mode that runs everything. A run starts from a request and a budget, and the plan
+orders work from cheap to expensive: project commands (tests, lint, types) cost seconds and no
+tokens; the reviewer costs money, so it gets the changed files and the evidence, after the
+deterministic tools have spoken, and only if there is still a question. When the budget runs out
+before the questions do, the verdict says `INCONCLUSIVE` — never a quiet `PASS`. The report lists
+what was not checked and why; a second run on the same inputs is cached.
 
-```python
-guarded = guard(
-    agent=extract_intake,                  # async (case, feedback | None) -> Attempt | AgentReply
-    preset=PRESET,
-    llm=OpenAICompatibleClient(model="deepseek-flash"),   # used by the judge only
-    config=QAConfig(judge=JudgePolicy(model="deepseek-v4-pro")),
-)
+## What runs today
 
-result = await guarded.run(Case(case_id="mail-42", payload=email))
+The table below is the honest part: this is the evaluation core, and it is where the verification
+loop gets its evidence and its ability to measure itself.
 
-if result.blocking:                        # escalated or failed
-    queue_for_human(result)                # reason + trace + the rejected answer included
-else:
-    use(result.output)
-
-one_shot = await guarded.with_mode("baseline").run(Case(case_id="mail-42", payload=email))
-```
-
-The trace records every step with tokens, cost and latency; `result.totals` is the bill for that
-case, judge included.
-
-Three customization levels, none of which needs a fork: config (L1), your checks and rubric (L2),
-your agent/judge/sinks (L3).
-
-### The same cartridge as a file
-
-The preset above can be a `qagent.toml` instead, so a new project starts from a settings file
-rather than from a copy of this library's wiring:
+| Piece | What it does | Proof |
+|---|---|---|
+| Deterministic checks | required fields, formats, ranges, cross-field rules, quoted evidence, PII, refusals, duplicates | 9 built-in checks, extendable by config or code |
+| Independent judge | a model scores a data-driven rubric; **the code** recomputes pass/score from weights | judge cannot grade itself |
+| Bounded loop | structured feedback, at most N attempts, cost and latency budget, escalation with a reason | every step recorded in the trace |
+| Preset as a file | schema, checks, rubric, prompts, limits, prices, report — one `qagent.toml` | config and code build the same preset, fingerprint-tested |
+| Offline regression | dataset → run → scoring → metrics → report → diff of two runs | comparable only with matching hashes |
+| Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
 
 ```bash
-qagent init --dir ./qa             # starter config plus a one-case dataset
-qagent check --config qagent.toml  # validate the file and the dataset, run nothing
-qagent eval --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
-qagent record --config qagent.toml      # live model, answers written to the cassette
-qagent replay --config qagent.toml      # same numbers from the cassette, free
+qagent init --dir ./qa                     # starter config plus a one-case dataset
+qagent check --config qagent.toml          # validate config and dataset, run nothing
+qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
+qagent record --config qagent.toml         # live model, answers written to the cassette
+qagent replay --config qagent.toml         # same numbers from the cassette, free
+qagent compare a.json b.json               # what changed between two runs
 ```
 
-[`examples/logistics_intake/qagent.toml`](examples/logistics_intake/qagent.toml) describes the same
-preset as `preset.py`: both build a preset with the same fingerprint, and a replay run through the
-file reproduces the committed numbers. Two things stay code, because a file cannot choose a
-provider or read a key — `agent = "module:factory"` and `judge_client = "module:factory"`. A check
-with a Python predicate is named under `[checks] extra`; a domain retry hint under
-`retry_builder`.
+### Example 1 — logistics intake (32 cases)
 
-### Modes
+An email → structured fields step, guarded: 59.4% correct on the first attempt, **81.2% after the
+loop**, false passes 40.6% → 18.8%, $0.108 for the run. The report, the diff against the baseline
+run and the cassette are committed in [`reports/`](reports/README.md) and
+[`examples/logistics_intake/`](examples/logistics_intake/README.md).
 
-| Mode | Behaviour | When |
-|---|---|---|
-| `baseline` | one call, no checks | the number to compare against |
-| `guarded` | full loop | production |
-| `shadow` | full loop, nothing blocked — trace only | first week on live traffic |
+### Example 2 — code review on seeded bugs (24 cases)
 
-`shadow` is how you earn the right to block: a week of real traces beats an argument about
-false positives.
+A reviewer that must point at the planted bug by line and verbatim quote. Cheap anchor checks
+reject an invented quote, a line outside the file and a verdict that contradicts the findings, for
+free, before any judge is asked. Live run: **87.5% final, 0 false passes** (12.5% before), $0.0477
+for 24 cases, p50 2.9 s. This example is also the template for how the verification loop will
+validate findings: [`examples/code_review/`](examples/code_review/README.md).
 
-## A complete preset: logistics intake
+## How the two halves fit
 
-[`examples/logistics_intake`](examples/logistics_intake/README.md) turns dirty freight emails into
-`ExtractedIntake` — origin, destination, cargo, dates, amount, contact — without inventing a value.
-It is the reference for what a cartridge looks like: a schema, eight checks (five of them domain
-rules), a rubric, a prompt, 32 labelled cases with fabrication traps, and reports checked into the
-repository.
+The evaluation core does not sit beside the verification loop — it gets absorbed into it. Concrete
+plan, in order:
 
-| | |
-|---|---|
-| Live run, DeepSeek `deepseek-flash` | [guarded report](reports/guarded.md) · [baseline vs guarded](reports/diff.md) |
-| Stub run, no model calls | [guarded report](reports/sample_guarded.md) · [baseline vs guarded](reports/sample_diff.md) |
-| The preset, file by file | [`examples/logistics_intake/README.md`](examples/logistics_intake/README.md) |
-| Run it | `make demo` (free) · `make replay` (free, committed cassette) · `make eval` (live) |
+1. A dataset run becomes a **check type** inside the verification engine: the policy names a
+   dataset and a config, the engine runs it as a tool with a timeout and attaches its report as
+   evidence.
+2. The rubric judge becomes one of the **reviewers** — it can read a change, not only a single
+   answer.
+3. The loop's checks and retries become how the behaviour of a step is **measured**, which is what
+   makes the verification loop itself measurable.
 
-The live run (32 cases, 2026-11-22, no reasoning budget — see U37 below) moves the numbers the way
-the design intends: correct answers 59.4% → 81.2%, false passes 40.6% → 18.8%, and the six answers
-that still slip through are visible in the diff by name. The gate never escalated a case: nine were
-retried, six of them recovered. Latency is the price — 1.4 s → 3.0 s per case — and cost goes from
-$0.0008 to $0.0034 per case, which is still cents for the whole suite.
-
-The stub run replays golden answers with one scripted defect each, so it measures the loop, not a
-model: 75% → 94% correct, false passes 25% → 3%, two escalations. Use it to see the mechanics
-without a key; use the live reports for what a model actually does.
-
-## A second example: code review on seeded bugs
-
-A reviewer model gets a small Python function and must point at the defects: line number, verbatim
-quote, one sentence. The bugs are planted, so the correct answer exists before the model runs and
-costs nothing to label. [`examples/code_review`](examples/code_review/README.md) is the cartridge as
-**data** — a `qagent.toml`, five checks, a custom scoring function, and 24 fixtures whose bugs a
-probe proves observable (the committed dataset is refused if a "bug" does not change behaviour).
-
-| | |
-|---|---|
-| Live run, DeepSeek `deepseek-flash` | [guarded report](reports/code_review/guarded.md) · [baseline vs guarded](reports/code_review/diff.md) |
-| Stub run, no model calls | [sample report](reports/code_review/sample_guarded.md) · [sample diff](reports/code_review/sample_diff.md) |
-| The cartridge | [`examples/code_review/README.md`](examples/code_review/README.md) |
-| Run it | `qagent check --config examples/code_review/qagent.toml` · `make sample` (free) · `QAGENT_LLM=replay` |
-
-The live run (24 cases, 2026-11-23, reasoning off) answers 87.5% correctly — and the number that
-matters is the other one: without the loop 12.5% of answers were wrong yet accepted, with it 0%.
-Four answers were escalated by the judge: three confident "ok" reviews on buggy code and one invented problem on clean code. One review
-pointed at the right line with the wrong wording, was stopped by the anchor check, and escalated
-when the retry did not fix it. The suite costs $0.0477 ($0.0020 per case), because the checks that
-catch invented lines are free and run before any model is asked.
-
-The honest limit is in the example's name: it measures **bug detection**, not review quality. Style,
-architecture and taste are not scored, and a reviewer that flagged every line would fail on spurious
-findings instead of looking thorough.
-
-## Offline regression
-
-The same preset scores a dataset. Pass rates are **ground truth** against the golden values, not
-"the gate let it through" — so a wrong answer approved by the loop is its own metric:
-
-```
-$ python -m qagent eval --spec examples.logistics_intake.runner:build_guarded \
-      --dataset examples/logistics_intake/dataset.jsonl \
-      --out reports/guarded.json --markdown reports/guarded.md
-20261122T165644-guarded-394398a: 32 cases, pass 81.2% -> reports/guarded.json
-
-$ python -m qagent compare reports/baseline.json reports/guarded.json \
-      --markdown reports/diff.md
-```
-
-The report carries `run_id`, commit, `preset_hash`, `dataset_hash`, both families of numbers (quality
-vs. loop behaviour) and per-case rows; `compare` raises a flag when the dataset changed, because then
-the numbers are not comparable. Metrics: pass rate before/after retry, false pass rate, retry
-recovery, escalation rate, hallucination rate, field accuracy, p50/p95 latency, tokens, cost per case
-and per *passed* case — plus judge calibration (agreement, Cohen's κ, false passes) against
-hand-labelled cases.
-
-> `QAGENT_LLM` selects the source: `live` (needs `DEEPSEEK_API_KEY`), `replay` (the committed
-> cassette — same numbers, no key, no network) or `stub` (the demo preset above). The committed
-> live reports were produced with reasoning switched off at the provider (`reasoning_effort: none`),
-> because hidden thinking cost ten times the run; the report states the model, not the mood of the
-> model, so treat these as numbers for that mode.
-
-## Relationship to existing tools
-
-They mostly answer *"how good is the model"*: Guardrails validates output, DeepEval and promptfoo
-run offline evaluations, LangSmith/Langfuse trace. `qagent` answers *"what do we do with this
-particular bad answer, and what did that cost"* — and reuses one preset for both the live loop and
-the regression run.
+Nothing already built is deleted or renamed for elegance; the old modules change only when their
+new role is actually used.
 
 ## Roadmap
 
-| Phase | Content | State |
+| Phase | What | Status |
 |---|---|---|
-| 0 | design docs | ✅ |
-| 1 | skeleton, contracts, config, CI | ✅ |
-| 2 | built-in checks + tests | ✅ |
-| 3 | LLM layer: fake, replay, OpenAI-compatible, Anthropic | ✅ |
-| 4 | judge, rubric scoring, calibration | ✅ |
-| 5 | runtime loop: attempts, budget, modes, escalation, trace | ✅ |
-| 6 | offline evals: dataset, metrics, report, diff | ✅ |
-| 7 | example preset, dataset, sample reports, Russian README | ✅ |
-| 8 | live run, cassettes, numbers in README | ✅ |
+| 0 | Architecture assessment: what exists, what the gap is, decisions | done — [`docs/roadmap.md`](docs/roadmap.md) |
+| 1 | Project context: profile, requirements, invariants, baseline | in progress |
+| 2 | Verification orchestrator: request, plan, run, persistence | planned |
+| 3 | Deterministic engine: run project tools, capture evidence, statuses | planned |
+| 4 | Independent reviewer: change analysis, architecture, tests, risk | planned |
+| 5 | Findings, verdict, verification report | planned |
+| 6 | Architecture contracts and traceability | planned |
+| 7 | Verification evolution: proposed rules, validation, promotion | planned |
+| 8 | Risk-based plans, sandbox, mutation testing, holdout evaluation | planned |
 
 ## Docs
 
-- [`examples/logistics_intake/README.md`](examples/logistics_intake/README.md) — the preset end to
-  end: files, checks, dataset decisions, how to build your own
-- [`docs/design.md`](docs/design.md) — contracts, checks catalogue, runtime loop, evals, roadmap
-- [`docs/how-it-works.md`](docs/how-it-works.md) — plain-language explanation and the decision log
-  (every choice with alternatives, cost, and when to revisit it)
-- [`reports/README.md`](reports/README.md) — what the committed sample reports are, and what they
-  are not
+- [`docs/roadmap.md`](docs/roadmap.md) — vision, principles, phases, decisions, non-goals.
+- [`docs/design.md`](docs/design.md) — why the core is built the way it is, with the alternatives.
+- [`docs/how-it-works.md`](docs/how-it-works.md) — the same, in plain language, step by step.
+- [`reports/README.md`](reports/README.md) — the committed runs and how to read them.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT.
