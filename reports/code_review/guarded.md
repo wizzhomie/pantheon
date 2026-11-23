@@ -1,13 +1,13 @@
-# Evaluation report — `guarded` · `20261123T023119-guarded-528de59`
+# Evaluation report — `guarded` · `20261123T024302-guarded-884af5b`
 
 | | |
 |---|---|
 | Preset | `code_review` |
-| Preset hash | `bb26c7b3ded189d4667251cea8705d12b0850dc2fe4f0330dd4b625c8acd72a1` |
+| Preset hash | `c9a511c59f183b67ed4bff3c24fe1bc74f62991e91d85a8436ed53060e6c7edc` |
 | Dataset hash | `7f2d27466d490eafe26352117e8d00a5a6681125e5fa35235ce212f927a9d7e6` |
 | Cases | 24 |
-| Commit | `528de59` |
-| Created | 2026-11-23 02:31 UTC |
+| Commit | `884af5b` |
+| Created | 2026-11-23 02:43 UTC |
 | Agent model | `deepseek-flash` |
 | Judge | `deepseek-v4-pro` |
 
