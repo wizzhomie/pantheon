@@ -15,6 +15,11 @@ ignores the request, which is why the variables are documented in the example ru
 
 ``--mode`` overrides the configured mode, which is how a baseline and a guarded report are
 produced from one setup.
+
+The verification side is separate on purpose: ``inspect`` describes a repository, ``run``
+executes its checks, and ``verify`` does both plus findings, a verdict and a report. A diff
+on the command line turns the independent reviewer on — opt-in, because it is the only part
+that costs money.
 """
 
 from __future__ import annotations
@@ -23,14 +28,17 @@ import argparse
 import asyncio
 import importlib
 import os
+import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 from .context import ProjectProfile, detect_profile, read_profile, write_profile
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
+from .llm.base import LLMClient
 from .project import ProjectConfig, build_guarded, validate
+from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .runtime.facade import GuardedAgent
 from .verify import (
     build_plan,
@@ -151,7 +159,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="qagent",
-        description="Evaluate a dataset against a preset and compare reports.",
+        description=(
+            "Verify AI-assisted changes: run a project's checks, review a diff, "
+            "decide a verdict; also evaluate a dataset against a preset."
+        ),
     )
     subcommands = parser.add_subparsers(dest="command", required=True)
 
@@ -226,6 +237,26 @@ def _build_parser() -> argparse.ArgumentParser:
     verify.add_argument(
         "--dry-run", action="store_true", help="print the plan and the budget, run nothing"
     )
+    change = verify.add_mutually_exclusive_group()
+    change.add_argument("--diff", type=Path, metavar="PATH", help="a unified diff to review")
+    change.add_argument(
+        "--since",
+        metavar="REV",
+        help="review `git diff REV` instead of a diff file",
+    )
+    verify.add_argument(
+        "--reviewer",
+        metavar="MODULE:FACTORY",
+        help="zero-argument factory returning an LLMClient, e.g. qagent.review.factory:from_env",
+    )
+    verify.add_argument(
+        "--review-instructions",
+        type=Path,
+        metavar="PATH",
+        help="project rules for the reviewer, appended to the prompt",
+    )
+    verify.add_argument("--review-model", default=None, help="model name for the review call")
+    verify.add_argument("--review-max-tokens", type=int, default=1500)
 
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
@@ -330,6 +361,8 @@ def _run_verify(args: argparse.Namespace) -> int:
     policy = read_policy(policy_path)
     profile = _profile_or_none(repo)
     plan = build_plan(policy, profile)
+    review_config = _reviewer_config(args)
+    diff = _load_diff(args, repo) if review_config is not None else None
     if args.dry_run:
         print(
             f"{policy.name}: {len(plan)} checks, "
@@ -337,18 +370,36 @@ def _run_verify(args: argparse.Namespace) -> int:
         )
         for line in describe_plan(plan):
             print(f"  {line}")
+        if diff is not None and review_config is not None:
+            print(
+                f"review: {len(diff.files)} file(s), {diff.added_lines} added line(s), "
+                f"model {review_config.model}"
+            )
         return EXIT_OK
+
+    review, gaps = _run_review(args, review_config, diff, repo)
 
     run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
     findings = findings_from_run(run)
-    verdict = decide(run, findings)
-    report = build_report(run, findings, verdict)
+    if review is not None:
+        findings.extend(review.findings)
+    verdict = decide(run, findings, gaps=gaps)
+    report = build_report(run, findings, verdict, review)
     json_path, md_path = write_report(report, target)
 
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
         print(f"  {check.status:14} {check.check_id}{detail}")
+    if review is not None:
+        if review.status == "failed":
+            print(f"review: failed ({review.error})")
+        else:
+            print(
+                f"review: {review.proposed} proposed, {review.confirmed} confirmed, "
+                f"{review.unverified} unverified, "
+                f"{review.prompt_tokens}+{review.completion_tokens} tokens"
+            )
     print(f"verdict: {verdict.headline}")
     for reason in verdict.reasons:
         print(f"  {reason.code}: {reason.detail}")
@@ -358,6 +409,79 @@ def _run_verify(args: argparse.Namespace) -> int:
     if verdict.status == "inconclusive":
         return EXIT_INCONCLUSIVE
     return EXIT_OK
+
+
+def _reviewer_config(args: argparse.Namespace) -> ReviewerConfig | None:
+    """The review is a request: it exists only when a diff was named."""
+    if args.diff is None and args.since is None:
+        return None
+    if not args.reviewer:
+        raise ValueError(
+            "--diff or --since needs --reviewer MODULE:FACTORY "
+            "(qagent.review.factory:from_env for a live model, "
+            "qagent.review.scripted:from_env for a scripted answer)"
+        )
+    instructions = ""
+    if args.review_instructions is not None:
+        instructions = Path(args.review_instructions).read_text(encoding="utf-8")
+    return ReviewerConfig(
+        model=args.review_model or "reviewer",
+        instructions=instructions,
+        max_tokens=args.review_max_tokens,
+    )
+
+
+def _load_diff(args: argparse.Namespace, repo: Path) -> Diff:
+    if args.diff is not None:
+        text = Path(args.diff).read_text(encoding="utf-8")
+    else:
+        text = _git_diff(repo, args.since)
+    return parse_diff(text)
+
+
+def _git_diff(repo: Path, revision: str) -> str:
+    """Run `git diff REV` as a child process; argv only, like every other command here."""
+    completed = subprocess.run(
+        ["git", "diff", "--no-color", "--no-ext-diff", revision],
+        cwd=str(repo),
+        capture_output=True,
+        text=True,
+        timeout=60.0,
+        check=False,
+    )
+    if completed.returncode != 0:
+        raise ValueError(f"git diff {revision} failed: {completed.stderr.strip()[:300]}")
+    return completed.stdout
+
+
+def _load_client(spec: str) -> LLMClient:
+    module_name, separator, attribute = spec.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ValueError(f"--reviewer must look like package.module:factory, got {spec!r}")
+    module = importlib.import_module(module_name)
+    factory: Callable[[], object] = getattr(module, attribute)
+    if not callable(factory):
+        raise ValueError(f"{spec} is not callable")
+    client = factory()
+    if not callable(getattr(client, "complete", None)):
+        raise ValueError(f"{spec} must return an LLMClient with a complete() method")
+    return cast(LLMClient, client)
+
+
+def _run_review(
+    args: argparse.Namespace,
+    config: ReviewerConfig | None,
+    diff: Diff | None,
+    repo: Path,
+) -> tuple[ReviewOutcome | None, list[str]]:
+    if config is None or diff is None:
+        return None, []
+    client = _load_client(args.reviewer)
+    if args.review_model is None:
+        config = config.model_copy(update={"model": getattr(client, "model", config.model)})
+    outcome = asyncio.run(review_diff(diff, repo, client, config))
+    gaps = [f"the reviewer did not run: {outcome.error}"] if outcome.status == "failed" else []
+    return outcome, gaps
 
 
 def _profile_or_none(repo: Path) -> ProjectProfile | None:

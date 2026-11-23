@@ -12,9 +12,9 @@ by what the coding agent said about its own work.
 > checks, a rubric judge, a bounded correction loop, offline regression with report diff, two
 > examples with committed live runs and cassettes. The verification loop is being built phase by
 > phase; the plan and the decisions are in [`docs/roadmap.md`](docs/roadmap.md). What works
-> already: the project profile (`qagent inspect`), the deterministic engine (`qagent run`), and
-> the first end-to-end pass — checks → findings → verdict → report (`qagent verify`). The
-> independent reviewer that proposes findings about a diff is the next phase.
+> already: the project profile (`qagent inspect`), the deterministic engine (`qagent run`), the
+> end-to-end pass — checks → findings → verdict → report (`qagent verify`) — and the independent
+> reviewer, which proposes findings about a diff and has each one checked against the file.
 
 ---
 
@@ -117,6 +117,7 @@ engine turns that evidence into a verdict.
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
 | Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
 | Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
+| Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 
@@ -124,6 +125,7 @@ engine turns that evidence into a verdict.
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
 qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
 qagent verify --repo .                     # run, decide a verdict, write the report pair
+qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
@@ -190,7 +192,7 @@ new role is actually used.
 | 1 | Project context: profile, requirements, invariants, baseline | in progress — profile done, requirements and baseline next |
 | 2 | Verification orchestrator: request, plan, run, persistence | planned |
 | 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `qagent run` |
-| 4 | Independent reviewer: change analysis, architecture, tests, risk | planned |
+| 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `qagent verify --diff` with a reviewer |
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | planned |
 | 7 | Verification evolution: proposed rules, validation, promotion | planned |

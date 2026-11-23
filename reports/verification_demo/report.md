@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | Verdict | **HOLD** |
-| Run | `20261123T033423-verification-demo` |
+| Run | `20261123T034215-verification-demo` |
 | Policy | `verification-demo` |
 | Policy digest | `3cc9da588dc0` |
 | Profile digest | `d577bf110964` |
-| Started | 2026-11-23 03:34 UTC |
+| Started | 2026-11-23 03:42 UTC |
 | Checked | 1 of 1 planned |
 | Spent | 0.3s |
 
@@ -29,12 +29,13 @@
 
 ## How this verdict was reached
 
-The verdict is computed from the checks above by code, not by a model: a failed or
+The verdict is computed from the evidence above by code, not by a model: a failed or
 timed-out required check and a confirmed blocking finding produce `HOLD`; a required
-check that did not run produces `INCONCLUSIVE`; a non-blocking or unconfirmed finding
-produces `PASS WITH CONDITIONS`. Nothing in this document overrides that rule.
+check that did not run, or a review that did not happen, produces `INCONCLUSIVE`; a
+non-blocking or unconfirmed finding produces `PASS WITH CONDITIONS`.
 
-Findings here come from the checks themselves; an independent reviewer that proposes
-findings about a diff is the next phase and does not exist yet.
+A reviewer finding is `confirmed` only when the file is part of the change, the line
+exists, and the quote is literally that line. Anything else stays `unverified`: it is
+reported, and it cannot hold a release.
 
 Markdown is a rendering of the JSON report next to it; the JSON is the record.

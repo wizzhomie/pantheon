@@ -23,6 +23,15 @@ from .evals import (
     ScoringSpec,
     Trap,
 )
+from .findings import (
+    FINDING_ID_PATTERN,
+    Finding,
+    FindingKind,
+    FindingSeverity,
+    FindingSource,
+    FindingStatus,
+    Location,
+)
 from .issues import (
     CheckResult,
     GateResult,
@@ -44,6 +53,7 @@ from .trace import (
 from .verdict import JudgeVerdict
 
 __all__ = [
+    "FINDING_ID_PATTERN",
     "AgentFn",
     "AgentReply",
     "Attempt",
@@ -60,11 +70,17 @@ __all__ = [
     "EvalReport",
     "Feedback",
     "FieldSpec",
+    "Finding",
+    "FindingKind",
+    "FindingSeverity",
+    "FindingSource",
+    "FindingStatus",
     "GateResult",
     "Issue",
     "IssueSource",
     "JsonValue",
     "JudgeVerdict",
+    "Location",
     "MetaEval",
     "MetricDelta",
     "Metrics",

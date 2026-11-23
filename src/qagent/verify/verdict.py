@@ -45,6 +45,7 @@ VerdictCode = Literal[
     "blocking-finding",
     "non-blocking-finding",
     "unresolved-finding",
+    "review-failed",
 ]
 """Stable ids: a report, a test and a reader all point at the same reason by name."""
 
@@ -88,7 +89,12 @@ class Verdict(StrictModel):
         return HEADLINES[self.status]
 
 
-def decide(run: VerificationRun, findings: Sequence[Finding] = ()) -> Verdict:
+def decide(
+    run: VerificationRun,
+    findings: Sequence[Finding] = (),
+    *,
+    gaps: Sequence[str] = (),
+) -> Verdict:
     """Compute the verdict. Deterministic: same run and findings, same answer.
 
     Order matters. A confirmed blocking defect outranks a missing check: knowing that the
@@ -138,12 +144,12 @@ def decide(run: VerificationRun, findings: Sequence[Finding] = ()) -> Verdict:
             blocking_findings=[finding.id for finding in blocking],
         )
 
-    skipped = [check for check in required if check.status in SKIP_CODES]
-    if skipped:
-        return Verdict(
-            status="inconclusive",
-            reasons=[_skip_reason(check) for check in skipped],
-        )
+    missing = [VerdictReason(code="review-failed", detail=gap[:400]) for gap in gaps]
+    missing.extend(
+        _skip_reason(check) for check in required if check.status in SKIP_CODES
+    )
+    if missing:
+        return Verdict(status="inconclusive", reasons=missing)
 
     return _shippable(findings)
 

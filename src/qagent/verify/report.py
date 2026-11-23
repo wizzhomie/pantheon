@@ -19,6 +19,7 @@ from pathlib import Path
 from pydantic import Field, model_validator
 
 from ..contracts.base import StrictModel
+from ..review.contracts import ReviewOutcome
 from .contracts import VerificationRun
 from .findings import Finding
 from .verdict import Verdict
@@ -45,6 +46,9 @@ class VerificationReport(StrictModel):
     run: VerificationRun
     findings: list[Finding] = Field(default_factory=list)
     verdict: Verdict
+    review: ReviewOutcome | None = Field(
+        default=None, description="the reviewer's proposals and their anchors, when one ran"
+    )
 
     @model_validator(mode="after")
     def _consistent(self) -> VerificationReport:
@@ -62,8 +66,9 @@ def build_report(
     run: VerificationRun,
     findings: list[Finding],
     verdict: Verdict,
+    review: ReviewOutcome | None = None,
 ) -> VerificationReport:
-    return VerificationReport(run=run, findings=findings, verdict=verdict)
+    return VerificationReport(run=run, findings=findings, verdict=verdict, review=review)
 
 
 def render_markdown(report: VerificationReport) -> str:
@@ -86,15 +91,18 @@ def render_markdown(report: VerificationReport) -> str:
         "\n".join(header),
         _reasons_section(report.verdict),
         _checks_section(run),
+        _review_section(report.review),
         _findings_section(report.findings),
-        _gaps_section(run),
+        _quotes_section(report.findings),
+        _gaps_section(run, report.review),
         "## How this verdict was reached\n\n"
-        "The verdict is computed from the checks above by code, not by a model: a failed or\n"
+        "The verdict is computed from the evidence above by code, not by a model: a failed or\n"
         "timed-out required check and a confirmed blocking finding produce `HOLD`; a required\n"
-        "check that did not run produces `INCONCLUSIVE`; a non-blocking or unconfirmed finding\n"
-        "produces `PASS WITH CONDITIONS`. Nothing in this document overrides that rule.\n\n"
-        "Findings here come from the checks themselves; an independent reviewer that proposes\n"
-        "findings about a diff is the next phase and does not exist yet.\n\n"
+        "check that did not run, or a review that did not happen, produces `INCONCLUSIVE`; a\n"
+        "non-blocking or unconfirmed finding produces `PASS WITH CONDITIONS`.\n\n"
+        "A reviewer finding is `confirmed` only when the file is part of the change, the line\n"
+        "exists, and the quote is literally that line. Anything else stays `unverified`: it is\n"
+        "reported, and it cannot hold a release.\n\n"
         "Markdown is a rendering of the JSON report next to it; the JSON is the record.",
     ]
     return "\n\n".join(block for block in blocks if block) + "\n"
@@ -145,6 +153,32 @@ def _checks_section(run: VerificationRun) -> str:
     return "\n".join(lines)
 
 
+def _review_section(review: ReviewOutcome | None) -> str:
+    if review is None:
+        return ""
+    if review.status == "failed":
+        return (
+            "## Review\n\n"
+            f"The reviewer did not run: {review.error or 'no reason recorded'}.\n\n"
+            "No finding in this report comes from a model."
+        )
+    lines = [
+        "## Review",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| Model | `{review.model}` |",
+        f"| Diff | `{review.diff_digest[:12]}` |",
+        f"| Files reviewed | {review.files_reviewed} |",
+        f"| Proposed | {review.proposed} |",
+        f"| Confirmed by the anchor | {review.confirmed} |",
+        f"| Unverified | {review.unverified} |",
+        f"| Tokens | {review.prompt_tokens} in / {review.completion_tokens} out |",
+        f"| Time | {review.spent_seconds:.1f}s |",
+    ]
+    return "\n".join(lines)
+
+
 def _findings_section(findings: list[Finding]) -> str:
     if not findings:
         return "## Findings\n\nNone."
@@ -163,14 +197,32 @@ def _findings_section(findings: list[Finding]) -> str:
     return "\n".join(lines)
 
 
-def _gaps_section(run: VerificationRun) -> str:
+def _quotes_section(findings: list[Finding]) -> str:
+    """The evidence of a reviewer finding is the line it quoted; show it, don't describe it."""
+    quoted = [finding for finding in findings if finding.source == "reviewer" and finding.location]
+    if not quoted:
+        return ""
+    lines = ["## Reviewer evidence", ""]
+    for finding in quoted:
+        assert finding.location is not None
+        mark = "" if finding.status == "confirmed" else " (unverified: the anchor refused it)"
+        lines.append(f"**{finding.id}** — `{finding.location.file}:{finding.location.line}`{mark}")
+        lines.append("")
+        lines.append(f"> {finding.location.quote}")
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+def _gaps_section(run: VerificationRun, review: ReviewOutcome | None) -> str:
     """What did not run, and why. This is the section a quiet PASS would have hidden."""
     gaps = [check for check in run.checks if check.status in ("error", "skipped", "not_applicable")]
-    if not gaps:
+    if not gaps and (review is None or review.status != "failed"):
         return ""
     lines = ["## Not checked", ""]
     lines.extend(
         f"- `{check.check_id}`: {check.status} — {check.reason or 'no reason recorded'}"
         for check in gaps
     )
+    if review is not None and review.status == "failed":
+        lines.append(f"- reviewer: failed — {review.error or 'no reason recorded'}")
     return "\n".join(lines)
