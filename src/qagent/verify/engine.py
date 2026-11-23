@@ -196,9 +196,13 @@ def describe_limits(record: SandboxRecord) -> str:
     return ", ".join(parts) if parts else "none"
 
 
-def _sandbox_applicable() -> bool:
-    """Can this platform cap a child's address space and file size at all?"""
-    if os.name != "posix":
+def _sandbox_applicable(platform: str | None = None) -> bool:
+    """Can this platform cap a child's address space and file size at all?
+
+    ``platform`` exists so the unsupported answer can be tested where the limits do exist;
+    the caller never passes it.
+    """
+    if (os.name if platform is None else platform) != "posix":
         return False
     try:
         import resource
@@ -212,6 +216,12 @@ def _limits(sandbox: Sandbox | None) -> Callable[[], None] | None:
 
     Both the soft and the hard limit are set to the same value: a check that could raise its
     own hard limit would be reporting a ceiling it does not have.
+
+    ``preexec_fn`` is the only hook asyncio gives us here (``posix_spawn`` is not exposed),
+    and Python warns that it is unsafe in a threaded process: the child inherits whatever
+    locks were held at fork time. The callable therefore does no more than three ``setrlimit``
+    calls on a module imported before the fork — no allocation, no import, no locks. qagent
+    itself spawns checks from one event loop, and a host that embeds it must keep to that.
     """
     if sandbox is None or not sandbox.enabled or not _sandbox_applicable():
         return None
@@ -274,14 +284,16 @@ async def run_policy(
         if entry.reason == "not-selected":
             checks.append(_skipped(entry, "skipped", entry.detail, selected=False))
             continue
-        if sandbox_error is not None:
-            checks.append(_skipped(entry, "error", sandbox_error))
-            continue
         if len(checks) >= policy.budget.max_checks:
             checks.append(_skipped(entry, "skipped", "budget: check count exhausted"))
             continue
         if remaining < MIN_CHECK_SECONDS:
             checks.append(_skipped(entry, "skipped", "budget: no time left"))
+            continue
+        # After the budget, so the errors count exactly the checks that would have run: a
+        # check the budget already excluded did not fail because of the sandbox.
+        if sandbox_error is not None:
+            checks.append(_skipped(entry, "error", sandbox_error))
             continue
 
         check_started = time.monotonic()

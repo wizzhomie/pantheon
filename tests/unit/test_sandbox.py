@@ -170,6 +170,27 @@ def test_a_platform_without_limits_refuses_to_run_unguarded(
     assert "cannot apply them" in markdown
 
 
+def test_another_platform_is_recognised_as_unsupported() -> None:
+    # The branch cannot run here, so the detection is asked about a platform by name.
+    assert engine._sandbox_applicable("nt") is False
+    assert engine._sandbox_applicable("posix") is True
+
+
+@posix_limits
+def test_limits_the_kernel_refuses_are_could_not_run(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def refuse() -> None:
+        raise OSError("limits refused")
+
+    monkeypatch.setattr(engine, "_limits", lambda sandbox: refuse)
+    run_, _ = run(spec(argv=code("print('never runs')")), tmp_path, Sandbox(memory_mb=512))
+
+    check = run_.checks[0]
+    assert check.status == "error"
+    assert check.reason is not None and "could not start" in check.reason
+
+
 def test_the_plan_says_what_would_be_limited(tmp_path: Path) -> None:
     (tmp_path / ".qagent").mkdir()
     (tmp_path / ".qagent" / "policy.toml").write_text(
