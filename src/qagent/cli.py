@@ -77,7 +77,9 @@ from .verify import (
     VerificationPolicy,
     VerificationRequest,
     build_plan,
+    describe_limits,
     describe_plan,
+    describe_sandbox,
     read_policy,
     run_policy,
 )
@@ -419,6 +421,9 @@ def _run_command(args: argparse.Namespace) -> int:
         )
         if applied.adopted:
             print(f"  accepted rules: {', '.join(applied.adopted)}")
+        sandbox = describe_sandbox(policy.sandbox)
+        if sandbox is not None:
+            print(f"  sandbox: {sandbox}")
         for line in describe_plan(plan):
             print(f"  {line}")
         return EXIT_OK
@@ -427,6 +432,8 @@ def _run_command(args: argparse.Namespace) -> int:
     )
     if applied.adopted:
         print(f"accepted rules: {', '.join(applied.adopted)}")
+    if run.sandbox is not None:
+        print(f"sandbox: {describe_limits(run.sandbox)}")
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""

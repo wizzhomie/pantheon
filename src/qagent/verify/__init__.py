@@ -26,11 +26,21 @@ from .contracts import (
     CheckStatus,
     CommandSpec,
     PlanEntry,
+    Sandbox,
+    SandboxRecord,
     VerificationPolicy,
     VerificationRequest,
     VerificationRun,
 )
-from .engine import build_plan, describe_plan, read_policy, run_policy, write_run
+from .engine import (
+    build_plan,
+    describe_limits,
+    describe_plan,
+    describe_sandbox,
+    read_policy,
+    run_policy,
+    write_run,
+)
 from .findings import (
     Finding,
     FindingKind,
@@ -61,6 +71,8 @@ __all__ = [
     "FindingStatus",
     "Location",
     "PlanEntry",
+    "Sandbox",
+    "SandboxRecord",
     "Verdict",
     "VerdictCode",
     "VerdictReason",
@@ -72,7 +84,9 @@ __all__ = [
     "build_plan",
     "build_report",
     "decide",
+    "describe_limits",
     "describe_plan",
+    "describe_sandbox",
     "findings_from_run",
     "read_policy",
     "read_report",

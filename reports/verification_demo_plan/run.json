@@ -1,17 +1,17 @@
 {
   "run_id": "verification_demo_plan",
   "policy_name": "verification-demo",
-  "policy_digest": "4fda65159630f73eaa31ec3d54e96ba20997bea945c898174bbdb9953a8a08b2",
+  "policy_digest": "47540c3f1954d0105c086a987cd1ef2fdbf07172908a9fc1773260e416581d52",
   "profile_digest": "94226da23fa7a108d0eb4e8388d5745ca3fae583e883611c18b8c72947e21fe0",
-  "started_at": "2026-11-23T04:25:23.250359Z",
-  "finished_at": "2026-11-23T04:25:23.630569Z",
+  "started_at": "2026-11-23T06:41:16.303945Z",
+  "finished_at": "2026-11-23T06:41:16.660626Z",
   "checks": [
     {
       "check_id": "tests",
       "name": "test suite",
       "status": "failed",
       "exit_code": 1,
-      "duration_ms": 379.5,
+      "duration_ms": 354.7,
       "stdout_path": "checks/tests.stdout.txt",
       "stderr_path": null,
       "output_tail": "..F                                                                      [100%]\n=================================== FAILURES ===================================\n______________________ test_quantity_multiplies_the_price ______________________\n\n    def test_quantity_multiplies_the_price() -> None:\n>       assert total([Item(\"pen\", 2.0, quantity=3)]) == 6.0\nE       AssertionError: assert 2.0 == 6.0\nE        +  where 2.0 = total([Item(name='pen', price=2.0, quantity=3)])\n\ntest_app.py:19: AssertionError\n=========================== short test summary info ============================\nFAILED test_app.py::test_quantity_multiplies_the_price - AssertionError: asse...\n1 failed, 2 passed in 0.02s",
@@ -34,7 +34,12 @@
     }
   ],
   "planned": 2,
-  "spent_seconds": 0.38,
+  "spent_seconds": 0.356,
   "error": null,
-  "adopted": []
+  "adopted": [],
+  "sandbox": {
+    "backend": "rlimit",
+    "memory_mb": 1024,
+    "file_mb": 16
+  }
 }

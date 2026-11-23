@@ -55,3 +55,11 @@ come out `PASS` — it is `INCONCLUSIVE`, because a change outside the net is no
 The reviewer in that run is `qagent.review.scripted:from_env`, labelled `scripted (no model
 call)` in the report: the demo is about the plan, and a demo that quietly spends money is a bad
 demo.
+
+## Limits, and what they do not cover
+
+The policy declares `[sandbox]`: 1 GB of address space and 16 MB per file for every check. The
+committed reports show the limits in the header and carry a `## Sandbox` section that says what
+they are *not*: a ceiling is not a boundary, the network and the file system are not isolated,
+and a check can still write anywhere the user can. On a platform that cannot apply the limits,
+the checks are recorded as errors rather than run without the ceiling they declared.

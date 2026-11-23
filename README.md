@@ -73,7 +73,8 @@ flowchart LR
 1. **Context.** What this project is, how it is built, what it promises, what must not break.
 2. **Plan.** Cheap deterministic checks first, money spent only where they leave a question.
 3. **Evidence.** Every check produces a structured result with captured output; a check that did
-   not run is `error` or `not applicable`, never `ok`.
+   not run is `error` or `not applicable`, never `ok`. Checks run under the resource ceilings the
+   policy declares, and the report calls those ceilings — not isolation.
 4. **Review.** A model reads the diff and the evidence and proposes findings — but each finding
    must be anchored: the file exists, the line is in range, the quote is verbatim on that line.
    A finding that fails the anchor is reported as unverified, not silently dropped.
@@ -124,6 +125,7 @@ engine turns that evidence into a verdict.
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
 | Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
 | Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
+| Resource limits | every check runs under a memory and file-size ceiling from `[sandbox]`, and the report states in the same breath what is *not* isolated: the network and the file system | `make verify` on this repo; a check over the ceiling is named as that, and a platform that cannot apply limits refuses to run the check ungated |
 | Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
 | Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
@@ -159,7 +161,8 @@ makes with `PYTHON=.venv/bin/python`.
 findings, computes the verdict in code, and writes `report.json` + `report.md` into the run
 directory. The exit code is `0` for `PASS` / `PASS WITH CONDITIONS`, `1` for `HOLD`, `2` for
 `INCONCLUSIVE` — a pipeline can stop on it without parsing prose. On this repository, `make verify`
-gives `PASS` with three checks in about two seconds and no model call.
+gives `PASS` with three checks in a few seconds, under the limits its own policy declares, and
+without a model call.
 
 `qagent learn` is the other half: the loop not only verifies, it proposes **what** to verify. It
 reads the decided runs, finds an optional check that failed in runs that shipped anyway, and
@@ -261,7 +264,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, sandbox, mutation testing, holdout evaluation | planned |
+| 8 | Risk-based plans, resource limits, mutation testing, holdout evaluation | started — plan under the change and `[sandbox]` limits done; mutation testing and holdout planned |
 
 ## Docs
 

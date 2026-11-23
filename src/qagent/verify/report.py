@@ -21,7 +21,8 @@ from pydantic import Field, model_validator
 from ..context.knowledge import ProjectContext
 from ..contracts.base import StrictModel
 from ..review.contracts import ReviewOutcome
-from .contracts import VerificationRequest, VerificationRun
+from .contracts import SandboxRecord, VerificationRequest, VerificationRun
+from .engine import describe_limits
 from .findings import Finding
 from .trace import build_trace, summarise, unlinked_findings
 from .verdict import Verdict
@@ -106,10 +107,13 @@ def render_markdown(report: VerificationReport) -> str:
     ]
     if run.adopted:
         header.append(f"| Accepted rules | {_rule_list(run.adopted)} |")
+    if run.sandbox is not None:
+        header.append(f"| Sandbox | {describe_limits(run.sandbox)} |")
     blocks = [
         "\n".join(header),
         _rules_note(run),
         _request_section(report.request),
+        _sandbox_section(run.sandbox),
         _plan_section(run),
         _reasons_section(report.verdict),
         _checks_section(run),
@@ -184,6 +188,33 @@ def _request_section(request: VerificationRequest | None) -> str:
     if request.notes:
         lines.append(f"| Notes | {request.notes} |")
     return "\n".join(lines)
+
+
+def _sandbox_section(record: SandboxRecord | None) -> str:
+    """What was limited, and — in the same breath — what was not.
+
+    A report that says "sandbox" and stops is exactly the kind of claim this project refuses:
+    the reader would assume isolation the run does not have. The limits are resource ceilings,
+    the boundary is missing, and the section says both.
+    """
+    if record is None:
+        return ""
+    limits = describe_limits(record)
+    if record.backend == "unsupported":
+        return (
+            "## Sandbox\n\n"
+            f"The policy declares {limits}, but this platform cannot apply them. The checks "
+            "were recorded as errors instead of running without the ceiling they declared, so "
+            "no check in this report ran unguarded while claiming otherwise."
+        )
+    return (
+        "## Sandbox\n\n"
+        f"Every check ran with {limits}, and core dumps were disabled.\n\n"
+        "These are resource ceilings, not isolation: a check can still reach the network and "
+        "read or write any path the user running the agent can. qagent limits what a check may "
+        "consume; it does not yet confine where it may go, and this report does not claim "
+        "otherwise."
+    )
 
 
 def _plan_section(run: VerificationRun) -> str:

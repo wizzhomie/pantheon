@@ -5,11 +5,12 @@
 | Verdict | **HOLD** |
 | Run | `verification_demo` |
 | Policy | `verification-demo` |
-| Policy digest | `4fda65159630` |
+| Policy digest | `47540c3f1954` |
 | Profile digest | `94226da23fa7` |
-| Started | 2026-11-23 04:25 UTC |
+| Started | 2026-11-23 06:41 UTC |
 | Checked | 2 of 2 planned |
 | Spent | 0.4s |
+| Sandbox | 1024 MB memory, 16 MB per file |
 
 ## Request
 
@@ -17,6 +18,12 @@
 |---|---|
 | Name | ad-hoc |
 | Policy | `policy.toml` |
+
+## Sandbox
+
+Every check ran with 1024 MB memory, 16 MB per file, and core dumps were disabled.
+
+These are resource ceilings, not isolation: a check can still reach the network and read or write any path the user running the agent can. qagent limits what a check may consume; it does not yet confine where it may go, and this report does not claim otherwise.
 
 ## Why
 
@@ -26,7 +33,7 @@
 
 | Check | Status | Exit | Time | Evidence |
 |---|---|---|---|---|
-| `tests` | fail (exit 1, expected 0) | 1 | 0.39s | `checks/tests.stdout.txt` |
+| `tests` | fail (exit 1, expected 0) | 1 | 0.34s | `checks/tests.stdout.txt` |
 | `sql` | pass | 0 | 0.03s | `checks/sql.stdout.txt` |
 
 ## Findings

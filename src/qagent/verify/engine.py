@@ -16,11 +16,13 @@ import contextlib
 import os
 import re
 import signal
+import subprocess
 import time
 import tomllib
-from collections.abc import Collection, Sequence
+from collections.abc import Callable, Collection, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import Literal
 
 from ..context import ProjectProfile
 from .contracts import (
@@ -29,6 +31,8 @@ from .contracts import (
     CheckStatus,
     CommandSpec,
     PlanEntry,
+    Sandbox,
+    SandboxRecord,
     VerificationPolicy,
     VerificationRun,
 )
@@ -58,6 +62,12 @@ MIN_CHECK_SECONDS = 0.5
 
 RUN_ID_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$")
 """A run id ends up in file names and in reports, so it may not be a path or a sentence."""
+
+UNSUPPORTED_SANDBOX = (
+    "sandbox: limits are declared but cannot be applied on this platform; "
+    "the check did not run without the ceiling it asked for"
+)
+"""The one honest answer when the policy asks for a limit the OS cannot give."""
 
 
 def read_policy(path: Path) -> VerificationPolicy:
@@ -159,6 +169,77 @@ def describe_plan(plan: list[PlanEntry]) -> list[str]:
     return lines
 
 
+def describe_sandbox(sandbox: Sandbox) -> str | None:
+    """What a run would limit, said together with what it would not isolate.
+
+    The second half is not a disclaimer bolted on: a resource ceiling and an isolation
+    boundary are different promises, and a reader who is told only about the ceiling will
+    assume the boundary.
+    """
+    if not sandbox.enabled:
+        return None
+    parts: list[str] = []
+    if sandbox.memory_mb:
+        parts.append(f"{sandbox.memory_mb} MB memory")
+    if sandbox.file_mb:
+        parts.append(f"{sandbox.file_mb} MB per file")
+    return ", ".join(parts) + "; network and file system are not isolated"
+
+
+def describe_limits(record: SandboxRecord) -> str:
+    """The applied limits as a short phrase, for a header row or one screen of text."""
+    parts: list[str] = []
+    if record.memory_mb:
+        parts.append(f"{record.memory_mb} MB memory")
+    if record.file_mb:
+        parts.append(f"{record.file_mb} MB per file")
+    return ", ".join(parts) if parts else "none"
+
+
+def _sandbox_applicable() -> bool:
+    """Can this platform cap a child's address space and file size at all?"""
+    if os.name != "posix":
+        return False
+    try:
+        import resource
+    except ImportError:  # pragma: no cover - posix without resource is exotic
+        return False
+    return hasattr(resource, "RLIMIT_AS") and hasattr(resource, "RLIMIT_FSIZE")
+
+
+def _limits(sandbox: Sandbox | None) -> Callable[[], None] | None:
+    """The limits to apply in the child, between fork and exec.
+
+    Both the soft and the hard limit are set to the same value: a check that could raise its
+    own hard limit would be reporting a ceiling it does not have.
+    """
+    if sandbox is None or not sandbox.enabled or not _sandbox_applicable():
+        return None
+    import resource
+
+    address_space = sandbox.memory_mb * 1024 * 1024
+    file_size = sandbox.file_mb * 1024 * 1024
+
+    def apply() -> None:
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+        if address_space:
+            resource.setrlimit(resource.RLIMIT_AS, (address_space, address_space))
+        if file_size:
+            resource.setrlimit(resource.RLIMIT_FSIZE, (file_size, file_size))
+
+    return apply
+
+
+def _sandbox_record(sandbox: Sandbox) -> SandboxRecord | None:
+    """What the run will claim about limits; ``None`` when the policy declares none."""
+    if not sandbox.enabled:
+        return None
+    backend: Literal["rlimit", "unsupported"] = (
+        "rlimit" if _sandbox_applicable() else "unsupported"
+    )
+    return SandboxRecord(backend=backend, memory_mb=sandbox.memory_mb, file_mb=sandbox.file_mb)
+
+
 async def run_policy(
     policy: VerificationPolicy,
     root: Path,
@@ -182,6 +263,9 @@ async def run_policy(
 
     checks: list[CheckRun] = []
     spent = 0.0
+    sandbox_error = None
+    if policy.sandbox.enabled and not _sandbox_applicable():
+        sandbox_error = UNSUPPORTED_SANDBOX
     for entry in plan:
         remaining = policy.budget.max_seconds - spent
         if entry.reason == "tool-missing":
@@ -189,6 +273,9 @@ async def run_policy(
             continue
         if entry.reason == "not-selected":
             checks.append(_skipped(entry, "skipped", entry.detail, selected=False))
+            continue
+        if sandbox_error is not None:
+            checks.append(_skipped(entry, "error", sandbox_error))
             continue
         if len(checks) >= policy.budget.max_checks:
             checks.append(_skipped(entry, "skipped", "budget: check count exhausted"))
@@ -204,6 +291,7 @@ async def run_policy(
                 root,
                 artifacts,
                 timeout_s=min(entry.check.timeout_s, remaining),
+                sandbox=policy.sandbox,
             )
         )
         spent += time.monotonic() - check_started
@@ -219,6 +307,7 @@ async def run_policy(
         planned=len(plan),
         spent_seconds=round(spent, 3),
         adopted=list(adopted),
+        sandbox=_sandbox_record(policy.sandbox),
     )
     write_run(run, target)
     return run, target
@@ -230,6 +319,7 @@ async def run_check(
     artifacts: Path,
     *,
     timeout_s: float | None = None,
+    sandbox: Sandbox | None = None,
 ) -> CheckRun:
     """Run one command and describe the outcome without judging it."""
     path_error = _path_error(root, spec.argv[0])
@@ -252,6 +342,7 @@ async def run_check(
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             start_new_session=True,
+            preexec_fn=_limits(sandbox),
         )
     except FileNotFoundError:
         return CheckRun(
@@ -261,7 +352,9 @@ async def run_check(
             optional=spec.optional,
             reason=f"command not found: {spec.argv[0]}",
         )
-    except OSError as exc:
+    except (OSError, subprocess.SubprocessError) as exc:
+        # A limit the kernel refuses (or a failing preexec) is "could not run", not a failure
+        # of the project: the command never got the chance to say anything.
         return CheckRun(
             check_id=spec.id,
             name=spec.name or spec.id,
@@ -297,7 +390,11 @@ async def run_check(
     else:
         exit_code = process.returncode
         status = "passed" if exit_code == spec.expect_exit else "failed"
-        reason = None if status == "passed" else f"exit {exit_code}, expected {spec.expect_exit}"
+        reason = (
+            None
+            if status == "passed"
+            else _exit_reason(exit_code, spec, sandbox, err_text)
+        )
 
     return CheckRun(
         check_id=spec.id,
@@ -311,6 +408,31 @@ async def run_check(
         output_tail=tail,
         reason=reason,
     )
+
+
+def _exit_reason(
+    exit_code: int | None,
+    spec: CommandSpec,
+    sandbox: Sandbox | None,
+    stderr: str,
+) -> str:
+    """Name the failure the OS actually reported; ``exit -25`` is not a sentence.
+
+    A check killed by ``RLIMIT_FSIZE`` dies on ``SIGXFSZ``; Python children ignore that
+    signal, so their write fails with ``EFBIG`` instead and they exit with an ordinary code.
+    Both end the check the same way, and both should say which ceiling they hit rather than
+    send the reader looking for a bug in the check.
+    """
+    if sandbox is not None and sandbox.file_mb:
+        if (
+            exit_code is not None
+            and hasattr(signal, "SIGXFSZ")
+            and exit_code == -signal.SIGXFSZ
+        ):
+            return f"exceeded the {sandbox.file_mb} MB file size limit (SIGXFSZ)"
+        if "File too large" in stderr or "EFBIG" in stderr:
+            return f"exceeded the {sandbox.file_mb} MB file size limit (EFBIG)"
+    return f"exit {exit_code}, expected {spec.expect_exit}"
 
 
 def _run_target(root: Path, base: str, out_dir: Path | None) -> tuple[str, Path]:

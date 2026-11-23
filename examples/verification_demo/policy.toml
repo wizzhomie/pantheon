@@ -10,6 +10,12 @@ name = "verification-demo"
 max_seconds = 60
 max_checks = 5
 
+# Limits for every check in this demo. They are ceilings, not isolation, and the report of
+# the demo run says exactly that — a demo is where a claim would be noticed.
+[sandbox]
+memory_mb = 1024
+file_mb = 16
+
 [[checks]]
 id = "tests"
 name = "test suite"

@@ -25,12 +25,15 @@ from .evolve import AppliedPolicy, apply_proposals, load_proposals
 from .llm.base import LLMClient
 from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .verify import (
+    SandboxRecord,
     VerificationReport,
     VerificationRequest,
     build_plan,
     build_report,
     decide,
+    describe_limits,
     describe_plan,
+    describe_sandbox,
     findings_from_run,
     read_policy,
     read_report,
@@ -128,6 +131,9 @@ def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
     lines = [f"{policy.name}: {request.describe()}"]
     if applied.adopted:
         lines.append(f"  accepted rules: {', '.join(applied.adopted)}")
+    sandbox = describe_sandbox(policy.sandbox)
+    if sandbox is not None:
+        lines.append(f"  sandbox: {sandbox}")
     diff = load_diff(request, root) if request.needs_review else None
     plan = build_plan(policy, profile, changed=changed_paths(diff))
     lines.extend(f"  {line}" for line in describe_plan(plan))
@@ -183,6 +189,8 @@ def render_show(report: VerificationReport) -> str:
     ]
     if run.adopted:
         lines.append(f"  rules: {', '.join(run.adopted)}")
+    if run.sandbox is not None:
+        lines.append(f"  sandbox: {_sandbox_line(run.sandbox)}")
     counts = run.by_status()
     if counts:
         lines.append("  checks: " + ", ".join(f"{name} {count}" for name, count in counts.items()))
@@ -220,6 +228,13 @@ def render_show(report: VerificationReport) -> str:
         why = f" {check.reason}" if check.reason else ""
         lines.append(f"  not checked: {check.check_id} ({check.status}){why}")
     return "\n".join(lines)
+
+
+def _sandbox_line(record: SandboxRecord) -> str:
+    """One screen of text about limits: what applied, and what it does not cover."""
+    if record.backend == "unsupported":
+        return f"{describe_limits(record)} (declared, not applied on this platform)"
+    return f"{describe_limits(record)} (network and file system not isolated)"
 
 
 def exit_code_for(report: VerificationReport) -> int:

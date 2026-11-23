@@ -96,6 +96,43 @@ class CommandSpec(StrictModel):
         return argv
 
 
+class Sandbox(StrictModel):
+    """Resource ceilings applied to every check, and nothing more than ceilings.
+
+    This is not isolation. A limit caps what a check may *consume*; it does not decide what
+    the check may *reach*. Saying "sandboxed" while a check still has the network and the
+    whole file system would be the kind of claim this project exists to refuse, so the
+    report repeats the distinction instead of hiding it.
+
+    Zero means "no limit", which is why the default is fully off: a policy that says nothing
+    about limits must not pretend it applied some.
+    """
+
+    memory_mb: int = Field(
+        default=0, ge=0, le=1_048_576, description="address space per check; 0 = no limit"
+    )
+    file_mb: int = Field(
+        default=0, ge=0, le=1_048_576, description="largest file a check may write; 0 = no limit"
+    )
+
+    @property
+    def enabled(self) -> bool:
+        return self.memory_mb > 0 or self.file_mb > 0
+
+
+class SandboxRecord(StrictModel):
+    """What the run actually did about limits — including when it could do nothing.
+
+    ``backend = "unsupported"`` means the policy asked for limits the platform cannot apply;
+    the checks are then recorded as errors rather than run without the ceiling they declared,
+    so a report can never show a limit it did not enforce.
+    """
+
+    backend: Literal["rlimit", "unsupported"] = Field(description="how the limits were applied")
+    memory_mb: int = Field(default=0, ge=0, description="applied, or requested when unsupported")
+    file_mb: int = Field(default=0, ge=0, description="applied, or requested when unsupported")
+
+
 class VerificationPolicy(StrictModel):
     """What this project considers its checks, and what a run may spend on them."""
 
@@ -103,6 +140,7 @@ class VerificationPolicy(StrictModel):
     name: str = Field(min_length=1, max_length=80)
     checks: list[CommandSpec] = Field(default_factory=list)
     budget: Budget = Field(default_factory=Budget)
+    sandbox: Sandbox = Field(default_factory=Sandbox)
 
     @field_validator("checks")
     @classmethod
@@ -228,6 +266,10 @@ class VerificationRun(StrictModel):
     adopted: list[str] = Field(
         default_factory=list,
         description="proposals accepted from the history and merged into this run's policy",
+    )
+    sandbox: SandboxRecord | None = Field(
+        default=None,
+        description="the limits the checks ran under, or why none were applied",
     )
 
     def by_status(self) -> dict[str, int]:
