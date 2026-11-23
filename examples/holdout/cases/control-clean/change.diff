@@ -14,16 +14,17 @@ index 56ce0da..8a1f2be 100644
 +        raise ValueError("a discount is a percentage between 0 and 100")
 +    return amount * (1 - percent / 100)
 diff --git a/test_app.py b/test_app.py
-index ffafb36..ed7279f 100644
+index ffafb36..906f413 100644
 --- a/test_app.py
 +++ b/test_app.py
-@@ -1,4 +1,4 @@
+@@ -1,4 +1,5 @@
 -from app import total
++import pytest
 +from app import total, with_discount
  
  
  def test_a_single_item_is_counted_once() -> None:
-@@ -11,3 +11,7 @@ def test_quantity_multiplies_the_price() -> None:
+@@ -11,3 +12,25 @@ def test_quantity_multiplies_the_price() -> None:
  
  def test_an_empty_invoice_is_zero() -> None:
      assert total([]) == 0.0
@@ -31,3 +32,21 @@ index ffafb36..ed7279f 100644
 +
 +def test_a_discount_reduces_the_amount() -> None:
 +    assert with_discount(200.0, 12.5) == 175.0
++
++
++def test_no_discount_leaves_the_amount_alone() -> None:
++    assert with_discount(200.0, 0.0) == 200.0
++
++
++def test_a_full_discount_empties_the_amount() -> None:
++    assert with_discount(200.0, 100.0) == 0.0
++
++
++def test_a_discount_below_zero_is_refused() -> None:
++    with pytest.raises(ValueError):
++        with_discount(200.0, -1.0)
++
++
++def test_a_discount_above_a_hundred_is_refused() -> None:
++    with pytest.raises(ValueError):
++        with_discount(200.0, 101.0)
