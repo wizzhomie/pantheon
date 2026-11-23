@@ -135,7 +135,7 @@ engine turns that evidence into a verdict.
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 | Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |
-| Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm | `make bench`: 3 of 3 defects held, 0 of 2 clean changes held, in seconds and without a model call |
+| Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm; three cases carry defects only a reviewer can see | `make bench`: 3 of 3 checks-layer defects held, 0 of 2 clean changes held, no model call; live reviewer layer: 3 of 3 detected |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout

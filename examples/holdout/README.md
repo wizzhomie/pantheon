@@ -74,9 +74,12 @@ qagent bench --suite examples/holdout --layer reviewer \
     --reviewer qagent.review.factory:from_env --review-model deepseek-flash
 ```
 
-That run costs money (~9k prompt tokens per case) and is therefore not part of `make bench`.
-`--layer all` measures both halves in one report and keeps them apart in the summary; the cache
-means a re-run of the same cases is free.
+That run costs money and is therefore not part of `make bench`. The committed result is
+[`reports/holdout_reviewer/bench.md`](../../reports/holdout_reviewer/bench.md): on 2026-11-23
+`deepseek-flash` found **3 of 3**, called all three blocking, and took 11.8 s for the three cases
+together — the diffs are small, so the whole run was cents. `--layer all` measures both halves in
+one report and keeps them apart in the summary; the cache means a re-run of the same cases is
+free.
 
 ## What is not measured here
 

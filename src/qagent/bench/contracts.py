@@ -62,6 +62,9 @@ class CaseResult(StrictModel):
     actual: VerdictStatus
     matched: bool = Field(description="the case produced the answer the suite committed to")
     confirmed: int = Field(default=0, ge=0, description="reviewer findings the anchor accepted")
+    prompt_tokens: int = Field(default=0, ge=0)
+    completion_tokens: int = Field(default=0, ge=0)
+    cached: bool = Field(default=False, description="the review was served from the cache")
     reasons: list[str] = Field(default_factory=list, description="the verdict's own reasons")
     spent_seconds: float = Field(default=0.0, ge=0)
 
@@ -139,6 +142,14 @@ class BenchReport(StrictModel):
     @property
     def unexpected(self) -> int:
         return sum(1 for case in self.cases if case.unexpected)
+
+    @property
+    def prompt_tokens(self) -> int:
+        return sum(case.prompt_tokens for case in self.cases)
+
+    @property
+    def completion_tokens(self) -> int:
+        return sum(case.completion_tokens for case in self.cases)
 
     @property
     def passed(self) -> bool:

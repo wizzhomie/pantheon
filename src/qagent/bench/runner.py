@@ -147,6 +147,9 @@ async def _run_case(
         actual=report.verdict.status,
         matched=matches(case.expected, report.verdict.status, confirmed),
         confirmed=confirmed,
+        prompt_tokens=report.review.prompt_tokens if report.review is not None else 0,
+        completion_tokens=report.review.completion_tokens if report.review is not None else 0,
+        cached=report.review.cached if report.review is not None else False,
         reasons=[f"{reason.code}: {reason.detail}" for reason in report.verdict.reasons],
         spent_seconds=round(time.monotonic() - started, 3),
     )
@@ -173,16 +176,24 @@ def render_bench(report: BenchReport) -> str:
         "|---|---|",
         f"| Suite | `{report.suite}` |",
         f"| Reviewer | `{report.reviewer}` |",
-        f"| Cases | {report.caught} of {len(report.defects)} defects, "
-        f"{len(report.controls) - report.false_alarms} of {len(report.controls)} controls |",
+        f"| Cases | {report.summary()} |",
         f"| Started | {report.started_at.astimezone(UTC):%Y-%m-%d %H:%M UTC} |",
         f"| Spent | {total:.1f}s |",
-        "",
-        "## Cases",
-        "",
-        "| Case | Expected | Actual | Result | Why |",
-        "|---|---|---|---|---|",
     ]
+    if report.prompt_tokens or report.completion_tokens:
+        paid = " (cached)" if any(case.cached for case in cases) else ""
+        lines.append(
+            f"| Tokens | {report.prompt_tokens} in / {report.completion_tokens} out{paid} |"
+        )
+    lines.extend(
+        [
+            "",
+            "## Cases",
+            "",
+            "| Case | Expected | Actual | Result | Why |",
+            "|---|---|---|---|---|",
+        ]
+    )
     for case in cases:
         if case.matched:
             mark = "ok"

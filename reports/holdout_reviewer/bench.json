@@ -1,0 +1,40 @@
+{
+  "suite": "holdout",
+  "reviewer": "deepseek-flash",
+  "started_at": "2026-11-23T07:01:05.438588Z",
+  "cases": [
+    {
+      "id": "reviewer-injection",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "reasons": [
+        "blocking-finding: R1: SQL injection via interpolated customer name"
+      ],
+      "spent_seconds": 3.911
+    },
+    {
+      "id": "reviewer-percent",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "reasons": [
+        "blocking-finding: R1: Discount is subtracted as an absolute amount, not a percentage"
+      ],
+      "spent_seconds": 3.425
+    },
+    {
+      "id": "reviewer-swallow",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "reasons": [
+        "blocking-finding: R1: Blanket exception handler turns scan failures into a passing check"
+      ],
+      "spent_seconds": 4.474
+    }
+  ]
+}

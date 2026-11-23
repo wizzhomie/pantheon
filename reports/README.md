@@ -147,3 +147,12 @@ written down before the run: three planted defects (arithmetic, annotation, migr
 be held, and two clean changes that must not. Result: **3 of 3 held, 0 of 2 false alarms**, in a
 few seconds and without a model call. Produced by `make bench`; the suite lives in
 [`examples/holdout/`](../examples/holdout/README.md).
+
+### The reviewer layer of the holdout
+
+[`holdout_reviewer/bench.md`](holdout_reviewer/bench.md) is the same suite, restricted to the three
+cases whose defect the project's own tools cannot see: a pasted-in SQL string, a discount computed
+as percentage points, a migration guard that swallows every error. `deepseek-flash` found all
+three, called each one blocking, and the verdict for each was `HOLD`; with a scripted reviewer the
+same cases are 0 of 3, which is what makes the number the reviewer's. Produced by
+`qagent bench --layer reviewer` with a live model; the scripted `make bench` stays free.

@@ -4,7 +4,7 @@
 |---|---|
 | Suite | `holdout` |
 | Reviewer | `scripted (no model call)` |
-| Cases | 3 of 3 defects, 2 of 2 controls |
+| Cases | 3 of 3 planted defects held, 0 of 2 clean changes held |
 | Started | 2026-11-23 06:59 UTC |
 | Spent | 6.8s |
 
