@@ -7,6 +7,7 @@
 #   make config-check  validate the qagent.toml description of the same preset
 #   make verify   run this project's checks and write .qagent/runs/<id>/report.{json,md}
 #   make verify-demo  the HOLD demo: a planted defect and the report that refuses it
+#   make plan-demo  the same HOLD demo with a change: a path-scoped gate is not selected
 #   make learn    mine this project's recorded runs for a rule; decides nothing
 #   make evolve-demo  the rule mined from the evolution demo's three recorded runs
 #   make eval     a live model run (needs DEEPSEEK_API_KEY); baseline + diff included
@@ -23,7 +24,7 @@ SPEC := examples.logistics_intake.runner:build_guarded
 
 .DEFAULT_GOAL := check
 
-.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo learn evolve-demo
+.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo plan-demo learn evolve-demo
 
 check: lint typecheck test
 
@@ -49,6 +50,14 @@ verify-demo:
 		--repo examples/verification_demo \
 		--policy policy.toml \
 		--out reports/verification_demo || test $$? -eq 1  # HOLD is the expected result here
+
+plan-demo:
+	QAGENT_REVIEW_RESPONSE='{"findings": []}' PATH="$(CURDIR)/.venv/bin:$$PATH" \
+		$(PYTHON) -m qagent verify --repo examples/verification_demo \
+		--policy policy.toml --diff change.diff \
+		--reviewer qagent.review.scripted:from_env \
+		--review-model "scripted (no model call)" \
+		--out reports/verification_demo_plan || test $$? -eq 1
 
 learn:
 	$(PYTHON) -m qagent learn --repo .

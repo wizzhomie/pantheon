@@ -110,6 +110,7 @@ def render_markdown(report: VerificationReport) -> str:
         "\n".join(header),
         _rules_note(run),
         _request_section(report.request),
+        _plan_section(run),
         _reasons_section(report.verdict),
         _checks_section(run),
         _review_section(report.review),
@@ -185,6 +186,29 @@ def _request_section(request: VerificationRequest | None) -> str:
     return "\n".join(lines)
 
 
+def _plan_section(run: VerificationRun) -> str:
+    """Why a check the policy declares did not run: the change did not need it.
+
+    This section exists so that "not selected" can never be read as "not checked and nobody
+    knows". A path-scoped check is a decision the policy made in advance, and the report says
+    which paths it guards.
+    """
+    skipped = [check for check in run.checks if not check.selected]
+    if not skipped:
+        return ""
+    lines = [
+        "## Plan",
+        "",
+        "Path-scoped checks run only when the change touches the paths they guard; a run without "
+        "a change plans all of them.",
+        "",
+        "| Check | Why it was not selected |",
+        "|---|---|",
+    ]
+    lines.extend(f"| `{check.check_id}` | {check.reason or 'not selected'} |" for check in skipped)
+    return "\n".join(lines)
+
+
 def _reasons_section(verdict: Verdict) -> str:
     if not verdict.reasons:
         return ""
@@ -205,9 +229,10 @@ def _checks_section(run: VerificationRun) -> str:
     for check in run.checks:
         exit_code = "—" if check.exit_code is None else str(check.exit_code)
         evidence = check.stdout_path or check.stderr_path or "—"
+        mark = "not selected" if not check.selected else STATUS_MARK[check.status]
         reason = f" ({check.reason})" if check.reason else ""
         lines.append(
-            f"| `{check.check_id}` | {STATUS_MARK[check.status]}{reason} | {exit_code} "
+            f"| `{check.check_id}` | {mark}{reason} | {exit_code} "
             f"| {check.duration_ms / 1000:.2f}s | `{evidence}` |"
         )
     return "\n".join(lines)
@@ -305,7 +330,11 @@ def _trace_section(report: VerificationReport) -> str:
 
 def _gaps_section(run: VerificationRun, review: ReviewOutcome | None) -> str:
     """What did not run, and why. This is the section a quiet PASS would have hidden."""
-    gaps = [check for check in run.checks if check.status in ("error", "skipped", "not_applicable")]
+    gaps = [
+        check
+        for check in run.checks
+        if check.selected and check.status in ("error", "skipped", "not_applicable")
+    ]
     if not gaps and (review is None or review.status != "failed"):
         return ""
     lines = ["## Not checked", ""]

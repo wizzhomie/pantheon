@@ -18,7 +18,7 @@ import re
 import signal
 import time
 import tomllib
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -67,13 +67,22 @@ def read_policy(path: Path) -> VerificationPolicy:
 
 
 def build_plan(
-    policy: VerificationPolicy, profile: ProjectProfile | None = None
+    policy: VerificationPolicy,
+    profile: ProjectProfile | None = None,
+    *,
+    changed: Collection[str] | None = None,
 ) -> list[PlanEntry]:
-    """What the policy asks for, and what the project can actually answer.
+    """What the policy asks for, what the project can answer, and what this change needs.
 
     A check that requires a tool the profile did not find is *not applicable*, not a failure:
     reporting a missing tool as a broken project would punish repositories that simply do not
     have that linter configured.
+
+    ``changed`` is the set of paths the change touches, or ``None`` when there is no change to
+    reason about. ``None`` plans every check: an unknown change is assumed to affect everything,
+    because a cheap plan that skips a gate is not cheap. With a change in hand, a check that
+    declares ``when_paths`` and matches none of them is *not selected* — a decision the report
+    explains, not a gap in the evidence.
     """
     entries: list[PlanEntry] = []
     for check in policy.checks:
@@ -86,10 +95,56 @@ def build_plan(
                 )
             )
             continue
+        if changed is not None and check.when_paths and not selects(check.when_paths, changed):
+            entries.append(
+                PlanEntry(
+                    check=check,
+                    reason="not-selected",
+                    detail="no changed path matches " + ", ".join(check.when_paths),
+                )
+            )
+            continue
         entries.append(
             PlanEntry(check=check, reason="optional" if check.optional else "required")
         )
     return entries
+
+
+def selects(patterns: Collection[str], changed: Collection[str]) -> bool:
+    """Does any changed path fall under one of the check's selectors?
+
+    A selector with a slash is matched against the project-relative path (``db/**``); one
+    without a slash is matched against the file name anywhere (``*.sql``). ``*`` and ``?``
+    stay inside one path segment, ``**`` crosses segments — a linter that silently matched
+    across directories would select a check nobody asked for.
+    """
+    for path in changed:
+        normalised = path.replace("\\", "/")
+        for pattern in patterns:
+            if _glob(pattern).match(normalised):
+                return True
+            if "/" not in pattern and _glob(pattern).match(normalised.rsplit("/", 1)[-1]):
+                return True
+    return False
+
+
+def _glob(pattern: str) -> re.Pattern[str]:
+    parts: list[str] = []
+    index = 0
+    while index < len(pattern):
+        char = pattern[index]
+        if char == "*" and pattern[index : index + 2] == "**":
+            parts.append(".*")
+            index += 2
+            continue
+        if char == "*":
+            parts.append("[^/]*")
+        elif char == "?":
+            parts.append("[^/]")
+        else:
+            parts.append(re.escape(char))
+        index += 1
+    return re.compile("^" + "".join(parts) + "$")
 
 
 def describe_plan(plan: list[PlanEntry]) -> list[str]:
@@ -111,6 +166,7 @@ async def run_policy(
     out_dir: Path | None = None,
     profile: ProjectProfile | None = None,
     adopted: Sequence[str] = (),
+    changed: Collection[str] | None = None,
 ) -> tuple[VerificationRun, Path]:
     """Execute the plan, write artifacts, return the record.
 
@@ -122,7 +178,7 @@ async def run_policy(
     base = f"{started_at:%Y%m%dT%H%M%S}-{policy.name}"
     run_id, target = _run_target(root, base, out_dir)
     artifacts = target / ARTIFACT_DIR
-    plan = build_plan(policy, profile)
+    plan = build_plan(policy, profile, changed=changed)
 
     checks: list[CheckRun] = []
     spent = 0.0
@@ -130,6 +186,9 @@ async def run_policy(
         remaining = policy.budget.max_seconds - spent
         if entry.reason == "tool-missing":
             checks.append(_skipped(entry, "not_applicable", entry.detail))
+            continue
+        if entry.reason == "not-selected":
+            checks.append(_skipped(entry, "skipped", entry.detail, selected=False))
             continue
         if len(checks) >= policy.budget.max_checks:
             checks.append(_skipped(entry, "skipped", "budget: check count exhausted"))
@@ -346,11 +405,14 @@ def _write_artifact(artifacts: Path, check_id: str, stream: str, text: str) -> s
     return f"{ARTIFACT_DIR}/{name}"
 
 
-def _skipped(entry: PlanEntry, status: CheckStatus, reason: str) -> CheckRun:
+def _skipped(
+    entry: PlanEntry, status: CheckStatus, reason: str, *, selected: bool = True
+) -> CheckRun:
     return CheckRun(
         check_id=entry.check.id,
         name=entry.check.name or entry.check.id,
         status=status,
         optional=entry.check.optional,
+        selected=selected,
         reason=reason,
     )

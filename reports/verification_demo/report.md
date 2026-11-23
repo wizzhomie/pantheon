@@ -5,10 +5,10 @@
 | Verdict | **HOLD** |
 | Run | `verification_demo` |
 | Policy | `verification-demo` |
-| Policy digest | `3cc9da588dc0` |
-| Profile digest | `d577bf110964` |
-| Started | 2026-11-23 04:20 UTC |
-| Checked | 1 of 1 planned |
+| Policy digest | `4fda65159630` |
+| Profile digest | `94226da23fa7` |
+| Started | 2026-11-23 04:25 UTC |
+| Checked | 2 of 2 planned |
 | Spent | 0.4s |
 
 ## Request
@@ -26,7 +26,8 @@
 
 | Check | Status | Exit | Time | Evidence |
 |---|---|---|---|---|
-| `tests` | fail (exit 1, expected 0) | 1 | 0.37s | `checks/tests.stdout.txt` |
+| `tests` | fail (exit 1, expected 0) | 1 | 0.39s | `checks/tests.stdout.txt` |
+| `sql` | pass | 0 | 0.03s | `checks/sql.stdout.txt` |
 
 ## Findings
 

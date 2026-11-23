@@ -55,6 +55,26 @@ class CommandSpec(StrictModel):
         default_factory=dict,
         description="extra environment for this check, merged over the whitelist",
     )
+    when_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "the paths this check guards; empty means every run. A run with a change plans "
+            "the check only when a changed path matches one of these globs."
+        ),
+    )
+
+    @field_validator("when_paths")
+    @classmethod
+    def _selectors_are_relative_globs(cls, patterns: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        for raw in patterns:
+            pattern = raw.strip().replace("\\", "/")
+            if not pattern or len(pattern) > 200:
+                raise ValueError("a path selector must be a non-empty glob under 200 characters")
+            if pattern.startswith("/") or ".." in pattern.split("/"):
+                raise ValueError(f"a path selector must stay inside the project: {raw!r}")
+            cleaned.append(pattern)
+        return cleaned
 
     @field_validator("argv")
     @classmethod
@@ -110,12 +130,20 @@ class CheckRun(StrictModel):
     stderr_path: str | None = Field(default=None, description="artifact, relative to the run dir")
     output_tail: str = Field(default="", description=f"last {MAX_OUTPUT_TAIL} chars of output")
     optional: bool = Field(default=False, description="copied from the check that produced it")
+    selected: bool = Field(
+        default=True,
+        description="false when the change did not touch this check's paths: not a gap",
+    )
     reason: str | None = Field(default=None, description="why it was skipped or could not run")
 
     @property
     def blocking(self) -> bool:
         """A result a verdict may not ignore: not a pass, not a skip, not optional."""
-        return not self.optional and self.status in ("failed", "timeout", "error")
+        return (
+            self.selected
+            and not self.optional
+            and self.status in ("failed", "timeout", "error")
+        )
 
 
 class PlanEntry(StrictModel):

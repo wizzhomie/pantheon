@@ -1,0 +1,13 @@
+..F                                                                      [100%]
+=================================== FAILURES ===================================
+______________________ test_quantity_multiplies_the_price ______________________
+
+    def test_quantity_multiplies_the_price() -> None:
+>       assert total([Item("pen", 2.0, quantity=3)]) == 6.0
+E       AssertionError: assert 2.0 == 6.0
+E        +  where 2.0 = total([Item(name='pen', price=2.0, quantity=3)])
+
+test_app.py:19: AssertionError
+=========================== short test summary info ============================
+FAILED test_app.py::test_quantity_multiplies_the_price - AssertionError: asse...
+1 failed, 2 passed in 0.02s

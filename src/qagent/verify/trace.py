@@ -11,6 +11,9 @@ The states are deliberately blunt, because a friendly state is a silent gap:
     a linked check failed, or a confirmed finding cites this promise.
 ``not-run``
     the checks exist but none of them ran in this run (skipped, error, missing tool).
+``not-selected``
+    the checks exist and none was selected for this change: the plan decided they are not
+    this change's business. Not a gap, and not coverage either.
 ``unchecked``
     nothing checks this promise at all.
 ``covered``
@@ -28,7 +31,7 @@ from ..contracts.base import StrictModel
 from ..contracts.findings import Finding
 from .contracts import CheckRun, VerificationRun
 
-TraceStatus = Literal["covered", "failed", "not-run", "unchecked"]
+TraceStatus = Literal["covered", "failed", "not-run", "not-selected", "unchecked"]
 
 FAILED_CHECK_STATUSES = ("failed", "timeout")
 MISSING_CHECK_STATUSES = ("error", "skipped", "not_applicable")
@@ -83,6 +86,8 @@ def _status(checks: list[CheckRun], cited: list[Finding]) -> TraceStatus:
         return "failed"
     if not checks:
         return "unchecked"
+    if all(not check.selected for check in checks):
+        return "not-selected"
     if all(check.status in MISSING_CHECK_STATUSES for check in checks):
         return "not-run"
     return "covered"

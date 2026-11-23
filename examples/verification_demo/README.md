@@ -29,3 +29,29 @@ would in a real repository.
 
 The report pair is generated, not hand-written: `report.md` is the rendering of `report.json`,
 and a test in `tests/unit/test_verify_verdict.py` re-renders every committed pair.
+
+## The plan under a change: a gate that was not needed
+
+The policy declares a third check, `sql` (`check_migrations.py`), and ties it to the migrations
+with `when_paths = ["migrations/**"]`. It is a real guard — a `DROP TABLE` without a
+`-- destructive: ok` marker fails it — but it only matters to changes that touch the migrations.
+
+`make verify-demo` runs without a change, so the plan keeps the gate: an unknown change may
+touch anything. `make plan-demo` runs the same project with `change.diff` (it touches only
+`app.py`) and the scripted reviewer, so the run costs nothing:
+
+```bash
+make plan-demo
+```
+
+The committed result is
+[`reports/verification_demo_plan/report.md`](../../reports/verification_demo_plan/report.md):
+the verdict is still `HOLD` (the planted defect is still there), and the report now carries a
+`## Plan` section saying that `sql` was **not selected** because no changed path matches
+`migrations/**`. The check is not silently missing and it is not a gap: it is a decision the
+policy made in advance, and the report says so. A run whose every gate was not selected cannot
+come out `PASS` — it is `INCONCLUSIVE`, because a change outside the net is not a verified one.
+
+The reviewer in that run is `qagent.review.scripted:from_env`, labelled `scripted (no model
+call)` in the report: the demo is about the plan, and a demo that quietly spends money is a bad
+demo.

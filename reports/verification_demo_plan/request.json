@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "name": "ad-hoc",
+  "policy": "policy.toml",
+  "diff": "change.diff",
+  "since": null,
+  "reviewer": "qagent.review.scripted:from_env",
+  "instructions": null,
+  "model": "scripted (no model call)",
+  "max_tokens": 1500,
+  "notes": ""
+}

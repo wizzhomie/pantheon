@@ -103,6 +103,11 @@ deterministic tools have spoken, and only if there is still a question. When the
 before the questions do, the verdict says `INCONCLUSIVE` — never a quiet `PASS`. The report lists
 what was not checked and why; a second run on the same inputs is cached.
 
+A check can also say what it guards: `when_paths` makes it a gate for part of the repository, so a
+change to `app.py` does not pay for the migration guard. The plan is built from the change, every
+check that was not selected is listed with its reason, and a run with **no** change plans
+everything — an unknown change may touch anything, and a cheap plan that drops a gate is not cheap.
+
 ## What runs today
 
 The table below is the honest part: what is built, what it does, and how to see it work. The
@@ -123,6 +128,7 @@ engine turns that evidence into a verdict.
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
 | Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
 | Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids |
+| Plan under the change | a check can declare the paths it guards; a run plans it only when the change touches them, and the report says why it did not run | `make plan-demo`: the SQL gate is not selected for an `app.py` change |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 | Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |

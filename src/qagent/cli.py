@@ -73,6 +73,7 @@ from .orchestrator import show as read_run
 from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
 from .verify import (
+    CheckRun,
     VerificationPolicy,
     VerificationRequest,
     build_plan,
@@ -429,7 +430,7 @@ def _run_command(args: argparse.Namespace) -> int:
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
-        print(f"  {check.status:14} {check.check_id}{detail}")
+        print(f"  {_check_label(check):14} {check.check_id}{detail}")
     blocking = run.blocking()
     if blocking:
         print(f"blocking: {', '.join(check.check_id for check in blocking)}")
@@ -493,7 +494,7 @@ def _run_verify(args: argparse.Namespace) -> int:
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
-        print(f"  {check.status:14} {check.check_id}{detail}")
+        print(f"  {_check_label(check):14} {check.check_id}{detail}")
     review = report.review
     if review is not None:
         if review.status == "failed":
@@ -664,6 +665,11 @@ def _print_proposal(
             f"{indent}  since the decision: {_count(after_adoption.runs, 'run')}, "
             f"{after_adoption.failed} failed, {after_adoption.held} held"
         )
+
+
+def _check_label(check: CheckRun) -> str:
+    """A check the plan did not select is a decision, not a skip that should worry a reader."""
+    return "not selected" if not check.selected else check.status
 
 
 def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequest:

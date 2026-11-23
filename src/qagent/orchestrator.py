@@ -71,8 +71,10 @@ async def execute(
     requirements = _requirements(context)
     review: ReviewOutcome | None = None
     gaps: list[str] = []
+    changed: list[str] | None = None
     if request.needs_review:
         diff = load_diff(request, root)
+        changed = changed_paths(diff)
         review = await review_diff(
             diff,
             root,
@@ -85,7 +87,12 @@ async def execute(
 
     target_dir = Path(out_dir) if out_dir is not None else None
     run, target = await run_policy(
-        policy, root, out_dir=target_dir, profile=profile, adopted=applied.adopted
+        policy,
+        root,
+        out_dir=target_dir,
+        profile=profile,
+        adopted=applied.adopted,
+        changed=changed,
     )
     findings = findings_from_run(run)
     if review is not None:
@@ -121,14 +128,27 @@ def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
     lines = [f"{policy.name}: {request.describe()}"]
     if applied.adopted:
         lines.append(f"  accepted rules: {', '.join(applied.adopted)}")
-    lines.extend(f"  {line}" for line in describe_plan(build_plan(policy, profile)))
-    if request.needs_review:
-        diff = load_diff(request, root)
+    diff = load_diff(request, root) if request.needs_review else None
+    plan = build_plan(policy, profile, changed=changed_paths(diff))
+    lines.extend(f"  {line}" for line in describe_plan(plan))
+    if diff is not None:
         lines.append(
             f"  review: {len(diff.files)} file(s), {diff.added_lines} added line(s), "
             f"reviewer {request.reviewer}"
         )
     return lines
+
+
+def changed_paths(diff: Diff | None) -> list[str] | None:
+    """The paths a plan may reason about, or ``None`` when the change is not fully known.
+
+    A diff cut by a size or file cap no longer describes the whole change: the files after the
+    cut were never seen, so a gate scoped to one of them would be skipped for the wrong reason.
+    An incomplete change is treated like an unknown one — plan everything.
+    """
+    if diff is None or diff.truncated:
+        return None
+    return diff.paths
 
 
 def load_diff(request: VerificationRequest, root: Path) -> Diff:
@@ -189,10 +209,12 @@ def render_show(report: VerificationReport) -> str:
     traced = trace_line(report)
     if traced is not None:
         lines.append(f"  {traced}")
+    for check in [item for item in run.checks if not item.selected]:
+        lines.append(f"  not selected: {check.check_id} ({check.reason})")
     gaps = [
         check
         for check in run.checks
-        if check.status in ("error", "skipped", "not_applicable")
+        if check.selected and check.status in ("error", "skipped", "not_applicable")
     ]
     for check in gaps:
         why = f" {check.reason}" if check.reason else ""

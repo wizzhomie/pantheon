@@ -17,3 +17,15 @@ argv = ["python", "-m", "pytest", "-q"]
 timeout_s = 60
 requires = "pytest"
 purpose = "the planted defect is caught by a test the project already had"
+
+# A gate that only some changes need. It guards the migrations, so a run that reviews a
+# change touching only `app.py` does not pay for it — and the report says why it did not run.
+# A run with no change at all (the plain `make verify-demo`) plans it, because an unknown
+# change may touch anything.
+[[checks]]
+id = "sql"
+name = "migrations"
+argv = ["python", "check_migrations.py"]
+timeout_s = 30
+when_paths = ["migrations/**"]
+purpose = "a destructive migration must be marked by a human, not slipped in"

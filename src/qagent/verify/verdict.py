@@ -117,7 +117,7 @@ def decide(
             ],
         )
 
-    required = [check for check in run.checks if not check.optional]
+    required = [check for check in run.checks if not check.optional and check.selected]
     if not required:
         return Verdict(
             status="inconclusive",
