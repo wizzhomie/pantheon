@@ -149,7 +149,7 @@ checked.
 
 [`holdout/bench.md`](holdout/bench.md) is the contour graded on a suite whose answers were
 written down before the run: three planted defects (arithmetic, annotation, migration) that must
-be held, and two clean changes that must not. Result: **3 of 3 held, 0 of 2 false alarms**, in a
+be held, and four clean changes that must not. Result: **3 of 3 held, 0 of 4 false alarms**, in a
 few seconds and without a model call. Produced by `make bench`; the suite lives in
 [`examples/holdout/`](../examples/holdout/README.md).
 
@@ -159,29 +159,33 @@ few seconds and without a model call. Produced by `make bench`; the suite lives 
 cases whose defect the project's own tools cannot see: a pasted-in SQL string, a discount computed
 as percentage points, a migration guard that swallows every error. `deepseek-flash` found all
 three, called each one blocking, and the verdict for each was `HOLD`; with a scripted reviewer the
-same cases are 0 of 3, which is what makes the number the reviewer's. Produced by
+same cases are 0 of 5 today, which is what makes the number the reviewer's. Produced by
 `qagent bench --layer reviewer` with a live model; the scripted `make bench` stays free. This was
-the first live run and predates the token row, so it has no token count.
+the first live run and predates the token row, so it has no token count; the suite has since grown
+to five reviewer cases, and the current numbers are in the next section.
 
 ### The whole suite, live
 
 [`holdout_all/bench.md`](holdout_all/bench.md) is the number to quote now: `--layer all` reviews
 **every** case, so one run measures both halves of the reviewer question. `deepseek-flash`,
-2026-11-23: **3 of 3 planted defects held, 3 of 3 reviewer cases detected, 0 of 2 clean changes
-held** — 8 of 8 cases, 26.7 s, 3 798 tokens in and 1 615 out. The two clean changes were reviewed
-by the model and came back clean, which is the precision half the reviewer-only report could not
-measure.
+2026-11-23, twelve cases: **3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4
+clean changes held** — 11 of 12 matched the suite, 37.9 s, 5 743 tokens in and 2 425 out.
 
-That run also corrected the suite: on its first attempt the reviewer returned one *true but minor*
-finding on `control-clean` — the new function's error paths had no tests — and the verdict became
-`PASS WITH CONDITIONS`. The case was made genuinely clean (four tests added) instead of loosening
-the grading, and the second run matched all eight. A clean case that still comes back with a
-condition is now named on the report's `Result:` line, never hidden behind the headline.
+The false alarm is the interesting number, and it is reported like a miss rather than rounded away:
+on `control-rounding` the reviewer called `assert vat(19.99, 0.2) == 4.0` a test that "contradicts
+the implementation" and blocked a correct change. `round(3.998, 2)` is `4.0`; the test is right and
+the finding is invented. Two clean controls had been too few to see that, four are not.
+
+Nothing was tuned in response. An earlier live run did find a real gap in the suite — the reviewer
+noted that `control-clean`'s new function had untested error paths, and the case was made genuinely
+clean (four tests added) — but a case whose answer is changed because a model disagreed with it
+stops being a holdout. The `Result:` line names every case that does not match, so a mismatch can
+never hide behind the headline.
 
 ### A note on finding ids
 
-The first live reports — `review_self/`, `holdout_reviewer/`, `holdout_all/` — were produced while
-reviewer findings were still numbered `R1`, `R2`, …: the same prefix as requirement ids, which sit
-next to them in the traceability table. Findings are now `F1`, `F2`, …; those reports keep the ids
+The first live reports — `review_self/`, `holdout_reviewer/` — were produced while reviewer
+findings were still numbered `R1`, `R2`, …: the same prefix as requirement ids, which sit next to
+them in the traceability table. Findings are now `F1`, `F2`, …; those reports keep the ids
 of the version that produced them, and `verification_demo_review/` is the first one written after
 the rename. A requirement is `R1` in every report, old and new.

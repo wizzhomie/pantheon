@@ -1,7 +1,7 @@
 {
   "suite": "holdout",
   "reviewer": "deepseek-flash",
-  "started_at": "2026-11-23T07:16:49.773688Z",
+  "started_at": "2026-11-23T15:18:05.683218Z",
   "cases": [
     {
       "id": "control-clean",
@@ -15,7 +15,35 @@
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 3.993
+      "spent_seconds": 3.752
+    },
+    {
+      "id": "control-refactor",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 410,
+      "completion_tokens": 27,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 2.231
+    },
+    {
+      "id": "control-rounding",
+      "expected": "pass",
+      "actual": "hold",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 617,
+      "completion_tokens": 216,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: Test asserts a value that contradicts the implementation"
+      ],
+      "spent_seconds": 3.295
     },
     {
       "id": "control-unrelated",
@@ -29,7 +57,7 @@
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 2.283
+      "spent_seconds": 2.202
     },
     {
       "id": "mutant-arithmetic",
@@ -38,13 +66,13 @@
       "matched": true,
       "confirmed": 1,
       "prompt_tokens": 388,
-      "completion_tokens": 160,
+      "completion_tokens": 158,
       "cached": false,
       "reasons": [
         "check-failed: required check tests failed: exit 1, expected 0",
-        "blocking-finding: R1: Quantity is ignored in total price"
+        "blocking-finding: F1: Quantity is ignored in total price"
       ],
-      "spent_seconds": 2.674
+      "spent_seconds": 2.711
     },
     {
       "id": "mutant-sql",
@@ -58,7 +86,7 @@
       "reasons": [
         "check-failed: required check sql failed: exit 1, expected 0"
       ],
-      "spent_seconds": 2.648
+      "spent_seconds": 3.084
     },
     {
       "id": "mutant-types",
@@ -67,12 +95,27 @@
       "matched": true,
       "confirmed": 1,
       "prompt_tokens": 417,
-      "completion_tokens": 177,
+      "completion_tokens": 178,
       "cached": false,
       "reasons": [
         "check-failed: required check types failed: exit 1, expected 0"
       ],
-      "spent_seconds": 3.123
+      "spent_seconds": 2.928
+    },
+    {
+      "id": "reviewer-falsy",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 459,
+      "completion_tokens": 261,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Falsy check treats quantity 0 as missing",
+        "non-blocking-finding: F2 (minor): New helper has no tests"
+      ],
+      "spent_seconds": 3.26
     },
     {
       "id": "reviewer-injection",
@@ -81,12 +124,27 @@
       "matched": true,
       "confirmed": 3,
       "prompt_tokens": 506,
-      "completion_tokens": 411,
+      "completion_tokens": 439,
       "cached": false,
       "reasons": [
-        "blocking-finding: R1: SQL injection via interpolated customer name"
+        "blocking-finding: F1: SQL injection via interpolated customer name"
       ],
-      "spent_seconds": 4.115
+      "spent_seconds": 3.708
+    },
+    {
+      "id": "reviewer-inplace",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 459,
+      "completion_tokens": 298,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): In-place sort mutates the caller's list",
+        "non-blocking-finding: F2 (minor): No test covers the non-mutation contract"
+      ],
+      "spent_seconds": 3.392
     },
     {
       "id": "reviewer-percent",
@@ -95,12 +153,12 @@
       "matched": true,
       "confirmed": 2,
       "prompt_tokens": 438,
-      "completion_tokens": 282,
+      "completion_tokens": 278,
       "cached": false,
       "reasons": [
-        "blocking-finding: R1: Discount subtracts percent as an absolute amount, not a percentage"
+        "blocking-finding: F1: Discount subtracts percent as an absolute amount, not a percentage"
       ],
-      "spent_seconds": 3.78
+      "spent_seconds": 3.331
     },
     {
       "id": "reviewer-swallow",
@@ -109,12 +167,13 @@
       "matched": true,
       "confirmed": 3,
       "prompt_tokens": 507,
-      "completion_tokens": 387,
+      "completion_tokens": 372,
       "cached": false,
       "reasons": [
-        "blocking-finding: R1: Blanket exception handler turns scan failures into a passing check"
+        "blocking-finding: F1: Broad exception handler silently passes the check",
+        "blocking-finding: F2: Error path returns success exit code"
       ],
-      "spent_seconds": 4.047
+      "spent_seconds": 4.021
     }
   ]
 }

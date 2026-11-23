@@ -1,26 +1,32 @@
-# Holdout bench — 3 of 3 planted defects held, 3 of 3 reviewer cases detected, 0 of 2 clean changes held
+# Holdout bench — 3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4 clean changes held
 
 | | |
 |---|---|
 | Suite | `holdout` |
 | Reviewer | `deepseek-flash` |
-| Cases | 3 of 3 planted defects held, 3 of 3 reviewer cases detected, 0 of 2 clean changes held |
-| Started | 2026-11-23 07:16 UTC |
-| Spent | 26.7s |
-| Tokens | 3798 in / 1615 out |
+| Cases | 3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4 clean changes held |
+| Started | 2026-11-23 15:18 UTC |
+| Spent | 37.9s |
+| Tokens | 5743 in / 2425 out |
 
 ## Cases
 
 | Case | Expected | Actual | Result | Why |
 |---|---|---|---|---|
 | `control-clean` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
+| `control-refactor` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
+| `control-rounding` | pass | hold | **false alarm** | blocking-finding: F1: Test asserts a value that contradicts the implementation |
 | `control-unrelated` | pass | pass | ok | checks-passed: every required check passed and nothing was left unresolved |
 | `mutant-arithmetic` | hold | hold | ok | check-failed: required check tests failed: exit 1, expected 0 |
 | `mutant-sql` | hold | hold | ok | check-failed: required check sql failed: exit 1, expected 0 |
 | `mutant-types` | hold | hold | ok | check-failed: required check types failed: exit 1, expected 0 |
-| `reviewer-injection` | finding | hold | ok | 3 confirmed finding(s); blocking-finding: R1: SQL injection via interpolated customer name |
-| `reviewer-percent` | finding | hold | ok | 2 confirmed finding(s); blocking-finding: R1: Discount subtracts percent as an absolute amount, not a percentage |
-| `reviewer-swallow` | finding | hold | ok | 3 confirmed finding(s); blocking-finding: R1: Blanket exception handler turns scan failures into a passing check |
+| `reviewer-falsy` | finding | pass_with_conditions | ok | 2 confirmed finding(s); non-blocking-finding: F1 (major): Falsy check treats quantity 0 as missing |
+| `reviewer-injection` | finding | hold | ok | 3 confirmed finding(s); blocking-finding: F1: SQL injection via interpolated customer name |
+| `reviewer-inplace` | finding | pass_with_conditions | ok | 2 confirmed finding(s); non-blocking-finding: F1 (major): In-place sort mutates the caller's list |
+| `reviewer-percent` | finding | hold | ok | 2 confirmed finding(s); blocking-finding: F1: Discount subtracts percent as an absolute amount, not a percentage |
+| `reviewer-swallow` | finding | hold | ok | 3 confirmed finding(s); blocking-finding: F1: Broad exception handler silently passes the check |
+
+Result: 11 of 12 cases matched the suite; `control-rounding` did not.
 
 ## What this measures
 

@@ -1,7 +1,7 @@
 # Holdout bench — the contour graded on answers written down before the run
 
 A contour that grades itself on the changes it was built for measures nothing: those cases are
-already in its head. This suite is the opposite — eight changes, each with the answer written down
+already in its head. This suite is the opposite — twelve changes, each with the answer written down
 in `case.toml` before any run, so a regression shows up as a number instead of an opinion.
 
 ```bash
@@ -16,8 +16,8 @@ qagent bench --suite examples/holdout \
 ```
 
 The committed result is [`reports/holdout/bench.md`](../../reports/holdout/bench.md):
-**3 of 3 planted defects held, 0 of 2 clean changes held**, in about six seconds and without a
-model call. The live half of the suite costs cents and is described under [the reviewer
+**3 of 3 planted defects held, 0 of 4 clean changes held**, in a few seconds and without a model
+call. The live half of the suite costs cents and is described under [the reviewer
 layer](#the-reviewer-layer).
 
 The bench runs the project's own tools, so it needs what that project needs: `pytest` and `mypy`
@@ -39,16 +39,20 @@ no verification path of its own, on purpose: otherwise it would be measuring tha
 | `mutant-sql` | a migration drops a table without the human marker | `hold` — the migration guard fails |
 | `control-clean` | a new function and its boundaries, with a test for each | `pass` — every gate passes |
 | `control-unrelated` | a change to the README | `pass` — the migration guard is not selected |
+| `control-rounding` | a correct `round()` VAT helper, with its tests | `pass` — correct code, correct tests |
+| `control-refactor` | the same total written as a loop | `pass` — behaviour unchanged, tests unchanged |
 | `reviewer-injection` | a customer name pasted into SQL | `finding` — only the reviewer can see it |
 | `reviewer-percent` | the discount subtracts percentage points | `finding` — no test covers it |
 | `reviewer-swallow` | the migration guard swallows every error | `finding` — the checks pass silently |
+| `reviewer-falsy` | `if not quantity` turns an explicit `quantity=0` into one item | `finding` — no test passes zero |
+| `reviewer-inplace` | a function "leaving the caller's list as it was" sorts it in place | `finding` — the caller's list is invisible to tests |
 
 The verdicts are counted differently, and the difference is the point. A `hold` case that comes out
 `PASS WITH CONDITIONS` is a **miss**: that verdict ships. A clean change that comes out `HOLD` is a
 **false alarm**: it is the price of catching defects too eagerly, and it is reported with the same
 weight. A clean change that comes back `PASS WITH CONDITIONS` blocks nothing and is therefore not a
 false alarm — but it is not the answer the suite committed to either, so the report names it on a
-`Result:` line instead of letting the headline ("0 of 2 clean changes held") stand in for it.
+`Result:` line instead of letting the headline ("0 of 4 clean changes held") stand in for it.
 
 ## Adding a case
 
@@ -67,9 +71,10 @@ note = "the total ignores the quantity, and the project's own test says so"
 
 ## The reviewer layer
 
-Three cases carry `needs_reviewer = true` and `expected = "finding"`: a query that pastes a
-customer name into SQL, a discount that subtracts percentage points, and a migration guard that
-swallows every error. The project's own checks pass on all three — that is the point. Their answer
+Five cases carry `needs_reviewer = true` and `expected = "finding"`: a query that pastes a
+customer name into SQL, a discount that subtracts percentage points, a migration guard that
+swallows every error, a `if not quantity` that turns zero into one item, and a function documented
+as not touching its argument that sorts it in place. The project's own checks pass on all three — that is the point. Their answer
 is a *confirmed finding*, not a verdict: grading the reviewer on `HOLD` would measure how severe
 the model felt like calling the defect, when the question is whether it saw it at all.
 `qagent bench --layer reviewer` runs just them, and with a scripted reviewer the honest result is
@@ -87,21 +92,34 @@ That run costs money and is therefore not part of `make bench`. `--layer all` re
 so one report answers both questions a reviewer is asked — does it see the planted defects, and
 does it invent anything on clean code. The committed result,
 [`reports/holdout_all/bench.md`](../../reports/holdout_all/bench.md), is from 2026-11-23,
-`deepseek-flash`, 8 of 8 cases: **3 of 3 planted defects held, 3 of 3 reviewer cases detected,
-0 of 2 clean changes held**, 26.7 s, 3 798 tokens in and 1 615 out. The earlier reviewer-only run
-is [`reports/holdout_reviewer/bench.md`](../../reports/holdout_reviewer/bench.md): 3 of 3, all
+`deepseek-flash`, 12 cases: **3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4
+clean changes held** — 11 of 12 matched the suite, 37.9 s, 5 743 tokens in and 2 425 out. The one
+clean case it held was `control-rounding`: the reviewer called `assert vat(19.99, 0.2) == 4.0` a
+test that "contradicts the implementation" — the test is right, `round(3.998, 2)` is `4.0`, and the
+finding was blocking. That is a false alarm, counted with the same weight as a miss, and the reason
+the suite has four clean controls instead of two. Two of the five reviewer cases (`falsy`,
+`inplace`) were confirmed as *non-blocking* findings: the contour saw the defect and shipped it with
+a condition, which the bench counts as detected — grading the severity is a separate question, and
+`reviewer-percent` remains the case where the model chose to block. The earlier reviewer-only run is
+[`reports/holdout_reviewer/bench.md`](../../reports/holdout_reviewer/bench.md): 3 of 3, all
 blocking, 11.8 s.
 
-### What the first live run found
+### What live runs found
 
-It found something in the suite, not in the contour. On `control-clean` the reviewer returned one
-**minor** finding — the error paths of the new function had no tests — and the verdict became
-`PASS WITH CONDITIONS` instead of `PASS`. The finding was true: the case added a function, a happy
-path test, and nothing for `percent < 0`, `percent > 100`, or the two boundaries. So the case was
-made genuinely clean (four tests added, and the diff regenerated to match) rather than the grading
-being loosened to accept a condition on a "clean" change. The second run matched all eight. The
-report keeps the story: `Result:` names every case that does not match, so a condition on a clean
-change can never be hidden behind the headline.
+The first live run found something in the suite, not in the contour. On `control-clean` the
+reviewer returned one **minor** finding — the error paths of the new function had no tests — and
+the verdict became `PASS WITH CONDITIONS` instead of `PASS`. The finding was true: the case added a
+function, a happy-path test, and nothing for `percent < 0`, `percent > 100`, or the two boundaries.
+So the case was made genuinely clean (four tests added, and the diff regenerated to match) rather
+than the grading being loosened to accept a condition on a "clean" change.
+
+The run over the expanded suite found the opposite kind of thing, and it stays in the numbers: on
+`control-rounding` the reviewer invented a blocking contradiction out of correct code and a correct
+test. Two clean controls was too small a sample to see that; four is not, and the report says
+`1 of 4 clean changes held` rather than rounding it away. Nothing was tuned in response — a holdout
+that gets an answer changed because a model disagreed with it stops being a holdout — and the
+`Result:` line names every case that does not match, so a mismatch can never hide behind the
+headline.
 
 ## What is not measured here
 
