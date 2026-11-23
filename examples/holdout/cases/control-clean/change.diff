@@ -1,0 +1,33 @@
+diff --git a/app.py b/app.py
+index 56ce0da..8a1f2be 100644
+--- a/app.py
++++ b/app.py
+@@ -4,3 +4,10 @@
+ def total(items: list[tuple[float, int]]) -> float:
+     """The price of every item, counted as many times as it was bought."""
+     return sum(price * quantity for price, quantity in items)
++
++
++def with_discount(amount: float, percent: float) -> float:
++    """What is left after a discount, with the bounds the receipt assumes."""
++    if not 0 <= percent <= 100:
++        raise ValueError("a discount is a percentage between 0 and 100")
++    return amount * (1 - percent / 100)
+diff --git a/test_app.py b/test_app.py
+index ffafb36..ed7279f 100644
+--- a/test_app.py
++++ b/test_app.py
+@@ -1,4 +1,4 @@
+-from app import total
++from app import total, with_discount
+ 
+ 
+ def test_a_single_item_is_counted_once() -> None:
+@@ -11,3 +11,7 @@ def test_quantity_multiplies_the_price() -> None:
+ 
+ def test_an_empty_invoice_is_zero() -> None:
+     assert total([]) == 0.0
++
++
++def test_a_discount_reduces_the_amount() -> None:
++    assert with_discount(200.0, 12.5) == 175.0

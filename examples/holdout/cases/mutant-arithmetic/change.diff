@@ -1,0 +1,10 @@
+diff --git a/app.py b/app.py
+index 56ce0da..3d49d69 100644
+--- a/app.py
++++ b/app.py
+@@ -3,4 +3,4 @@
+ 
+ def total(items: list[tuple[float, int]]) -> float:
+     """The price of every item, counted as many times as it was bought."""
+-    return sum(price * quantity for price, quantity in items)
++    return sum(price for price, _quantity in items)

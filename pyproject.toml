@@ -60,7 +60,7 @@ python_version = "3.11"
 strict = true
 mypy_path = "src"
 packages = ["qagent", "examples"]
-# The evolve demo plants a type error on purpose: it is the defect its own policy is there to
-# find. Checking it with the project's rules would make qagent fail on its own fixture, so it
-# is excluded here and checked by `qagent verify` in the demo instead.
-exclude = ["^examples/evolve_demo/"]
+# The evolve demo plants a type error on purpose, and the holdout suite is made of standalone
+# projects with their own pytest and mypy config: checking them with the repository's rules
+# would make qagent fail on its own fixtures. They are checked by `qagent verify` instead.
+exclude = ["^examples/evolve_demo/", "^examples/holdout/"]

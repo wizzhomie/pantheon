@@ -139,3 +139,11 @@ checked.
   commit. Verdict `PASS WITH CONDITIONS`, four proposals, all four quotes confirmed by the anchor,
   and three of the four turned out to be real problems in the code that had just been written.
   Read [`review_self/README.md`](review_self/README.md) for the outcome of each finding.
+
+## Holdout bench
+
+[`holdout/bench.md`](holdout/bench.md) is the contour graded on a suite whose answers were
+written down before the run: three planted defects (arithmetic, annotation, migration) that must
+be held, and two clean changes that must not. Result: **3 of 3 held, 0 of 2 false alarms**, in a
+few seconds and without a model call. Produced by `make bench`; the suite lives in
+[`examples/holdout/`](../examples/holdout/README.md).

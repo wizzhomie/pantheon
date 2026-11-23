@@ -134,6 +134,7 @@ engine turns that evidence into a verdict.
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 | Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |
+| Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm | `make bench`: 3 of 3 defects held, 0 of 2 clean changes held, in seconds and without a model call |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
@@ -143,6 +144,7 @@ qagent verify --repo .                     # run, decide a verdict, write the re
 qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
 qagent verify --repo . --request request.toml      # the same, described in a file
 qagent show .qagent/runs/<run id>                  # explain a stored run, run nothing
+qagent bench --suite examples/holdout --reviewer qagent.review.scripted:from_env  # holdout the contour is graded on
 qagent learn --repo .                      # what the recorded runs argue should change, and why
 qagent learn --repo . --approve <id> --note "why"     # record the decision on a proposal
 qagent init --dir ./qa                     # starter config plus a one-case dataset
@@ -264,7 +266,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, resource limits, mutation testing, holdout evaluation | started — plan under the change and `[sandbox]` limits done; mutation testing and holdout planned |
+| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits and the holdout bench are done; a live holdout and mutation testing are ahead |
 
 ## Docs
 

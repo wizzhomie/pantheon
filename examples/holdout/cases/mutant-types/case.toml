@@ -1,0 +1,2 @@
+expected = "hold"
+note = "the annotation promises int while the function returns a float"

@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a new function and its test: every gate passes, nothing to hold"

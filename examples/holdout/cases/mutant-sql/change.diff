@@ -1,0 +1,7 @@
+diff --git b/migrations/002_drop_orders.sql b/migrations/002_drop_orders.sql
+new file mode 100644
+index 0000000..1ba41c1
+--- /dev/null
++++ b/migrations/002_drop_orders.sql
+@@ -0,0 +1 @@
++DROP TABLE orders;

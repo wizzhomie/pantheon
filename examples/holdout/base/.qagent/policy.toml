@@ -1,0 +1,36 @@
+# What the holdout project promises, and what it costs to check.
+#
+# Three checks, each able to catch a different kind of planted defect: the project's own
+# tests, the type contract, and the migration guard that only changes to `migrations/` need.
+
+name = "holdout"
+
+[budget]
+max_seconds = 120
+max_checks = 5
+
+[sandbox]
+memory_mb = 1024
+file_mb = 16
+
+[[checks]]
+id = "tests"
+name = "test suite"
+argv = ["python", "-m", "pytest", "-q"]
+timeout_s = 60
+purpose = "a defect the project's own suite can see never reaches a human"
+
+[[checks]]
+id = "types"
+name = "mypy --strict"
+argv = ["python", "-m", "mypy", "--explicit-package-bases", "."]
+timeout_s = 60
+purpose = "a wrong annotation is a claim the code does not keep"
+
+[[checks]]
+id = "sql"
+name = "migrations"
+argv = ["python", "check_migrations.py"]
+timeout_s = 30
+when_paths = ["migrations/**"]
+purpose = "a destructive migration must be marked by a human"

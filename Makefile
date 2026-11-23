@@ -59,6 +59,13 @@ plan-demo:
 		--review-model "scripted (no model call)" \
 		--out reports/verification_demo_plan || test $$? -eq 1
 
+bench:
+	QAGENT_REVIEW_RESPONSE='{"findings": []}' PATH="$(CURDIR)/.venv/bin:$$PATH" \
+		$(PYTHON) -m qagent bench --suite examples/holdout \
+		--reviewer qagent.review.scripted:from_env \
+		--review-model "scripted (no model call)" \
+		--out reports/holdout
+
 learn:
 	$(PYTHON) -m qagent learn --repo .
 

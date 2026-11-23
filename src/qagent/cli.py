@@ -39,6 +39,7 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+from .bench import run_suite
 from .context import (
     ProjectProfile,
     check_context,
@@ -189,6 +190,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_show(args)
         if args.command == "learn":
             return _run_learn(args)
+        if args.command == "bench":
+            return _run_bench(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -340,6 +343,25 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     shower.add_argument("path", type=Path, help="run directory or report.json")
     shower.add_argument("--json", action="store_true", help="print the report as JSON")
+
+    bench = subcommands.add_parser(
+        "bench", help="run the contour over a holdout suite whose answers are known"
+    )
+    bench.add_argument(
+        "--suite",
+        type=Path,
+        default=Path("examples/holdout"),
+        help="directory with `base/` and `cases/`",
+    )
+    bench.add_argument(
+        "--reviewer",
+        metavar="MODULE:FACTORY",
+        required=True,
+        help="the reviewer every case uses, e.g. qagent.review.scripted:from_env",
+    )
+    bench.add_argument("--review-model", default=None, help="model name recorded in the report")
+    bench.add_argument("--out", type=Path, help="write bench.json and bench.md here")
+    bench.add_argument("--json", action="store_true", help="print the report as JSON only")
 
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
@@ -718,6 +740,27 @@ def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequ
             "(the file lives in the project, in .qagent/policy.toml)"
         )
     return request
+
+
+def _run_bench(args: argparse.Namespace) -> int:
+    report, target = asyncio.run(
+        run_suite(
+            args.suite,
+            reviewer=args.reviewer,
+            model=args.review_model,
+            out_dir=args.out,
+        )
+    )
+    if args.json:
+        print(report.model_dump_json(indent=2))
+    else:
+        for case in report.cases:
+            mark = "ok" if case.matched else "MISS"
+            print(f"  {mark:4} {case.id:20} {case.expected:20} {case.actual}")
+        print(report.summary())
+        if target is not None:
+            print(f"report: {target / 'bench.json'} and {target / 'bench.md'}")
+    return EXIT_OK if report.passed else EXIT_FAILURE
 
 
 def _run_show(args: argparse.Namespace) -> int:

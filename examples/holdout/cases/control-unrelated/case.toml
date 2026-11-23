@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a change to the README: the migration guard is not selected, not missing"

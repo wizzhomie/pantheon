@@ -1,0 +1,2 @@
+expected = "hold"
+note = "a migration drops a table without the marker a human has to add"
