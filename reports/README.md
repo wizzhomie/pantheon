@@ -172,3 +172,11 @@ finding on `control-clean` — the new function's error paths had no tests — a
 `PASS WITH CONDITIONS`. The case was made genuinely clean (four tests added) instead of loosening
 the grading, and the second run matched all eight. A clean case that still comes back with a
 condition is now named on the report's `Result:` line, never hidden behind the headline.
+
+### A note on finding ids
+
+The live reports here — `review_self/`, `holdout_reviewer/`, `holdout_all/` — were produced while
+reviewer findings were still numbered `R1`, `R2`, …: the same prefix as requirement ids, which sit
+next to them in the traceability table. Findings are now `F1`, `F2`, …; the committed reports keep
+the ids of the version that produced them, and a fresh run prints `F1`. A requirement is `R1` in
+every report, old and new.

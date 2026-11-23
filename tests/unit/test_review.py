@@ -205,7 +205,7 @@ def test_the_prompt_stops_at_its_byte_budget() -> None:
 def test_a_quote_on_its_line_is_confirmed(tmp_path: Path) -> None:
     found = anchor(1, proposal(), repo(tmp_path), the_diff())
 
-    assert found.id == "R1"
+    assert found.id == "F1"
     assert found.status == "confirmed"
     assert found.source == "reviewer"
     assert found.blocking
@@ -366,7 +366,7 @@ def test_a_confirmed_reviewer_finding_holds_a_green_run(
     assert "review: 1 proposed, 1 confirmed" in capsys.readouterr().out
     report = json.loads((project / "run" / "report.json").read_text(encoding="utf-8"))
     assert report["verdict"]["status"] == "hold"
-    assert report["verdict"]["blocking_findings"] == ["R1"]
+    assert report["verdict"]["blocking_findings"] == ["F1"]
     assert report["review"]["confirmed"] == 1
     markdown = (project / "run" / "report.md").read_text(encoding="utf-8")
     assert "## Review" in markdown

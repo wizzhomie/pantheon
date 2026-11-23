@@ -138,7 +138,9 @@ def anchor(
     if link_note is not None:
         detail = f"{detail} ({link_note})".strip()
     return Finding(
-        id=f"R{index}",
+        # `F`, not `R`: requirement ids in the same report are `R1`, `R2`, … and the
+        # traceability table puts a finding id next to the requirement it cites.
+        id=f"F{index}",
         title=proposal.title,
         kind=proposal.kind,
         status="confirmed" if problem is None else "unverified",
