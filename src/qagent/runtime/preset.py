@@ -94,7 +94,13 @@ class Preset(Generic[TOut]):
             "rubric": self.rubric.model_dump(mode="json"),
             "judge_instructions": self.judge_instructions,
             "agent_prompt": self.agent_prompt,
-            "scoring": self.scoring.model_dump(mode="json") if self.scoring else None,
+            # ``custom`` names a function, not behaviour that a hash can compare; it is left
+            # out so adding the option did not silently re-hash every existing preset.
+            "scoring": (
+                self.scoring.model_dump(mode="json", exclude={"custom"})
+                if self.scoring
+                else None
+            ),
         }
         encoded = json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
         return hashlib.sha256(encoded.encode("utf-8")).hexdigest()

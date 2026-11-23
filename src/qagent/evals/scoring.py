@@ -11,10 +11,14 @@ Two decisions worth knowing:
   wrong answer is a false pass, and the report has a separate rate for exactly that.
 * a trap hit fails the case outright. Traps exist for fabrication bait, and a fabricated
   value is not compensated by nine correct fields.
+
+A ``custom`` scorer replaces the field loop for tasks where correctness is a property of the
+whole answer; the project owns that function, and this module only checks what it returns.
 """
 
 from __future__ import annotations
 
+import importlib
 import json
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -48,6 +52,8 @@ def score_case(
     spec: ScoringSpec,
 ) -> CaseScore:
     """Score ``output`` against ``case.expected`` and the combined trap list."""
+    if spec.custom is not None:
+        return _custom_score(spec.custom, output, case)
     total_weight = 0.0
     matched_weight = 0.0
     missing: list[str] = []
@@ -82,6 +88,20 @@ def score_case(
         wrong=wrong,
         hallucinated=hallucinated,
     )
+
+
+def _custom_score(spec: str, output: BaseModel | None, case: EvalCase) -> CaseScore:
+    """Delegate to the project's scorer; a wrong return type is a preset bug, not a score."""
+    module_name, separator, attribute = spec.partition(":")
+    if not separator or not module_name or not attribute:
+        raise ValueError(f"custom scorer must look like module:function, got {spec!r}")
+    scorer = getattr(importlib.import_module(module_name), attribute, None)
+    if not callable(scorer):
+        raise ValueError(f"{spec} is not callable")
+    score = scorer(output, case.expected)
+    if not isinstance(score, CaseScore):
+        raise TypeError(f"{spec} must return CaseScore, got {type(score).__name__}")
+    return score
 
 
 def matches(actual: object, expected: JsonValue, spec: FieldSpec) -> bool:

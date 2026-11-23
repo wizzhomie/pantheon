@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 from support import ToyOutput, eval_case
 
 from qagent import FieldSpec, ScoringSpec, Trap
-from qagent.evals.scoring import score_case
+from qagent.evals.scoring import CaseScore, score_case
 
 
 def spec(**overrides: object) -> ScoringSpec:
@@ -193,3 +193,64 @@ def test_no_output_scores_zero_and_fails() -> None:
     assert score.field_accuracy == 0.0
     assert score.missing == ["qty", "name"]
     assert score.passed is False
+
+
+
+def _lines_scorer(output: ToyOutput | None, expected: dict[str, object]) -> CaseScore:
+    """A whole-answer scorer: the golden lines must be reported, nothing else."""
+    wanted = [int(line) for line in expected.get("lines", [])]  # type: ignore[union-attr]
+    matched = len(wanted)
+    return CaseScore(
+        field_accuracy=1.0 if matched else 0.0,
+        passed=bool(matched),
+        missing=[] if matched else [f"line {line}" for line in wanted],
+        wrong=[],
+    )
+
+
+def _wrong_type(output: ToyOutput | None, expected: dict[str, object]) -> bool:
+    return True
+
+
+def test_a_custom_scorer_replaces_the_field_loop() -> None:
+    case = eval_case(expected={"lines": [3, 9]})
+    custom = ScoringSpec(custom="tests.unit.test_evals_scoring:_lines_scorer")
+
+    score = score_case(output(), case, custom)
+
+    assert score.passed is True
+    assert score.missing == []
+
+
+def test_a_custom_scorer_must_be_importable_and_return_a_score() -> None:
+    case = eval_case()
+
+    with pytest.raises(ValueError, match="module:function"):
+        score_case(output(), case, ScoringSpec(custom="not-a-spec"))
+    with pytest.raises(ValueError, match="is not callable"):
+        score_case(output(), case, ScoringSpec(custom="tests.unit.support:not_a_scorer"))
+    with pytest.raises(TypeError, match="CaseScore"):
+        score_case(
+            output(),
+            case,
+            ScoringSpec(custom="tests.unit.test_evals_scoring:_wrong_type"),
+        )
+
+
+def test_scoring_needs_fields_or_a_custom_function() -> None:
+    with pytest.raises(ValidationError):
+        ScoringSpec(fields=[])
+
+
+def test_a_custom_scorer_owns_the_decision_even_with_a_declared_trap() -> None:
+    """``custom`` is the whole rule; traps are ignored, which the docs state."""
+    case = eval_case(
+        expected={"lines": [3]},
+        traps=[Trap(path="qty", forbidden=[7], reason="never invent 7")],
+    )
+    custom = ScoringSpec(custom="tests.unit.test_evals_scoring:_lines_scorer")
+
+    score = score_case(ToyOutput(qty=7), case, custom)
+
+    assert score.passed is True
+    assert score.hallucinated == []

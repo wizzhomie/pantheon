@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from .base import JsonValue, StrictModel
 from .trace import Mode, Status
@@ -39,13 +39,29 @@ class Trap(StrictModel):
 
 
 class ScoringSpec(StrictModel):
-    """What "correct" means for a preset, stated explicitly instead of inferred."""
+    """What "correct" means for a preset, stated explicitly instead of inferred.
 
-    fields: list[FieldSpec] = Field(min_length=1)
+    Field-by-field comparison covers most extraction tasks. When correctness is a property
+    of the whole answer (did the review find the planted bug and invent nothing?), the
+    project names a function instead: ``custom = "module:function"`` takes the output and
+    the golden case and returns a score. Fields are then optional and ignored.
+    """
+
+    fields: list[FieldSpec] = Field(default_factory=list)
     traps: list[Trap] = Field(default_factory=list)
     min_field_accuracy: float | None = Field(
         default=None, ge=0, le=1, description="hard floor; below it the case fails outright"
     )
+    custom: str | None = Field(
+        default=None,
+        description="module:function(output, expected) -> CaseScore; replaces field scoring",
+    )
+
+    @model_validator(mode="after")
+    def _needs_a_way_to_score(self) -> ScoringSpec:
+        if not self.fields and self.custom is None:
+            raise ValueError("scoring needs fields or a custom function")
+        return self
 
 
 class EvalCase(StrictModel):
