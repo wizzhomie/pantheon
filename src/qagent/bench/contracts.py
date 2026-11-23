@@ -38,6 +38,14 @@ class BenchCase(StrictModel):
     expected: BenchExpected = Field(description="the verdict this change must produce")
     note: str = Field(default="", max_length=300, description="why this answer is right")
     policy: str = Field(default=".qagent/policy.toml", max_length=200)
+    needs_reviewer: bool = Field(
+        default=False,
+        description="invisible to the project's own checks: only a reviewer can catch it",
+    )
+
+
+BenchLayer = Literal["checks", "reviewer", "all"]
+"""Which half of the contour a run measures: the checks alone, the reviewer, or both."""
 
 
 class CaseResult(StrictModel):

@@ -1,0 +1,3 @@
+expected = "hold"
+needs_reviewer = true
+note = "the discount subtracts percentage points; no test covers the function"

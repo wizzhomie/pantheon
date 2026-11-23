@@ -1,0 +1,28 @@
+diff --git a/check_migrations.py b/check_migrations.py
+index 8596660..beceabf 100644
+--- a/check_migrations.py
++++ b/check_migrations.py
+@@ -7,13 +7,16 @@ DESTRUCTIVE = ("DROP TABLE", "DROP COLUMN", "TRUNCATE")
+ 
+ def main() -> int:
+     problems: list[str] = []
+-    for path in sorted(Path("migrations").glob("*.sql")):
+-        text = path.read_text(encoding="utf-8")
+-        if "-- destructive: ok" in text:
+-            continue
+-        for line in text.splitlines():
+-            if any(word in line.upper() for word in DESTRUCTIVE):
+-                problems.append(f"{path}: {line.strip()}")
++    try:
++        for path in sorted(Path("migrations").glob("*.sql")):
++            text = path.read_text(encoding="utf-8")
++            if "-- destructive: ok" in text:
++                continue
++            for line in text.splitlines():
++                if any(word in line.upper() for word in DESTRUCTIVE):
++                    problems.append(f"{path}: {line.strip()}")
++    except Exception:
++        return 0
+     for problem in problems:
+         print(problem)
+     return 1 if problems else 0

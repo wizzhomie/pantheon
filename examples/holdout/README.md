@@ -54,6 +54,24 @@ note = "the total ignores the quantity, and the project's own test says so"
 3. Run `make bench`. If the answer changes, that is a decision about the contour, not a test to
    adjust: either the contour broke, or the case was wrong when it was written.
 
+## The reviewer layer
+
+Three more cases carry `needs_reviewer = true`: a query that pastes a customer name into SQL, a
+discount that subtracts percentage points, and a migration guard that swallows every error. The
+project's own checks pass on all three — that is the point. `qagent bench --layer reviewer` runs
+just them, and with a scripted reviewer the honest result is **0 of 3 caught**: nothing but a
+model can see these defects, so the number is the reviewer's, not the checks'.
+
+```bash
+DEEPSEEK_API_KEY=... QAGENT_REVIEW_MODEL=deepseek-flash \
+qagent bench --suite examples/holdout --layer reviewer \
+    --reviewer qagent.review.factory:from_env --review-model deepseek-flash
+```
+
+That run costs money (~9k prompt tokens per case) and is therefore not part of `make bench`.
+`--layer all` measures both halves in one report and keeps them apart in the summary; the cache
+means a re-run of the same cases is free.
+
 ## What is not measured here
 
 The reviewer is scripted in `make bench` (it proposes nothing, so the verdict comes from

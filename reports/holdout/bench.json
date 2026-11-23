@@ -1,7 +1,7 @@
 {
   "suite": "holdout",
   "reviewer": "scripted (no model call)",
-  "started_at": "2026-11-23T06:50:56.783097Z",
+  "started_at": "2026-11-23T06:56:27.001944Z",
   "cases": [
     {
       "id": "control-clean",
@@ -11,7 +11,7 @@
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.346
+      "spent_seconds": 1.333
     },
     {
       "id": "control-unrelated",
@@ -21,7 +21,7 @@
       "reasons": [
         "checks-passed: every required check passed and nothing was left unresolved"
       ],
-      "spent_seconds": 1.314
+      "spent_seconds": 1.309
     },
     {
       "id": "mutant-arithmetic",
@@ -31,7 +31,7 @@
       "reasons": [
         "check-failed: required check tests failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.295
+      "spent_seconds": 1.369
     },
     {
       "id": "mutant-sql",
@@ -41,7 +41,7 @@
       "reasons": [
         "check-failed: required check sql failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.813
+      "spent_seconds": 1.345
     },
     {
       "id": "mutant-types",
@@ -51,7 +51,7 @@
       "reasons": [
         "check-failed: required check types failed: exit 1, expected 0"
       ],
-      "spent_seconds": 1.33
+      "spent_seconds": 1.3
     }
   ]
 }

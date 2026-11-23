@@ -365,6 +365,12 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the reviewer every case uses, e.g. qagent.review.scripted:from_env",
     )
     bench.add_argument("--review-model", default=None, help="model name recorded in the report")
+    bench.add_argument(
+        "--layer",
+        choices=("checks", "reviewer", "all"),
+        default="checks",
+        help="which half of the contour to measure",
+    )
     bench.add_argument("--out", type=Path, help="write bench.json and bench.md here")
     bench.add_argument("--json", action="store_true", help="print the report as JSON only")
 
@@ -756,6 +762,7 @@ def _run_bench(args: argparse.Namespace) -> int:
             reviewer=args.reviewer,
             model=args.review_model,
             out_dir=args.out,
+            layer=args.layer,
         )
     )
     if args.json:

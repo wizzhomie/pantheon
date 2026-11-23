@@ -1,0 +1,13 @@
+diff --git a/app.py b/app.py
+index 56ce0da..0c80c03 100644
+--- a/app.py
++++ b/app.py
+@@ -4,3 +4,8 @@
+ def total(items: list[tuple[float, int]]) -> float:
+     """The price of every item, counted as many times as it was bought."""
+     return sum(price * quantity for price, quantity in items)
++
++
++def with_discount(amount: float, percent: float) -> float:
++    """What is left after a discount, as the receipt shows it."""
++    return amount - percent

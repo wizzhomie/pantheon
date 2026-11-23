@@ -34,13 +34,16 @@ def _tools_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", '{"findings": []}')
 
 
-def one_case(tmp_path: Path, name: str, expected: str) -> Path:
+def one_case(
+    tmp_path: Path, name: str, expected: str, *, needs_reviewer: bool = False
+) -> Path:
     """A suite with the real base and exactly one case, with a chosen answer."""
     suite = tmp_path / "suite"
     shutil.copytree(SUITE / "base", suite / "base")
     shutil.copytree(SUITE / "cases" / name, suite / "cases" / name)
+    reviewer = "needs_reviewer = true\n" if needs_reviewer else ""
     (suite / "cases" / name / "case.toml").write_text(
-        f'expected = "{expected}"\nnote = "set by the test"\n', encoding="utf-8"
+        f'expected = "{expected}"\n{reviewer}note = "set by the test"\n', encoding="utf-8"
     )
     return suite
 
@@ -54,8 +57,12 @@ def test_the_suite_is_discovered_as_data() -> None:
         "mutant-arithmetic",
         "mutant-sql",
         "mutant-types",
+        "reviewer-injection",
+        "reviewer-percent",
+        "reviewer-swallow",
     ]
-    assert [case.expected for case in cases].count("hold") == 3
+    assert [case.expected for case in cases].count("hold") == 6
+    assert sum(1 for case in cases if case.needs_reviewer) == 3
     assert all(case.note for case in cases)
 
 
@@ -66,6 +73,26 @@ def test_the_bench_reproduces_the_committed_answers() -> None:
     assert (report.caught, report.missed, report.false_alarms) == (3, 0, 0)
     assert report.summary() == "3 of 3 planted defects held, 0 of 2 clean changes held"
     assert target is None
+
+
+def test_the_layers_partition_the_suite() -> None:
+    cases = discover(SUITE)
+
+    checks_layer = [case.id for case in cases if not case.needs_reviewer]
+    reviewer_layer = [case.id for case in cases if case.needs_reviewer]
+
+    assert len(checks_layer) == 5
+    assert reviewer_layer == ["reviewer-injection", "reviewer-percent", "reviewer-swallow"]
+
+
+def test_a_defect_the_checks_cannot_see_is_not_claimed_as_caught(tmp_path: Path) -> None:
+    """With a scripted reviewer a reviewer-only case must pass its checks and still miss."""
+    suite = one_case(tmp_path, "reviewer-injection", "hold", needs_reviewer=True)
+
+    report, _ = asyncio.run(run_suite(suite, reviewer=SCRIPTED, model=LABEL, layer="reviewer"))
+
+    assert report.cases[0].actual == "pass"
+    assert (report.caught, report.missed) == (0, 1)
 
 
 def test_a_miss_and_a_false_alarm_are_different_numbers() -> None:

@@ -30,6 +30,7 @@ from .contracts import (
     CASES_DIR,
     CHANGE_FILE,
     BenchCase,
+    BenchLayer,
     BenchReport,
     CaseResult,
 )
@@ -71,17 +72,26 @@ async def run_suite(
     reviewer: str,
     model: str | None = None,
     out_dir: Path | None = None,
+    layer: BenchLayer = "checks",
 ) -> tuple[BenchReport, Path | None]:
-    """Grade the contour on the whole suite and, when asked, write the report."""
+    """Grade the contour on the suite and, when asked, write the report.
+
+    ``layer`` selects which half is being measured: ``checks`` runs the cases whose defect
+    the project's own tools can see, ``reviewer`` the ones only a model can catch, ``all``
+    both. Mixing them in one number would hide which half found what.
+    """
     suite = Path(suite).resolve()
     base = suite / BASE_DIR
     if not base.is_dir():
         raise FileNotFoundError(f"no base project in {suite}")
+    cases = [case for case in discover(suite) if _in_layer(case, layer)]
+    if not cases:
+        raise ValueError(f"the suite at {suite} has no cases for layer {layer!r}")
     started_at = datetime.now(UTC)
     results: list[CaseResult] = []
     with tempfile.TemporaryDirectory(prefix="qagent-bench-") as tmp:
         work = Path(tmp)
-        for case in discover(suite):
+        for case in cases:
             results.append(await _run_case(case, suite, base, work, reviewer, model))
     report = BenchReport(
         suite=suite.name,
@@ -94,6 +104,12 @@ async def run_suite(
         target = Path(out_dir)
         write_bench(report, target)
     return report, target
+
+
+def _in_layer(case: BenchCase, layer: BenchLayer) -> bool:
+    if layer == "all":
+        return True
+    return case.needs_reviewer if layer == "reviewer" else not case.needs_reviewer
 
 
 async def _run_case(

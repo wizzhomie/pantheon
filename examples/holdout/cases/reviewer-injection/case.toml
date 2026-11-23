@@ -1,0 +1,3 @@
+expected = "hold"
+needs_reviewer = true
+note = "the new query pastes a customer name into SQL; the project's own checks cannot see it"
