@@ -1,0 +1,2 @@
+expected = "hold"
+note = "the annotation promises int and the code returns a float: mypy --strict fails"

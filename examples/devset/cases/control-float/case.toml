@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a test pinning the binary-float sum: 0.1 * 3 really is 0.30000000000000004"

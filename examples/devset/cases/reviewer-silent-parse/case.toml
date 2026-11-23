@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "an unreadable amount silently becomes zero, so a broken line is free"

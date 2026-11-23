@@ -1,0 +1,7 @@
+diff --git a/migrations/002_cleanup.sql b/migrations/002_cleanup.sql
+new file mode 100644
+index 0000000..1ba41c1
+--- /dev/null
++++ b/migrations/002_cleanup.sql
+@@ -0,0 +1 @@
++DROP TABLE orders;

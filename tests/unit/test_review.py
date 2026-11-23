@@ -18,6 +18,7 @@ import pytest
 
 from qagent.cli import main
 from qagent.contracts.findings import Finding
+from qagent.llm.base import LLMResponse
 from qagent.llm.errors import LLMError
 from qagent.llm.fake import FakeClient
 from qagent.review import (
@@ -30,6 +31,7 @@ from qagent.review import (
     parse_diff,
     review_diff,
 )
+from qagent.verify.report import _review_section
 
 MODIFIED_DIFF = (
     "diff --git a/app.py b/app.py\n"
@@ -319,6 +321,121 @@ def test_the_request_carries_the_project_rules(tmp_path: Path) -> None:
     assert "never touch i18n" in system.content
 
 
+# --- the second look ---------------------------------------------------------------------
+
+
+def look(answer_text: str) -> str:
+    """The second reader's answer: one verdict per claim."""
+    return json.dumps(
+        {"verdicts": [{"index": 1, "keep": False, "reason": answer_text}]}, ensure_ascii=False
+    )
+
+
+def run_second_look(tmp_path: Path, first: str, second: str | BaseException) -> ReviewOutcome:
+    client = FakeClient([first, second])
+    return asyncio.run(
+        review_diff(
+            the_diff(), repo(tmp_path), client, config(second_look=True)
+        )
+    )
+
+
+def test_the_second_look_drops_a_claim_the_code_denies(tmp_path: Path) -> None:
+    outcome = run_second_look(
+        tmp_path,
+        answer(proposal().model_dump(mode="json")),
+        look("the assertion holds, so the test is right"),
+    )
+
+    assert outcome.status == "ok"
+    assert outcome.second_look == "ok"
+    assert outcome.refuted == 1
+    assert (outcome.proposed, outcome.confirmed) == (1, 0)
+    (finding,) = outcome.findings
+    assert finding.status == "false-positive"
+    assert "second look: the assertion holds" in finding.detail
+
+
+def test_a_dropped_claim_cannot_hold_a_release(tmp_path: Path) -> None:
+    outcome = run_second_look(
+        tmp_path,
+        answer(proposal().model_dump(mode="json")),
+        look("the claim contradicts itself"),
+    )
+
+    assert not outcome.findings[0].blocking
+
+
+def test_a_second_look_that_cannot_answer_leaves_the_claims_standing(tmp_path: Path) -> None:
+    outcome = run_second_look(
+        tmp_path, answer(proposal().model_dump(mode="json")), LLMError("the reader is down")
+    )
+
+    assert outcome.second_look == "failed"
+    assert outcome.refuted == 0
+    assert outcome.findings[0].status == "confirmed"
+    assert outcome.confirmed == 1
+
+
+def test_the_second_look_is_not_asked_when_there_is_nothing_to_check(tmp_path: Path) -> None:
+    client = FakeClient([answer()])
+    outcome = asyncio.run(
+        review_diff(the_diff(), repo(tmp_path), client, config(second_look=True))
+    )
+
+    assert outcome.second_look == "off"
+    assert len(client.requests) == 1
+
+
+def test_the_second_look_is_off_by_default(tmp_path: Path) -> None:
+    client = FakeClient([answer(proposal().model_dump(mode="json"))])
+    outcome = asyncio.run(review_diff(the_diff(), repo(tmp_path), client, config()))
+
+    assert outcome.second_look == "off"
+    assert len(client.requests) == 1
+    assert outcome.findings[0].status == "confirmed"
+
+
+def test_the_report_says_how_many_claims_the_second_look_dropped() -> None:
+    outcome = ReviewOutcome(
+        status="ok", model="reviewer", second_look="ok", refuted=2, confirmed=1
+    )
+
+    section = _review_section(outcome)
+
+    assert "| Second look | 2 claim(s) dropped |" in section
+    assert "false-positive" in section
+
+
+def test_a_failed_second_look_says_the_claims_stand() -> None:
+    outcome = ReviewOutcome(status="ok", model="reviewer", second_look="failed")
+
+    assert "the reader did not answer, the claims stand" in _review_section(outcome)
+
+
+def test_a_review_without_the_second_look_says_nothing_about_it() -> None:
+    assert "Second look" not in _review_section(ReviewOutcome(status="ok", model="reviewer"))
+
+
+def test_the_second_look_pays_for_both_calls(tmp_path: Path) -> None:
+    first = LLMResponse(
+        text=answer(proposal().model_dump(mode="json")),
+        model="reviewer",
+        prompt_tokens=100,
+        completion_tokens=20,
+    )
+    second = LLMResponse(
+        text=look("dropped"), model="reviewer", prompt_tokens=120, completion_tokens=10
+    )
+    outcome = asyncio.run(
+        review_diff(
+            the_diff(), repo(tmp_path), FakeClient([first, second]), config(second_look=True)
+        )
+    )
+
+    assert (outcome.prompt_tokens, outcome.completion_tokens) == (220, 30)
+
+
 # --- the command -------------------------------------------------------------------------
 
 
@@ -424,6 +541,35 @@ def test_a_diff_without_a_reviewer_is_an_error(
 
     assert code == 1
     assert "--reviewer" in capsys.readouterr().err
+
+
+def test_the_command_records_the_second_look_in_the_request(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project = temp_project(tmp_path)
+    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
+
+    code = main(
+        [
+            "verify",
+            "--repo",
+            str(project),
+            "--diff",
+            str(project / "change.diff"),
+            "--reviewer",
+            "qagent.review.scripted:from_env",
+            "--second-look",
+            "--out",
+            str(project / "run"),
+        ]
+    )
+
+    report = json.loads((project / "run" / "report.json").read_text(encoding="utf-8"))
+    assert code == 1
+    assert report["request"]["second_look"] is True
+    assert report["review"]["second_look"] == "failed"
+    assert report["review"]["refuted"] == 0
+    assert report["review"]["findings"][0]["status"] == "confirmed"
 
 
 def test_the_dry_run_does_not_need_a_key_or_a_model(tmp_path: Path) -> None:

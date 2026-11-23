@@ -1,0 +1,199 @@
+{
+  "suite": "devset",
+  "reviewer": "deepseek-flash",
+  "started_at": "2026-11-23T15:41:50.939422Z",
+  "cases": [
+    {
+      "id": "control-docs",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 402,
+      "completion_tokens": 32,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 2.391
+    },
+    {
+      "id": "control-float",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 455,
+      "completion_tokens": 230,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Test pins an exact float artifact instead of the intended total"
+      ],
+      "spent_seconds": 3.443
+    },
+    {
+      "id": "control-refactor",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 3,
+      "prompt_tokens": 431,
+      "completion_tokens": 365,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): line_total is not defined in the shown file",
+        "non-blocking-finding: F2 (minor): Accumulating floats changes rounding versus the previous implementation",
+        "non-blocking-finding: F3 (minor): No test covers the new summation path"
+      ],
+      "spent_seconds": 3.588
+    },
+    {
+      "id": "control-tests-only",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 2,
+      "prompt_tokens": 414,
+      "completion_tokens": 276,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): line_total may not be imported in the test module",
+        "non-blocking-finding: F2 (minor): Exact float equality on a computed total"
+      ],
+      "spent_seconds": 3.01
+    },
+    {
+      "id": "control-vat",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 2,
+      "prompt_tokens": 665,
+      "completion_tokens": 324,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): VAT uses float rounding while to_cents uses integer cents",
+        "non-blocking-finding: F2 (minor): No test covers a half-cent rounding boundary"
+      ],
+      "spent_seconds": 3.468
+    },
+    {
+      "id": "control-vat-gross",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 2,
+      "prompt_tokens": 659,
+      "completion_tokens": 366,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): gross() rounds in float, unlike to_cents() which rounds to integer cents",
+        "non-blocking-finding: F2 (minor): Tests only cover values that are exact in binary floating point"
+      ],
+      "spent_seconds": 4.861
+    },
+    {
+      "id": "mutant-quantity",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 405,
+      "completion_tokens": 137,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check tests failed: exit 1, expected 0",
+        "blocking-finding: F1: line_total ignores quantity"
+      ],
+      "spent_seconds": 2.545
+    },
+    {
+      "id": "mutant-sql",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 351,
+      "completion_tokens": 258,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check sql failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 3.135
+    },
+    {
+      "id": "mutant-types",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 396,
+      "completion_tokens": 258,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check types failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 3.277
+    },
+    {
+      "id": "reviewer-empty-average",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 433,
+      "completion_tokens": 327,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Division by zero on an empty invoice",
+        "non-blocking-finding: F2 (minor): Average is not rounded to cents",
+        "non-blocking-finding: F3 (minor): New helper has no tests"
+      ],
+      "spent_seconds": 3.189
+    },
+    {
+      "id": "reviewer-injection",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 524,
+      "completion_tokens": 286,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: SQL injection via concatenated customer name"
+      ],
+      "spent_seconds": 3.777
+    },
+    {
+      "id": "reviewer-mutable-default",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 440,
+      "completion_tokens": 380,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: Mutable default argument shared across calls"
+      ],
+      "spent_seconds": 3.918
+    },
+    {
+      "id": "reviewer-silent-parse",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 442,
+      "completion_tokens": 374,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Unparseable amounts silently become zero",
+        "non-blocking-finding: F2 (minor): No handling of non-numeric formats or whitespace/currency symbols",
+        "non-blocking-finding: F3 (minor): New parser has no tests"
+      ],
+      "spent_seconds": 3.545
+    }
+  ]
+}

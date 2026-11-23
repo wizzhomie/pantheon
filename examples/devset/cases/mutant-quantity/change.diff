@@ -1,0 +1,13 @@
+diff --git a/app.py b/app.py
+index 09ef3fb..2ed8d94 100644
+--- a/app.py
++++ b/app.py
+@@ -5,7 +5,7 @@ from collections.abc import Iterable
+ 
+ def line_total(price: float, quantity: int) -> float:
+     """The price of one line, counted as many times as it was bought."""
+-    return price * quantity
++    return price
+ 
+ 
+ def invoice_total(lines: Iterable[tuple[float, int]]) -> float:

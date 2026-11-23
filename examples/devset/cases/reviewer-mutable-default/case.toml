@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "a default list shared by every call: fees accumulate across invoices"

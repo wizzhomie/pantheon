@@ -1,0 +1,39 @@
+diff --git a/app.py b/app.py
+index 09ef3fb..afe8ab7 100644
+--- a/app.py
++++ b/app.py
+@@ -16,3 +16,8 @@ def invoice_total(lines: Iterable[tuple[float, int]]) -> float:
+ def to_cents(amount: float) -> int:
+     """An amount rounded to whole cents, the way an invoice prints it."""
+     return round(amount * 100)
++
++
++def vat(amount: float, rate: float = 0.2) -> float:
++    """VAT on an amount, rounded to the nearest cent."""
++    return round(amount * rate, 2)
+diff --git a/test_app.py b/test_app.py
+index 1db224e..0f46382 100644
+--- a/test_app.py
++++ b/test_app.py
+@@ -1,4 +1,4 @@
+-from app import invoice_total, line_total, to_cents
++from app import invoice_total, line_total, to_cents, vat
+ 
+ 
+ def test_one_line_is_its_price() -> None:
+@@ -19,3 +19,15 @@ def test_the_lines_are_added() -> None:
+ 
+ def test_cents_are_whole_numbers() -> None:
+     assert to_cents(9.99) == 999
++
++
++def test_vat_is_rounded_to_the_cent() -> None:
++    assert vat(7.35, 0.19) == 1.4
++
++
++def test_vat_takes_a_rate() -> None:
++    assert vat(10.0, 0.19) == 1.9
++
++
++def test_vat_of_zero_is_zero() -> None:
++    assert vat(0.0) == 0.0

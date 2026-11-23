@@ -256,6 +256,7 @@ def _reviewer_config(request: VerificationRequest, root: Path) -> ReviewerConfig
         model=request.model or "reviewer",
         instructions=instructions,
         max_tokens=request.max_tokens,
+        second_look=request.second_look,
     )
 
 

@@ -1,0 +1,14 @@
+diff --git a/app.py b/app.py
+index 09ef3fb..535c1e0 100644
+--- a/app.py
++++ b/app.py
+@@ -16,3 +16,9 @@ def invoice_total(lines: Iterable[tuple[float, int]]) -> float:
+ def to_cents(amount: float) -> int:
+     """An amount rounded to whole cents, the way an invoice prints it."""
+     return round(amount * 100)
++
++
++def add_fee(fees: list[float] = []) -> list[float]:
++    """Add the standard fee to a list of fees."""
++    fees.append(2.0)
++    return fees

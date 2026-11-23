@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "a customer name pasted into SQL: the project's own checks pass on it"

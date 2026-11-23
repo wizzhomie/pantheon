@@ -1,0 +1,12 @@
+diff --git a/test_app.py b/test_app.py
+index 1db224e..4d59e85 100644
+--- a/test_app.py
++++ b/test_app.py
+@@ -19,3 +19,7 @@ def test_the_lines_are_added() -> None:
+ 
+ def test_cents_are_whole_numbers() -> None:
+     assert to_cents(9.99) == 999
++
++
++def test_a_line_of_zero_quantity_is_free() -> None:
++    assert line_total(3.0, 0) == 0.0

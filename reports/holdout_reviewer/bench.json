@@ -1,29 +1,66 @@
 {
   "suite": "holdout",
   "reviewer": "deepseek-flash",
-  "started_at": "2026-11-23T07:01:05.438588Z",
+  "started_at": "2026-11-23T15:55:46.992360Z",
   "cases": [
+    {
+      "id": "reviewer-falsy",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 976,
+      "completion_tokens": 347,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Falsy check treats quantity 0 as missing",
+        "non-blocking-finding: F2 (minor): New helper has no tests"
+      ],
+      "spent_seconds": 3.761
+    },
     {
       "id": "reviewer-injection",
       "expected": "finding",
       "actual": "hold",
       "matched": true,
-      "confirmed": 3,
+      "confirmed": 2,
+      "prompt_tokens": 1104,
+      "completion_tokens": 397,
+      "cached": false,
       "reasons": [
-        "blocking-finding: R1: SQL injection via interpolated customer name"
+        "blocking-finding: F1: SQL injection via interpolated customer name"
       ],
-      "spent_seconds": 3.911
+      "spent_seconds": 4.489
+    },
+    {
+      "id": "reviewer-inplace",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 1070,
+      "completion_tokens": 504,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): cheapest_first mutates the caller's list despite its docstring",
+        "non-blocking-finding: F2 (minor): Returns the same list object, not a new one",
+        "non-blocking-finding: F3 (minor): No test covers the non-mutation guarantee"
+      ],
+      "spent_seconds": 5.474
     },
     {
       "id": "reviewer-percent",
       "expected": "finding",
       "actual": "hold",
       "matched": true,
-      "confirmed": 2,
+      "confirmed": 3,
+      "prompt_tokens": 1068,
+      "completion_tokens": 550,
+      "cached": false,
       "reasons": [
-        "blocking-finding: R1: Discount is subtracted as an absolute amount, not a percentage"
+        "blocking-finding: F1: Discount treated as an absolute amount, not a percentage"
       ],
-      "spent_seconds": 3.425
+      "spent_seconds": 4.745
     },
     {
       "id": "reviewer-swallow",
@@ -31,10 +68,13 @@
       "actual": "hold",
       "matched": true,
       "confirmed": 3,
+      "prompt_tokens": 1187,
+      "completion_tokens": 535,
+      "cached": false,
       "reasons": [
-        "blocking-finding: R1: Blanket exception handler turns scan failures into a passing check"
+        "blocking-finding: F1: Broad exception handler turns scan failures into a passing check"
       ],
-      "spent_seconds": 4.474
+      "spent_seconds": 4.882
     }
   ]
 }

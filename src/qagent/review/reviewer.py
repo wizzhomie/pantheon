@@ -16,13 +16,14 @@ import json
 import time
 from collections.abc import Sequence
 from pathlib import Path
+from typing import Literal
 
 from ..contracts.findings import Finding, FindingSeverity, Location
 from ..llm.base import LLMClient, LLMRequest, Message
 from .cache import ReviewCache
 from .contracts import ProposedFinding, ProposedReview, ReviewerConfig, ReviewOutcome
 from .diff import Diff, normalise_path
-from .prompt import build_user_message, system_message
+from .prompt import SECOND_LOOK, build_user_message, second_look_message, system_message
 
 MAX_REPO_FILES = 50_000
 
@@ -55,7 +56,11 @@ async def review_diff(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
-    cache_key = cache.key(request) if cache is not None else None
+    cache_key = (
+        cache.key(request, extra="second-look" if config.second_look else "")
+        if cache is not None
+        else None
+    )
     if cache is not None and cache_key is not None:
         stored = cache.load(cache_key)
         if stored is not None:
@@ -88,10 +93,28 @@ async def review_diff(
         )
 
     approved = {item_id for item_id, _ in requirements}
+    refuted: dict[int, str] = {}
+    look: Literal["off", "ok", "failed"] = "off"
+    prompt_tokens = response.prompt_tokens
+    completion_tokens = response.completion_tokens
+    if config.second_look and proposed.findings:
+        refuted, (look_prompt, look_completion), look = await _second_look(
+            client, config, user_message, proposed.findings
+        )
+        prompt_tokens += look_prompt
+        completion_tokens += look_completion
     findings = [
         anchor(index + 1, proposal, root, diff, approved=approved)
         for index, proposal in enumerate(proposed.findings)
     ]
+    for index, reason in refuted.items():
+        finding = findings[index - 1]
+        findings[index - 1] = finding.model_copy(
+            update={
+                "status": "false-positive",
+                "detail": f"{finding.detail} (second look: {reason})".strip(),
+            }
+        )
     outcome = ReviewOutcome(
         status="ok",
         model=response.model,
@@ -102,8 +125,10 @@ async def review_diff(
         unverified=sum(1 for finding in findings if finding.status == "unverified"),
         linked=sum(1 for finding in findings if finding.requirement is not None),
         findings=findings,
-        prompt_tokens=response.prompt_tokens,
-        completion_tokens=response.completion_tokens,
+        prompt_tokens=prompt_tokens,
+        completion_tokens=completion_tokens,
+        second_look=look,
+        refuted=len(refuted),
         spent_seconds=round(time.monotonic() - started, 3),
     )
     if cache is not None and cache_key is not None:
@@ -219,8 +244,8 @@ def _normalise(line: str) -> str:
     return " ".join(line.split())
 
 
-def _parse(text: str) -> ProposedReview:
-    """Read the model's answer, tolerating fences, rejecting everything else."""
+def _json_object(text: str) -> dict[str, object]:
+    """Read one JSON object out of an answer, tolerating fences, rejecting everything else."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = cleaned.split("\n", 1)[1] if "\n" in cleaned else ""
@@ -235,4 +260,61 @@ def _parse(text: str) -> ProposedReview:
         raise ValueError(str(exc)) from exc
     if not isinstance(data, dict):
         raise ValueError("the answer is not a JSON object")
-    return ProposedReview.model_validate(data)
+    return data
+
+
+def _parse(text: str) -> ProposedReview:
+    """The first reader's answer: a summary and the claims it wants to make."""
+    return ProposedReview.model_validate(_json_object(text))
+
+
+def _parse_verdicts(text: str, count: int) -> dict[int, str]:
+    """The second reader's answer: which claims survive, and why the others do not.
+
+    An index outside the claims, or a verdict that is not a boolean, is ignored rather than
+    trusted: the second look may only answer about claims it was shown.
+    """
+    verdicts = _json_object(text).get("verdicts")
+    if not isinstance(verdicts, list):
+        raise ValueError("no verdicts in the second look")
+    refuted: dict[int, str] = {}
+    for entry in verdicts:
+        if not isinstance(entry, dict):
+            continue
+        index = entry.get("index")
+        keep = entry.get("keep")
+        reason = entry.get("reason")
+        if not isinstance(index, int) or not 1 <= index <= count:
+            continue
+        if keep is False:
+            refuted[index] = str(reason)[:200] if reason else "the claim does not hold"
+    return refuted
+
+
+async def _second_look(
+    client: LLMClient,
+    config: ReviewerConfig,
+    diff_text: str,
+    findings: Sequence[ProposedFinding],
+) -> tuple[dict[int, str], tuple[int, int], Literal["ok", "failed"]]:
+    """A second reader checks the claims before the anchor does.
+
+    The cost of this call is real, so it is off by default and its tokens are counted into
+    the review: a report that says what a review cost must include both readers. A second
+    look that fails changes nothing — the claims stand as the first reader wrote them.
+    """
+    request = LLMRequest(
+        model=config.model,
+        messages=[
+            Message(role="system", content=SECOND_LOOK),
+            Message(role="user", content=second_look_message(diff_text, findings)),
+        ],
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+    )
+    try:
+        response = await client.complete(request)
+        refuted = _parse_verdicts(response.text, len(findings))
+    except Exception:  # a second opinion nobody can read is no opinion
+        return {}, (0, 0), "failed"
+    return refuted, (response.prompt_tokens, response.completion_tokens), "ok"

@@ -1,0 +1,16 @@
+diff --git a/app.py b/app.py
+index 09ef3fb..1b9e695 100644
+--- a/app.py
++++ b/app.py
+@@ -10,7 +10,10 @@ def line_total(price: float, quantity: int) -> float:
+ 
+ def invoice_total(lines: Iterable[tuple[float, int]]) -> float:
+     """The sum of every line on the invoice."""
+-    return sum(line_total(price, quantity) for price, quantity in lines)
++    result = 0.0
++    for price, quantity in lines:
++        result += line_total(price, quantity)
++    return result
+ 
+ 
+ def to_cents(amount: float) -> int:

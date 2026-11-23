@@ -310,6 +310,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="project rules for the reviewer, appended to the prompt",
     )
     verify.add_argument("--review-model", default=None, help="model name for the review call")
+    verify.add_argument(
+        "--second-look",
+        action="store_true",
+        help="a second reader checks every claim before the anchor; one more call per review",
+    )
     verify.add_argument("--review-max-tokens", type=int, default=1500)
     verify.add_argument(
         "--no-cache",
@@ -365,6 +370,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="the reviewer every case uses, e.g. qagent.review.scripted:from_env",
     )
     bench.add_argument("--review-model", default=None, help="model name recorded in the report")
+    bench.add_argument(
+        "--second-look",
+        action="store_true",
+        help="run every case with the second reader, as a user can",
+    )
     bench.add_argument(
         "--layer",
         choices=("checks", "reviewer", "all"),
@@ -726,6 +736,7 @@ def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequ
                 ("--reviewer", args.reviewer),
                 ("--review-instructions", args.review_instructions),
                 ("--review-model", args.review_model),
+                ("--second-look", args.second_look or None),
             )
             if value is not None
         ]
@@ -743,6 +754,7 @@ def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequ
             else None,
             model=args.review_model,
             max_tokens=args.review_max_tokens,
+            second_look=args.second_look,
         )
     policy_file = Path(request.policy)
     if not policy_file.is_absolute():
@@ -763,6 +775,7 @@ def _run_bench(args: argparse.Namespace) -> int:
             model=args.review_model,
             out_dir=args.out,
             layer=args.layer,
+            second_look=args.second_look,
         )
     )
     if args.json:

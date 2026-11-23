@@ -221,6 +221,10 @@ class VerificationRequest(StrictModel):
     )
     model: str | None = Field(default=None, max_length=120, description="review model override")
     max_tokens: int = Field(default=1500, ge=200, le=8000)
+    second_look: bool = Field(
+        default=False,
+        description="a second reader checks the reviewer's claims; costs one more call each",
+    )
     notes: str = Field(default="", max_length=500, description="why this request exists")
 
     @model_validator(mode="after")

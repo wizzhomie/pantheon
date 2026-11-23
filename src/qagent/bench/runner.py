@@ -74,12 +74,14 @@ async def run_suite(
     model: str | None = None,
     out_dir: Path | None = None,
     layer: BenchLayer = "checks",
+    second_look: bool = False,
 ) -> tuple[BenchReport, Path | None]:
     """Grade the contour on the suite and, when asked, write the report.
 
     ``layer`` selects which half is being measured: ``checks`` runs the cases whose defect
     the project's own tools can see, ``reviewer`` the ones only a model can catch, ``all``
-    both. Mixing them in one number would hide which half found what.
+    both. Mixing them in one number would hide which half found what. ``second_look`` turns on
+    the second reader for every review, exactly as a user would; it doubles the paid calls.
     """
     suite = Path(suite).resolve()
     base = suite / BASE_DIR
@@ -93,7 +95,9 @@ async def run_suite(
     with tempfile.TemporaryDirectory(prefix="qagent-bench-") as tmp:
         work = Path(tmp)
         for case in cases:
-            results.append(await _run_case(case, suite, base, work, reviewer, model))
+            results.append(
+                await _run_case(case, suite, base, work, reviewer, model, second_look)
+            )
     report = BenchReport(
         suite=suite.name,
         reviewer=model or reviewer,
@@ -120,6 +124,7 @@ async def _run_case(
     work: Path,
     reviewer: str,
     model: str | None,
+    second_look: bool,
 ) -> CaseResult:
     project = work / case.id
     shutil.copytree(base, project)
@@ -134,6 +139,7 @@ async def _run_case(
         diff=CHANGE_FILE,
         reviewer=reviewer,
         model=model,
+        second_look=second_look,
     )
     started = time.monotonic()
     report, _ = await execute(request, project, out_dir=work / "runs" / case.id)
@@ -170,7 +176,7 @@ def render_bench(report: BenchReport) -> str:
     cases = report.cases
     total = sum(case.spent_seconds for case in cases)
     lines = [
-        f"# Holdout bench — {report.summary()}",
+        f"# Bench — {report.summary()}",
         "",
         "| | |",
         "|---|---|",

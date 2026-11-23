@@ -5,6 +5,8 @@
 #   make sample   regenerate the committed stub reports
 #   make replay   the committed live cassette: same numbers, no key, no network
 #   make config-check  validate the qagent.toml description of the same preset
+#   make bench    the holdout suite through the checks layer, no model call
+#   make bench-dev  the dev set: the same layer, on the cases tuning is allowed on
 #   make verify   run this project's checks and write .qagent/runs/<id>/report.{json,md}
 #   make verify-demo  the HOLD demo: a planted defect and the report that refuses it
 #   make plan-demo  the same HOLD demo with a change: a path-scoped gate is not selected
@@ -24,7 +26,7 @@ SPEC := examples.logistics_intake.runner:build_guarded
 
 .DEFAULT_GOAL := check
 
-.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo plan-demo learn evolve-demo
+.PHONY: check lint typecheck test demo sample replay eval baseline diff config-check verify verify-demo plan-demo learn evolve-demo bench bench-dev
 
 check: lint typecheck test
 
@@ -65,6 +67,13 @@ bench:
 		--reviewer qagent.review.scripted:from_env \
 		--review-model "scripted (no model call)" \
 		--out reports/holdout
+
+bench-dev:
+	QAGENT_REVIEW_RESPONSE='{"findings": []}' PATH="$(CURDIR)/.venv/bin:$$PATH" \
+		$(PYTHON) -m qagent bench --suite examples/devset \
+		--reviewer qagent.review.scripted:from_env \
+		--review-model "scripted (no model call)" \
+		--out reports/devset
 
 learn:
 	$(PYTHON) -m qagent learn --repo .

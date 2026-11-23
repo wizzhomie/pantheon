@@ -1,0 +1,2 @@
+expected = "pass"
+note = "the same invoice total rewritten as a loop: behaviour unchanged, tests unchanged"

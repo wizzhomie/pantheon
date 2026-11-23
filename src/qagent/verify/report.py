@@ -296,6 +296,20 @@ def _review_section(review: ReviewOutcome | None) -> str:
         f"| Tokens | {tokens} |",
         f"| Time | {review.spent_seconds:.1f}s |",
     ]
+    if review.second_look != "off":
+        fate = (
+            f"{review.refuted} claim(s) dropped"
+            if review.second_look == "ok"
+            else "the reader did not answer, the claims stand"
+        )
+        lines.extend(
+            [
+                f"| Second look | {fate} |",
+                "",
+                "A claim the second reader drops becomes `false-positive`: it stays in this",
+                "report, with the line it quoted, and the verdict does not count it.",
+            ]
+        )
     return "\n".join(lines)
 
 
@@ -310,9 +324,12 @@ def _findings_section(findings: list[Finding]) -> str:
     ]
     for finding in findings:
         where = f"`{finding.location.file}:{finding.location.line}`" if finding.location else "—"
+        status: str = finding.status
+        if status == "false-positive":
+            status = "false-positive (second look)"
         lines.append(
             f"| **{finding.id}** — {finding.title} | {finding.severity} "
-            f"| {finding.status} | {finding.kind} | {where} |"
+            f"| {status} | {finding.kind} | {where} |"
         )
     return "\n".join(lines)
 
@@ -325,7 +342,12 @@ def _quotes_section(findings: list[Finding]) -> str:
     lines = ["## Reviewer evidence", ""]
     for finding in quoted:
         assert finding.location is not None
-        mark = "" if finding.status == "confirmed" else " (unverified: the anchor refused it)"
+        if finding.status == "confirmed":
+            mark = ""
+        elif finding.status == "false-positive":
+            mark = " (dropped by the second reader)"
+        else:
+            mark = " (unverified: the anchor refused it)"
         lines.append(f"**{finding.id}** — `{finding.location.file}:{finding.location.line}`{mark}")
         lines.append("")
         lines.append(f"> {finding.location.quote}")

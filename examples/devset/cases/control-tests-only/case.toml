@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a test for behaviour that already worked: no production change at all"

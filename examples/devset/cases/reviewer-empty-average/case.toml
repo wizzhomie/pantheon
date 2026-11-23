@@ -1,0 +1,3 @@
+expected = "finding"
+needs_reviewer = true
+note = "an empty invoice divides by zero: no test passes an empty list"

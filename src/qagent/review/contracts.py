@@ -57,6 +57,10 @@ class ReviewerConfig(StrictModel):
     temperature: float = Field(default=0.0, ge=0, le=1)
     max_files: int = Field(default=20, ge=1, le=200)
     max_diff_bytes: int = Field(default=120_000, ge=2_000, le=1_000_000)
+    second_look: bool = Field(
+        default=False,
+        description="a second reader checks every claim before the anchor; costs one more call",
+    )
 
 
 class ReviewOutcome(StrictModel):
@@ -76,6 +80,10 @@ class ReviewOutcome(StrictModel):
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)
     spent_seconds: float = Field(default=0.0, ge=0)
+    second_look: Literal["off", "ok", "failed"] = Field(
+        default="off", description="whether a second reader checked the claims, and whether it ran"
+    )
+    refuted: int = Field(default=0, ge=0, description="claims the second look marked false")
     cached: bool = Field(
         default=False,
         description="served from the review cache; the tokens were paid on the original call",

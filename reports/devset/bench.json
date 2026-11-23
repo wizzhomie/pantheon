@@ -1,0 +1,133 @@
+{
+  "suite": "devset",
+  "reviewer": "scripted (no model call)",
+  "started_at": "2026-11-23T15:53:06.223997Z",
+  "cases": [
+    {
+      "id": "control-docs",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.285
+    },
+    {
+      "id": "control-float",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.316
+    },
+    {
+      "id": "control-refactor",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.309
+    },
+    {
+      "id": "control-tests-only",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.327
+    },
+    {
+      "id": "control-vat",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.305
+    },
+    {
+      "id": "control-vat-gross",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 1.344
+    },
+    {
+      "id": "mutant-quantity",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check tests failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 1.293
+    },
+    {
+      "id": "mutant-sql",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check sql failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 1.369
+    },
+    {
+      "id": "mutant-types",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 0,
+      "completion_tokens": 0,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check types failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 1.291
+    }
+  ]
+}

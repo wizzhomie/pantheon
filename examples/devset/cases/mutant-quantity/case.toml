@@ -1,0 +1,2 @@
+expected = "hold"
+note = "the line total ignores the quantity, and the project's own test says so"

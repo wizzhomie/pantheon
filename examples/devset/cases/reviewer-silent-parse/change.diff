@@ -1,0 +1,16 @@
+diff --git a/app.py b/app.py
+index 09ef3fb..b622214 100644
+--- a/app.py
++++ b/app.py
+@@ -16,3 +16,11 @@ def invoice_total(lines: Iterable[tuple[float, int]]) -> float:
+ def to_cents(amount: float) -> int:
+     """An amount rounded to whole cents, the way an invoice prints it."""
+     return round(amount * 100)
++
++
++def parse_amount(text: str) -> float:
++    """Read an amount from an invoice line."""
++    try:
++        return float(text)
++    except ValueError:
++        return 0.0

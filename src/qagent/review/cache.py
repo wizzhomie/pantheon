@@ -37,10 +37,15 @@ class ReviewCache:
         self.limit = limit
 
     @staticmethod
-    def key(request: LLMRequest) -> str:
-        """A digest of everything that decides what the model is asked and how."""
+    def key(request: LLMRequest, *, extra: str = "") -> str:
+        """A digest of everything that decides what the model is asked and how.
+
+        ``extra`` is for a mode the messages do not show — the second look asks a second
+        question, so its answers must not be served from a cache of first answers.
+        """
         payload = {
             "version": CACHE_VERSION,
+            "extra": extra,
             "model": request.model,
             "temperature": request.temperature,
             "max_tokens": request.max_tokens,

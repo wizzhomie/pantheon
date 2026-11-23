@@ -1,0 +1,2 @@
+expected = "hold"
+note = "a migration drops a table without the human marker: the guard fails"

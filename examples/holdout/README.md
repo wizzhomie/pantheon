@@ -74,16 +74,17 @@ note = "the total ignores the quantity, and the project's own test says so"
 Five cases carry `needs_reviewer = true` and `expected = "finding"`: a query that pastes a
 customer name into SQL, a discount that subtracts percentage points, a migration guard that
 swallows every error, a `if not quantity` that turns zero into one item, and a function documented
-as not touching its argument that sorts it in place. The project's own checks pass on all three — that is the point. Their answer
+as not touching its argument that sorts it in place. The project's own checks pass on all five —
+that is the point. Their answer
 is a *confirmed finding*, not a verdict: grading the reviewer on `HOLD` would measure how severe
 the model felt like calling the defect, when the question is whether it saw it at all.
 `qagent bench --layer reviewer` runs just them, and with a scripted reviewer the honest result is
-**0 of 3 caught**: nothing but a model can see these defects, so the number is the reviewer's, not
+**0 of 5 caught**: nothing but a model can see these defects, so the number is the reviewer's, not
 the checks'.
 
 ```bash
 DEEPSEEK_API_KEY=... QAGENT_REVIEW_MODEL=deepseek-flash \
-qagent bench --suite examples/holdout --layer all \
+qagent bench --suite examples/holdout --layer all --second-look \
     --reviewer qagent.review.factory:from_env --review-model deepseek-flash \
     --out reports/holdout_all
 ```
@@ -92,17 +93,16 @@ That run costs money and is therefore not part of `make bench`. `--layer all` re
 so one report answers both questions a reviewer is asked — does it see the planted defects, and
 does it invent anything on clean code. The committed result,
 [`reports/holdout_all/bench.md`](../../reports/holdout_all/bench.md), is from 2026-11-23,
-`deepseek-flash`, 12 cases: **3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4
-clean changes held** — 11 of 12 matched the suite, 37.9 s, 5 743 tokens in and 2 425 out. The one
-clean case it held was `control-rounding`: the reviewer called `assert vat(19.99, 0.2) == 4.0` a
-test that "contradicts the implementation" — the test is right, `round(3.998, 2)` is `4.0`, and the
-finding was blocking. That is a false alarm, counted with the same weight as a miss, and the reason
-the suite has four clean controls instead of two. Two of the five reviewer cases (`falsy`,
+`deepseek-flash` with `--second-look`, 12 cases: **3 of 3 planted defects held, 5 of 5 reviewer cases
+detected, 0 of 4 clean changes held** — 11 of 12 matched the suite, 54.1 s, 11 045 tokens in and
+3 759 out. One clean case, `control-rounding`, came back `PASS WITH CONDITIONS` on two minor
+findings, which ships and is therefore not a false alarm — but it is not the answer the suite
+committed to either, so the `Result:` line names it. Two of the five reviewer cases (`falsy`,
 `inplace`) were confirmed as *non-blocking* findings: the contour saw the defect and shipped it with
 a condition, which the bench counts as detected — grading the severity is a separate question, and
-`reviewer-percent` remains the case where the model chose to block. The earlier reviewer-only run is
-[`reports/holdout_reviewer/bench.md`](../../reports/holdout_reviewer/bench.md): 3 of 3, all
-blocking, 11.8 s.
+`reviewer-percent` remains the case where the model chose to block. The reviewer-only run is
+[`reports/holdout_reviewer/bench.md`](../../reports/holdout_reviewer/bench.md): 5 of 5 detected,
+23.4 s, 5 405 tokens in and 2 333 out.
 
 ### What live runs found
 
@@ -113,13 +113,21 @@ function, a happy-path test, and nothing for `percent < 0`, `percent > 100`, or 
 So the case was made genuinely clean (four tests added, and the diff regenerated to match) rather
 than the grading being loosened to accept a condition on a "clean" change.
 
-The run over the expanded suite found the opposite kind of thing, and it stays in the numbers: on
-`control-rounding` the reviewer invented a blocking contradiction out of correct code and a correct
-test. Two clean controls was too small a sample to see that; four is not, and the report says
-`1 of 4 clean changes held` rather than rounding it away. Nothing was tuned in response — a holdout
-that gets an answer changed because a model disagreed with it stops being a holdout — and the
-`Result:` line names every case that does not match, so a mismatch can never hide behind the
-headline.
+The run over the expanded suite found the opposite kind of thing: on `control-rounding` the reviewer
+invented a blocking contradiction out of correct code and a correct test — `assert vat(19.99, 0.2) ==
+4.0`, where `round(3.998, 2)` is `4.0`. Two clean controls was too small a sample to see that; four
+is not, and the report said `1 of 4 clean changes held` rather than rounding it away. Nothing in
+this suite was tuned in response, and the case was not edited: a holdout that gets an answer changed
+because a model disagreed with it stops being a holdout.
+
+That blocking claim is now a condition rather than a hold, and the change that produced could not be
+tuned here. The prompt rule for it was tried on the dev set — the suite you are allowed to tune on,
+[`examples/devset`](../devset/README.md), disjoint from this one — and it made the model *more*
+willing to call a correct test wrong; the model's own reasoning retracted the claim inside the
+finding's `detail` while the finding still shipped. The fix was a second reader, `--second-look`,
+which drops a claim it cannot stand behind before the anchor ever sees it. This run is the holdout's
+one measurement after that work, not a case that was adjusted: the same diff, the same expected
+answer, a different pipeline.
 
 ## What is not measured here
 
@@ -130,6 +138,7 @@ The three `mutant-*` cases answer the same question at the scale of a change, on
 tool. If a project wants the full audit, it is `mutmut` or `cosmic-ray` run against that project,
 not a feature of the contour — qagent runs a project's tooling, it does not reimplement it.
 
-The prompts are not tuned against this suite — a case whose answer was adjusted because a model
-disagreed with it stops being a holdout. Nothing here measures whether the reviewer stays accurate
-as the diff grows; the cases are deliberately small enough to read in one screen.
+The prompts are not tuned against this suite — that happens on [`examples/devset`](../devset/README.md),
+whose cases are disjoint from these, and this suite is run afterwards to see whether the change
+generalized. Nothing here measures whether the reviewer stays accurate as the diff grows; the cases
+are deliberately small enough to read in one screen.

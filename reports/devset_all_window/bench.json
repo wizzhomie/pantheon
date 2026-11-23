@@ -1,0 +1,194 @@
+{
+  "suite": "devset",
+  "reviewer": "deepseek-flash",
+  "started_at": "2026-11-23T15:46:41.254048Z",
+  "cases": [
+    {
+      "id": "control-docs",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 461,
+      "completion_tokens": 28,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 2.162
+    },
+    {
+      "id": "control-float",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 514,
+      "completion_tokens": 32,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 2.581
+    },
+    {
+      "id": "control-refactor",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 490,
+      "completion_tokens": 135,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): line_total is not defined in the visible window"
+      ],
+      "spent_seconds": 2.446
+    },
+    {
+      "id": "control-tests-only",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 473,
+      "completion_tokens": 193,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): Test assumes line_total returns float 0.0 for zero quantity"
+      ],
+      "spent_seconds": 3.83
+    },
+    {
+      "id": "control-vat",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 2,
+      "prompt_tokens": 724,
+      "completion_tokens": 323,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): VAT uses binary float rounding, inconsistent with to_cents",
+        "non-blocking-finding: F2 (minor): Tests only cover cases that are exact in binary float"
+      ],
+      "spent_seconds": 3.67
+    },
+    {
+      "id": "control-vat-gross",
+      "expected": "pass",
+      "actual": "pass_with_conditions",
+      "matched": false,
+      "confirmed": 1,
+      "prompt_tokens": 718,
+      "completion_tokens": 188,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (minor): gross() rounds in floats, not to whole cents like to_cents()"
+      ],
+      "spent_seconds": 3.155
+    },
+    {
+      "id": "mutant-quantity",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 464,
+      "completion_tokens": 136,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check tests failed: exit 1, expected 0",
+        "blocking-finding: F1: line_total ignores quantity"
+      ],
+      "spent_seconds": 3.389
+    },
+    {
+      "id": "mutant-sql",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 410,
+      "completion_tokens": 165,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check sql failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 3.18
+    },
+    {
+      "id": "mutant-types",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 455,
+      "completion_tokens": 260,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check types failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 2.967
+    },
+    {
+      "id": "reviewer-empty-average",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 492,
+      "completion_tokens": 246,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Division by zero on empty line list",
+        "non-blocking-finding: F2 (minor): Average mixes cents and float units"
+      ],
+      "spent_seconds": 2.992
+    },
+    {
+      "id": "reviewer-injection",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 583,
+      "completion_tokens": 283,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: SQL injection via concatenated customer name"
+      ],
+      "spent_seconds": 3.003
+    },
+    {
+      "id": "reviewer-mutable-default",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 499,
+      "completion_tokens": 262,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: F1: Mutable default argument shared across calls"
+      ],
+      "spent_seconds": 2.904
+    },
+    {
+      "id": "reviewer-silent-parse",
+      "expected": "finding",
+      "actual": "pass_with_conditions",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 501,
+      "completion_tokens": 338,
+      "cached": false,
+      "reasons": [
+        "non-blocking-finding: F1 (major): Invalid input silently becomes zero",
+        "non-blocking-finding: F2 (minor): No handling of non-numeric formats or None",
+        "non-blocking-finding: F3 (minor): New helper has no tests"
+      ],
+      "spent_seconds": 3.877
+    }
+  ]
+}

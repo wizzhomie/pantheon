@@ -23,6 +23,7 @@ from qagent.bench.runner import render_bench
 from qagent.cli import main
 
 SUITE = Path(__file__).resolve().parents[2] / "examples" / "holdout"
+DEV_SET = Path(__file__).resolve().parents[2] / "examples" / "devset"
 SCRIPTED = "qagent.review.scripted:from_env"
 LABEL = "scripted (no model call)"
 
@@ -182,7 +183,65 @@ def test_the_cli_stops_on_a_wrong_committed_answer(
     assert "MISS" in output
 
 
-@pytest.mark.parametrize("name", ["holdout", "holdout_reviewer", "holdout_all"])
+DEV_CASES = [
+    "control-docs",
+    "control-float",
+    "control-refactor",
+    "control-tests-only",
+    "control-vat",
+    "control-vat-gross",
+    "mutant-quantity",
+    "mutant-sql",
+    "mutant-types",
+    "reviewer-empty-average",
+    "reviewer-injection",
+    "reviewer-mutable-default",
+    "reviewer-silent-parse",
+]
+
+
+def test_the_dev_set_is_a_suite_of_its_own() -> None:
+    cases = discover(DEV_SET)
+
+    assert [case.id for case in cases] == DEV_CASES
+    assert [case.expected for case in cases].count("hold") == 3
+    assert [case.expected for case in cases].count("finding") == 4
+    assert sum(1 for case in cases if case.needs_reviewer) == 4
+    assert all(case.note for case in cases)
+
+
+def test_the_dev_set_and_the_holdout_share_no_change() -> None:
+    """Tuning on the dev set must not teach the contour the answer to the holdout."""
+
+    def changes(suite: Path) -> set[str]:
+        return {
+            (suite / "cases" / case.id / "change.diff").read_text(encoding="utf-8")
+            for case in discover(suite)
+        }
+
+    assert changes(DEV_SET).isdisjoint(changes(SUITE))
+
+
+def test_the_dev_set_reproduces_its_committed_answers() -> None:
+    report, _ = asyncio.run(run_suite(DEV_SET, reviewer=SCRIPTED, model=LABEL))
+
+    assert report.passed, [(case.id, case.actual) for case in report.cases]
+    assert (report.caught, report.missed, report.false_alarms) == (3, 0, 0)
+    assert report.summary() == "3 of 3 planted defects held, 0 of 6 clean changes held"
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "devset",
+        "devset_all",
+        "devset_all_baseline",
+        "devset_all_window",
+        "holdout",
+        "holdout_reviewer",
+        "holdout_all",
+    ],
+)
 def test_a_committed_bench_is_the_rendering_of_its_json(name: str) -> None:
     """The committed pair must not drift: a bench report is evidence, not a note."""
     target = Path(__file__).resolve().parents[2] / "reports" / name

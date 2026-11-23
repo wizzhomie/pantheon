@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from .contracts import ProposedFinding
 from .diff import Diff
 
 SYSTEM = """\
@@ -28,6 +29,10 @@ Cite the place exactly: file (as it appears in the diff), line (in the new file)
 line's text copied verbatim, without the diff marker). A finding whose quote is not on that \
 line is discarded, so an invented quote wastes your answer.
 
+You see a window, not the whole file: the lines of the diff and a little around them. A name \
+the window does not define or import may be defined elsewhere in the file, and behaviour it \
+does not show a test for may be tested outside the window. Report neither as missing.
+
 Prefer three findings you can defend over ten guesses. Do not report style, naming or \
 formatting. If the change looks right, return an empty list — that is a valid answer.
 
@@ -41,6 +46,18 @@ Answer with JSON only, no prose and no code fences:
 """
 
 MARKER = {True: "+", False: " "}
+
+SECOND_LOOK = """\
+You are the second reader of a review. Another reviewer read a code change and made the claims \
+below. Decide each claim on the change as shown, not on how confidently it is written.
+
+Drop a claim when the code does not do what the claim says, when the claim's own reasoning \
+reaches the opposite conclusion, or when it is about code the change does not show. Keep a \
+claim when a reader of the change would still have to fix or decide something.
+
+Answer with JSON only, no prose and no code fences:
+{"verdicts": [{"index": 1, "keep": true, "reason": "one sentence"}]}
+"""
 
 MAX_REQUIREMENTS = 20
 """How many promises the prompt shows; the rest are counted, not pasted."""
@@ -90,3 +107,14 @@ def system_message(instructions: str) -> str:
     if not instructions:
         return SYSTEM
     return f"{SYSTEM}\nProject rules for this repository:\n{instructions}\n"
+
+
+def second_look_message(diff_text: str, findings: Sequence[ProposedFinding]) -> str:
+    """The first review's claims, numbered the way the second reader must answer them."""
+    claims: list[str] = []
+    for index, finding in enumerate(findings, start=1):
+        claims.append(f"Claim {index} ({finding.kind}, {finding.severity}): {finding.title}")
+        claims.append(f"  at {finding.file}:{finding.line} — {finding.quote}")
+        if finding.detail:
+            claims.append(f"  reasoning: {finding.detail}")
+    return f"{diff_text}\n\nClaims to check:\n" + "\n".join(claims)

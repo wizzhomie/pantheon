@@ -1,12 +1,12 @@
-# Holdout bench — 3 of 3 planted defects held, 0 of 4 clean changes held
+# Bench — 3 of 3 planted defects held, 0 of 4 clean changes held
 
 | | |
 |---|---|
 | Suite | `holdout` |
 | Reviewer | `scripted (no model call)` |
 | Cases | 3 of 3 planted defects held, 0 of 4 clean changes held |
-| Started | 2026-11-23 15:17 UTC |
-| Spent | 10.7s |
+| Started | 2026-11-23 15:53 UTC |
+| Spent | 10.5s |
 
 ## Cases
 

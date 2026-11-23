@@ -167,20 +167,39 @@ to five reviewer cases, and the current numbers are in the next section.
 ### The whole suite, live
 
 [`holdout_all/bench.md`](holdout_all/bench.md) is the number to quote now: `--layer all` reviews
-**every** case, so one run measures both halves of the reviewer question. `deepseek-flash`,
-2026-11-23, twelve cases: **3 of 3 planted defects held, 5 of 5 reviewer cases detected, 1 of 4
-clean changes held** — 11 of 12 matched the suite, 37.9 s, 5 743 tokens in and 2 425 out.
+**every** case, so one run measures both halves of the reviewer question. `deepseek-flash` with
+`--second-look`, 2026-11-23, twelve cases: **3 of 3 planted defects held, 5 of 5 reviewer cases
+detected, 0 of 4 clean changes held** — 11 of 12 matched the suite, 54.1 s, 11 045 tokens in and
+3 759 out.
 
-The false alarm is the interesting number, and it is reported like a miss rather than rounded away:
+The false alarm is the interesting number, and it was reported like a miss rather than rounded away:
 on `control-rounding` the reviewer called `assert vat(19.99, 0.2) == 4.0` a test that "contradicts
 the implementation" and blocked a correct change. `round(3.998, 2)` is `4.0`; the test is right and
-the finding is invented. Two clean controls had been too few to see that, four are not.
+the finding was invented. Two clean controls had been too few to see that, four were not — and
+`holdout_all` from before the fix, with `1 of 4 clean changes held`, was the number that motivated
+the work.
 
-Nothing was tuned in response. An earlier live run did find a real gap in the suite — the reviewer
-noted that `control-clean`'s new function had untested error paths, and the case was made genuinely
-clean (four tests added) — but a case whose answer is changed because a model disagreed with it
-stops being a holdout. The `Result:` line names every case that does not match, so a mismatch can
-never hide behind the headline.
+That work happened on [`examples/devset/`](../examples/devset/README.md), a suite whose cases are
+disjoint from these: a prompt rule, then a second reader. This report is the holdout's measurement
+after it — same diff, same expected answer, different pipeline. `control-rounding` now comes back
+`PASS WITH CONDITIONS` on two minor findings: the verdict ships, so it is not a false alarm, but it
+is not the answer the case committed to either, and the `Result:` line names it.
+
+### The dev set
+
+Three live reports from the suite tuning is allowed on. They are the receipts of the two prompt
+rules and the second reader, in the order they were tried:
+
+- [`devset_all_baseline/`](devset_all_baseline/bench.md) — the first prompt: 8 of 13 matched,
+  3 of 3 defects and 4 of 4 reviewer cases, but **5 of 6 clean changes came back with a condition**
+  (a name reported as undefined outside the diff's window; test-gap opinions).
+- [`devset_all_window/`](devset_all_window/bench.md) — plus the "you see a window, not the file"
+  rule: 9 of 13, and the window-class claims are gone.
+- [`devset_all/`](devset_all/bench.md) — plus the second reader: 9 of 13, **0 of 6 clean changes
+  held**, every defect and reviewer case still found.
+
+The checks layer of the same suite is [`devset/`](devset/bench.md): 3 of 3 defects held, 0 of 6
+clean changes, no model call, `make bench-dev`.
 
 ### A note on finding ids
 

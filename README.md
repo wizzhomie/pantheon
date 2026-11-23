@@ -77,7 +77,9 @@ flowchart LR
    policy declares, and the report calls those ceilings — not isolation.
 4. **Review.** A model reads the diff and the evidence and proposes findings — but each finding
    must be anchored: the file exists, the line is in range, the quote is verbatim on that line.
-   A finding that fails the anchor is reported as unverified, not silently dropped.
+   A finding that fails the anchor is reported as unverified, not silently dropped. An optional
+   second reader (`--second-look`) reads the claims before the anchor and drops the ones it cannot
+   stand behind; a dropped claim stays in the report as `false-positive` and cannot block.
 5. **Verdict.** The code computes it from gates, evidence and policy — never from a score the
    model produced: `PASS`, `PASS WITH CONDITIONS`, `HOLD`, `INCONCLUSIVE`.
 6. **Report.** Scope, checks, findings, evidence, limitations, what was skipped and why, what it
@@ -127,6 +129,8 @@ engine turns that evidence into a verdict.
 | Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
 | Resource limits | every check runs under a memory and file-size ceiling from `[sandbox]`, and the report states in the same breath what is *not* isolated: the network and the file system | `make verify` on this repo; a check over the ceiling is named as that, and a platform that cannot apply limits refuses to run the check ungated |
 | Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
+| Second reader | one more call checks every claim against the change and drops the ones its own reasoning refutes — the failure mode prompt wording cannot fix; a dropped claim becomes `false-positive`, stays in the report, and is counted in the tokens | `--second-look`; off by default because it doubles the review call; `make verify` and the demo runs stay one call per review |
+| Dev set | a second suite of thirteen changes, disjoint from the holdout, where tuning is allowed: prompt rules and pipeline steps are changed because of what it shows, and the holdout is measured afterwards | `make bench-dev` and [`examples/devset`](examples/devset/README.md); the second reader was born here — the holdout's one false alarm became a condition |
 | Review cache | a review already paid for is reused only when the question is byte-identical — prompt, model, temperature, token ceiling — and the report says the answer is cached | a second run on the same change calls no model; `--no-cache` forces a fresh one |
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
 | Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
@@ -135,7 +139,7 @@ engine turns that evidence into a verdict.
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 | Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |
-| Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm; five cases carry defects only a reviewer can see, and four carry changes with nothing wrong | `make bench`: 3 of 3 checks-layer defects held, 0 of 4 clean changes held, no model call; live `--layer all`: 3 of 3 held, 5 of 5 reviewer cases detected, 1 of 4 clean changes held (the false alarm is reported as one) |
+| Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm; five cases carry defects only a reviewer can see, and four carry changes with nothing wrong | `make bench`: 3 of 3 checks-layer defects held, 0 of 4 clean changes held, no model call; live `--layer all --second-look`: 3 of 3 held, 5 of 5 reviewer cases detected, 0 of 4 clean changes held, one of them with a condition the `Result:` line names |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
@@ -143,9 +147,11 @@ qagent context --repo . --check            # what the project promises, and the 
 qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
 qagent verify --repo .                     # run, decide a verdict, write the report pair
 qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
+qagent verify --repo . --diff change.diff --reviewer ... --second-look  # + a reader for the claims
 qagent verify --repo . --request request.toml      # the same, described in a file
 qagent show .qagent/runs/<run id>                  # explain a stored run, run nothing
 qagent bench --suite examples/holdout --reviewer qagent.review.scripted:from_env  # holdout the contour is graded on
+qagent bench --suite examples/devset --reviewer ...        # the suite tuning is allowed on
 qagent learn --repo .                      # what the recorded runs argue should change, and why
 qagent learn --repo . --approve <id> --note "why"     # record the decision on a proposal
 qagent init --dir ./qa                     # starter config plus a one-case dataset
@@ -269,7 +275,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | done — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer, false alarms included (1 of 4 clean changes held on a live run, and that case is named); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change; real isolation needs an environment this machine does not have, and the contour says so instead of pretending |
+| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | done — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer, a dev set for tuning, and a second reader for claims the first one refutes (the live run's one false alarm became a condition, and the `Result:` line names it); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change; real isolation needs an environment this machine does not have, and the contour says so instead of pretending |
 
 ## Docs
 

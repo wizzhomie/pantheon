@@ -1,0 +1,2 @@
+expected = "pass"
+note = "a second correct rounded helper: the test asserts a value the rounding produces"
