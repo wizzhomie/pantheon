@@ -130,7 +130,7 @@ engine turns that evidence into a verdict.
 | Review cache | a review already paid for is reused only when the question is byte-identical — prompt, model, temperature, token ceiling — and the report says the answer is cached | a second run on the same change calls no model; `--no-cache` forces a fresh one |
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
 | Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
-| Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids |
+| Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids; the demo's live run has finding `F1` citing `R1`, and the row is `failed` for both reasons |
 | Plan under the change | a check can declare the paths it guards; a run plans it only when the change touches them, and the report says why it did not run | `make plan-demo`: the SQL gate is not selected for an `app.py` change |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
@@ -182,7 +182,9 @@ A tiny invoice module with a planted defect: it ignores `Item.quantity`, so the 
 right and one of the project's own tests fails. `make verify-demo` runs the policy, gets exit 1 from
 the test suite, and produces [`reports/verification_demo/report.md`](reports/verification_demo/report.md)
 — verdict `HOLD`, one reason, one blocking finding, and the failing assertion kept as an artifact.
-No model was asked whether the tests pass: the exit code is the evidence. The demo project is
+No model was asked whether the tests pass: the exit code is the evidence. The project also states
+its own requirement, so the same report carries a traceability row: `R1` is `failed`, with the check
+that failed and — in the live run of the same demo — the finding that cites it. The demo project is
 [`examples/verification_demo/`](examples/verification_demo/README.md).
 
 ### Example 0b — the reviewer on its own commit
@@ -267,7 +269,7 @@ new role is actually used.
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
-| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | started — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer are done, false alarms included (0 of 2 clean changes held on a live run); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change |
+| 8 | Risk-based plans, resource limits, holdout bench, mutation testing | done — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer, false alarms included (0 of 2 clean changes held on a live run); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change; real isolation needs an environment this machine does not have, and the contour says so instead of pretending |
 
 ## Docs
 
