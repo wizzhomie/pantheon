@@ -119,6 +119,7 @@ engine turns that evidence into a verdict.
 | Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
 | Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
+| Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 
@@ -128,6 +129,8 @@ qagent context --repo . --check            # what the project promises, and the 
 qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
 qagent verify --repo .                     # run, decide a verdict, write the report pair
 qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
+qagent verify --repo . --request request.toml      # the same, described in a file
+qagent show .qagent/runs/<run id>                  # explain a stored run, run nothing
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
@@ -180,6 +183,25 @@ free, before any judge is asked. Live run: **87.5% final, 0 false passes** (12.5
 for 24 cases, p50 2.9 s. This example is also the template for how the verification loop will
 validate findings: [`examples/code_review/`](examples/code_review/README.md).
 
+### A request is a file
+
+A run is one request: which policy, which change, which reviewer, how many tokens. The command
+line can name those, or a file can:
+
+```toml
+name = "review the checkout fix"
+policy = ".qagent/policy.toml"
+since = "HEAD~1"                                  # or: diff = "change.patch"
+reviewer = "qagent.review.factory:from_env"
+instructions = ".qagent/review.md"
+max_tokens = 1500
+```
+
+`qagent verify --repo . --request request.toml` stores the request inside the report, so
+`qagent show` can answer "what was asked, what happened, what does it mean" months later —
+without running a check or calling a model. That is the whole point of the orchestrator: a
+verdict you cannot reconstruct is a sentence, not a record.
+
 ## How the two halves fit
 
 The evaluation core does not sit beside the verification loop — it gets absorbed into it. Concrete
@@ -202,7 +224,7 @@ new role is actually used.
 |---|---|---|
 | 0 | Architecture assessment: what exists, what the gap is, decisions | done — [`docs/roadmap.md`](docs/roadmap.md) |
 | 1 | Project context: profile, requirements, invariants, baseline | done — `qagent inspect` and `qagent context` |
-| 2 | Verification orchestrator: request, plan, run, persistence | planned |
+| 2 | Verification orchestrator: request, plan, run, persistence | done — `--request` and `qagent show` |
 | 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `qagent run` |
 | 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `qagent verify --diff` with a reviewer |
 | 5 | Findings, verdict, verification report | done — `qagent verify` |

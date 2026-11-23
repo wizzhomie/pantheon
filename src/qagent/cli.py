@@ -19,7 +19,8 @@ produced from one setup.
 The verification side is separate on purpose: ``inspect`` describes a repository, ``run``
 executes its checks, and ``verify`` does both plus findings, a verdict and a report. A diff
 on the command line turns the independent reviewer on — opt-in, because it is the only part
-that costs money.
+that costs money. ``--request`` names the same things in a file, and ``show`` reads a stored
+run back without executing anything: an explanation must not be a second experiment.
 """
 
 from __future__ import annotations
@@ -28,11 +29,10 @@ import argparse
 import asyncio
 import importlib
 import os
-import subprocess
 import sys
 from collections.abc import Callable, Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any
 
 from .context import (
     ProjectProfile,
@@ -43,20 +43,17 @@ from .context import (
     write_profile,
 )
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
-from .llm.base import LLMClient
+from .orchestrator import execute, exit_code_for, plan_lines, read_request, render_show
+from .orchestrator import show as read_run
 from .project import ProjectConfig, build_guarded, validate
-from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .runtime.facade import GuardedAgent
 from .verify import (
     VerificationPolicy,
+    VerificationRequest,
     build_plan,
-    build_report,
-    decide,
     describe_plan,
-    findings_from_run,
     read_policy,
     run_policy,
-    write_report,
 )
 
 EXIT_OK = 0
@@ -160,6 +157,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_command(args)
         if args.command == "verify":
             return _run_verify(args)
+        if args.command == "show":
+            return _run_show(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -279,6 +278,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     verify.add_argument("--review-model", default=None, help="model name for the review call")
     verify.add_argument("--review-max-tokens", type=int, default=1500)
+    verify.add_argument(
+        "--request",
+        type=Path,
+        metavar="PATH",
+        help="a request file (name, policy, change, reviewer, budget) instead of flags",
+    )
+
+    shower = subcommands.add_parser(
+        "show", help="read a stored run back and explain it, without running anything"
+    )
+    shower.add_argument("path", type=Path, help="run directory or report.json")
+    shower.add_argument("--json", action="store_true", help="print the report as JSON")
 
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
@@ -415,45 +426,19 @@ def _policy_or_none(repo: Path) -> VerificationPolicy | None:
 
 def _run_verify(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
-    policy_path = args.policy or repo / ".qagent" / "policy.toml"
-    if not Path(policy_path).is_file():
-        raise ValueError(
-            f"no policy at {policy_path}; point --policy at one "
-            "(the file lives in the project, in .qagent/policy.toml)"
-        )
-    policy = read_policy(policy_path)
-    profile = _profile_or_none(repo)
-    plan = build_plan(policy, profile)
-    review_config = _reviewer_config(args)
-    diff = _load_diff(args, repo) if review_config is not None else None
+    request = _request_from_args(args, repo)
     if args.dry_run:
-        print(
-            f"{policy.name}: {len(plan)} checks, "
-            f"budget {policy.budget.max_seconds:g}s / {policy.budget.max_checks} checks"
-        )
-        for line in describe_plan(plan):
-            print(f"  {line}")
-        if diff is not None and review_config is not None:
-            print(
-                f"review: {len(diff.files)} file(s), {diff.added_lines} added line(s), "
-                f"model {review_config.model}"
-            )
+        for line in plan_lines(request, repo):
+            print(line)
         return EXIT_OK
 
-    review, gaps = _run_review(args, review_config, diff, repo)
-
-    run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
-    findings = findings_from_run(run)
-    if review is not None:
-        findings.extend(review.findings)
-    verdict = decide(run, findings, gaps=gaps)
-    report = build_report(run, findings, verdict, review)
-    json_path, md_path = write_report(report, target)
-
+    report, target = asyncio.run(execute(request, repo, out_dir=args.out))
+    run = report.run
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
     for check in run.checks:
         detail = f"  ({check.reason})" if check.reason else ""
         print(f"  {check.status:14} {check.check_id}{detail}")
+    review = report.review
     if review is not None:
         if review.status == "failed":
             print(f"review: failed ({review.error})")
@@ -463,88 +448,62 @@ def _run_verify(args: argparse.Namespace) -> int:
                 f"{review.unverified} unverified, "
                 f"{review.prompt_tokens}+{review.completion_tokens} tokens"
             )
-    print(f"verdict: {verdict.headline}")
-    for reason in verdict.reasons:
+    print(f"verdict: {report.verdict.headline}")
+    for reason in report.verdict.reasons:
         print(f"  {reason.code}: {reason.detail}")
-    print(f"report: {json_path} and {md_path}")
-    if verdict.status == "hold":
-        return EXIT_FAILURE
-    if verdict.status == "inconclusive":
-        return EXIT_INCONCLUSIVE
-    return EXIT_OK
+    print(f"report: {target / 'report.json'} and {target / 'report.md'}")
+    return exit_code_for(report)
 
 
-def _reviewer_config(args: argparse.Namespace) -> ReviewerConfig | None:
-    """The review is a request: it exists only when a diff was named."""
-    if args.diff is None and args.since is None:
-        return None
-    if not args.reviewer:
-        raise ValueError(
-            "--diff or --since needs --reviewer MODULE:FACTORY "
-            "(qagent.review.factory:from_env for a live model, "
-            "qagent.review.scripted:from_env for a scripted answer)"
-        )
-    instructions = ""
-    if args.review_instructions is not None:
-        instructions = Path(args.review_instructions).read_text(encoding="utf-8")
-    return ReviewerConfig(
-        model=args.review_model or "reviewer",
-        instructions=instructions,
-        max_tokens=args.review_max_tokens,
-    )
-
-
-def _load_diff(args: argparse.Namespace, repo: Path) -> Diff:
-    if args.diff is not None:
-        text = Path(args.diff).read_text(encoding="utf-8")
+def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequest:
+    """The request the command line describes: a file, or the flags turned into one."""
+    if args.request is not None:
+        overridden = [
+            flag
+            for flag, value in (
+                ("--policy", args.policy),
+                ("--diff", args.diff),
+                ("--since", args.since),
+                ("--reviewer", args.reviewer),
+                ("--review-instructions", args.review_instructions),
+                ("--review-model", args.review_model),
+            )
+            if value is not None
+        ]
+        if overridden:
+            raise ValueError(f"--request already names {', '.join(overridden)}; drop them")
+        request = read_request(args.request)
     else:
-        text = _git_diff(repo, args.since)
-    return parse_diff(text)
+        request = VerificationRequest(
+            policy=str(args.policy) if args.policy is not None else ".qagent/policy.toml",
+            diff=str(args.diff) if args.diff is not None else None,
+            since=args.since,
+            reviewer=args.reviewer,
+            instructions=str(args.review_instructions)
+            if args.review_instructions is not None
+            else None,
+            model=args.review_model,
+            max_tokens=args.review_max_tokens,
+        )
+    policy_file = Path(request.policy)
+    if not policy_file.is_absolute():
+        policy_file = repo / policy_file
+    if not policy_file.is_file():
+        raise ValueError(
+            f"no policy at {policy_file}; point --policy at one "
+            "(the file lives in the project, in .qagent/policy.toml)"
+        )
+    return request
 
 
-def _git_diff(repo: Path, revision: str) -> str:
-    """Run `git diff REV` as a child process; argv only, like every other command here."""
-    completed = subprocess.run(
-        ["git", "diff", "--no-color", "--no-ext-diff", revision],
-        cwd=str(repo),
-        capture_output=True,
-        text=True,
-        timeout=60.0,
-        check=False,
-    )
-    if completed.returncode != 0:
-        raise ValueError(f"git diff {revision} failed: {completed.stderr.strip()[:300]}")
-    return completed.stdout
-
-
-def _load_client(spec: str) -> LLMClient:
-    module_name, separator, attribute = spec.partition(":")
-    if not separator or not module_name or not attribute:
-        raise ValueError(f"--reviewer must look like package.module:factory, got {spec!r}")
-    module = importlib.import_module(module_name)
-    factory: Callable[[], object] = getattr(module, attribute)
-    if not callable(factory):
-        raise ValueError(f"{spec} is not callable")
-    client = factory()
-    if not callable(getattr(client, "complete", None)):
-        raise ValueError(f"{spec} must return an LLMClient with a complete() method")
-    return cast(LLMClient, client)
-
-
-def _run_review(
-    args: argparse.Namespace,
-    config: ReviewerConfig | None,
-    diff: Diff | None,
-    repo: Path,
-) -> tuple[ReviewOutcome | None, list[str]]:
-    if config is None or diff is None:
-        return None, []
-    client = _load_client(args.reviewer)
-    if args.review_model is None:
-        config = config.model_copy(update={"model": getattr(client, "model", config.model)})
-    outcome = asyncio.run(review_diff(diff, repo, client, config))
-    gaps = [f"the reviewer did not run: {outcome.error}"] if outcome.status == "failed" else []
-    return outcome, gaps
+def _run_show(args: argparse.Namespace) -> int:
+    report, path = read_run(args.path)
+    if args.json:
+        print(report.model_dump_json(indent=2))
+    else:
+        print(render_show(report))
+        print(f"report: {path}")
+    return exit_code_for(report)
 
 
 def _profile_or_none(repo: Path) -> ProjectProfile | None:

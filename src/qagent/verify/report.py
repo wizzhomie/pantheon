@@ -20,7 +20,7 @@ from pydantic import Field, model_validator
 
 from ..contracts.base import StrictModel
 from ..review.contracts import ReviewOutcome
-from .contracts import VerificationRun
+from .contracts import VerificationRequest, VerificationRun
 from .findings import Finding
 from .verdict import Verdict
 
@@ -46,6 +46,9 @@ class VerificationReport(StrictModel):
     run: VerificationRun
     findings: list[Finding] = Field(default_factory=list)
     verdict: Verdict
+    request: VerificationRequest | None = Field(
+        default=None, description="what was asked for, so the run can be explained later"
+    )
     review: ReviewOutcome | None = Field(
         default=None, description="the reviewer's proposals and their anchors, when one ran"
     )
@@ -67,8 +70,11 @@ def build_report(
     findings: list[Finding],
     verdict: Verdict,
     review: ReviewOutcome | None = None,
+    request: VerificationRequest | None = None,
 ) -> VerificationReport:
-    return VerificationReport(run=run, findings=findings, verdict=verdict, review=review)
+    return VerificationReport(
+        run=run, findings=findings, verdict=verdict, review=review, request=request
+    )
 
 
 def render_markdown(report: VerificationReport) -> str:
@@ -89,6 +95,7 @@ def render_markdown(report: VerificationReport) -> str:
     ]
     blocks = [
         "\n".join(header),
+        _request_section(report.request),
         _reasons_section(report.verdict),
         _checks_section(run),
         _review_section(report.review),
@@ -123,6 +130,28 @@ def read_report(path: Path) -> VerificationReport:
     """Parse a report back; a report that cannot be parsed is not evidence."""
     data = json.loads(Path(path).read_text(encoding="utf-8"))
     return VerificationReport.model_validate(data)
+
+
+def _request_section(request: VerificationRequest | None) -> str:
+    if request is None:
+        return ""
+    lines = [
+        "## Request",
+        "",
+        "| | |",
+        "|---|---|",
+        f"| Name | {request.name} |",
+        f"| Policy | `{request.policy}` |",
+    ]
+    if request.diff is not None:
+        lines.append(f"| Change | diff `{request.diff}` |")
+    elif request.since is not None:
+        lines.append(f"| Change | `git diff {request.since}` |")
+    if request.reviewer is not None:
+        lines.append(f"| Reviewer | `{request.reviewer}` |")
+    if request.notes:
+        lines.append(f"| Notes | {request.notes} |")
+    return "\n".join(lines)
 
 
 def _reasons_section(verdict: Verdict) -> str:

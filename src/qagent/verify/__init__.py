@@ -27,6 +27,7 @@ from .contracts import (
     CommandSpec,
     PlanEntry,
     VerificationPolicy,
+    VerificationRequest,
     VerificationRun,
 )
 from .engine import build_plan, describe_plan, read_policy, run_policy, write_run
@@ -66,6 +67,7 @@ __all__ = [
     "VerdictStatus",
     "VerificationPolicy",
     "VerificationReport",
+    "VerificationRequest",
     "VerificationRun",
     "build_plan",
     "build_report",

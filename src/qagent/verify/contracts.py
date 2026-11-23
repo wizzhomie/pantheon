@@ -14,7 +14,7 @@ import re
 from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from ..contracts.base import StrictModel
 
@@ -124,6 +124,64 @@ class PlanEntry(StrictModel):
     check: CommandSpec
     reason: PlanReason
     detail: str = Field(default="", max_length=200)
+
+
+class VerificationRequest(StrictModel):
+    """What was asked for, as a value: which project, which checks, which change, which budget.
+
+    A request is data so that a run can be restored and explained: the report carries the
+    request it answered, and re-running it is a decision, not an archaeology exercise.
+
+    Paths are relative to the project root, never to the file that holds the request: the
+    request describes *the project*, and moving the file must not change what it points at.
+    """
+
+    schema_version: int = Field(default=1)
+    name: str = Field(default="ad-hoc", min_length=1, max_length=120)
+    policy: str = Field(
+        default=".qagent/policy.toml", min_length=1, max_length=400, description="policy path"
+    )
+    diff: str | None = Field(default=None, max_length=400, description="a unified diff to review")
+    since: str | None = Field(
+        default=None, max_length=200, description="review `git diff REV` instead of a file"
+    )
+    reviewer: str | None = Field(
+        default=None,
+        max_length=200,
+        description="module:factory returning an LLMClient; required for a review",
+    )
+    instructions: str | None = Field(
+        default=None, max_length=400, description="file with project rules for the reviewer"
+    )
+    model: str | None = Field(default=None, max_length=120, description="review model override")
+    max_tokens: int = Field(default=1500, ge=200, le=8000)
+    notes: str = Field(default="", max_length=500, description="why this request exists")
+
+    @model_validator(mode="after")
+    def _review_parameters_agree(self) -> VerificationRequest:
+        if self.diff is not None and self.since is not None:
+            raise ValueError("a request reviews either a diff file or a revision, not both")
+        if self.needs_review and self.reviewer is None:
+            raise ValueError(
+                "a request with a change needs a reviewer (--reviewer), or the change is not read"
+            )
+        if not self.needs_review and self.reviewer is not None:
+            raise ValueError("a reviewer without a change has nothing to read")
+        return self
+
+    @property
+    def needs_review(self) -> bool:
+        return self.diff is not None or self.since is not None
+
+    def describe(self) -> str:
+        """One line a human can read in a report: what this run was asked to do."""
+        change = f"diff {self.diff}" if self.diff else (f"since {self.since}" if self.since else "")
+        parts = [self.name, self.policy]
+        if change:
+            parts.append(change)
+        if self.reviewer:
+            parts.append(f"reviewer {self.reviewer}")
+        return " · ".join(parts)
 
 
 class VerificationRun(StrictModel):
