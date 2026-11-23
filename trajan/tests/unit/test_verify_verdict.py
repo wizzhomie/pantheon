@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from qagent.cli import main
-from qagent.verify import (
+from trajan.cli import main
+from trajan.verify import (
     Budget,
     CheckRun,
     CommandSpec,
@@ -355,7 +355,7 @@ def repo_with(tmp_path: Path, source: str) -> Path:
     (tmp_path / "tests" / "test_ok.py").write_text(
         "def test_ok():\n    assert True\n", encoding="utf-8"
     )
-    policy = tmp_path / ".qagent" / "policy.toml"
+    policy = tmp_path / ".trajan" / "policy.toml"
     policy.parent.mkdir()
     policy.write_text(
         'name = "t"\n'
@@ -391,7 +391,7 @@ def test_the_verify_command_returns_one_on_hold(tmp_path: Path) -> None:
 
 def test_the_verify_command_returns_two_when_it_cannot_answer(tmp_path: Path) -> None:
     repo = repo_with(tmp_path, "print('ok')")
-    policy = repo / ".qagent" / "policy.toml"
+    policy = repo / ".trajan" / "policy.toml"
     policy.write_text(
         policy.read_text(encoding="utf-8").replace(
             'name = "t"', 'name = "t"\nbudget = { max_seconds = 0.2, max_checks = 5 }'
@@ -435,7 +435,7 @@ def test_the_verify_dry_run_plans_without_spending(
 
     assert code == 0
     assert "probe" in capsys.readouterr().out
-    assert not (repo / ".qagent" / "runs").exists()
+    assert not (repo / ".trajan" / "runs").exists()
 
 
 def test_a_verified_run_records_the_policy_and_the_profile(tmp_path: Path) -> None:

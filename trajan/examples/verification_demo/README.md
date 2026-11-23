@@ -1,7 +1,7 @@
 # Verification demo — a claim that the verdict does not believe
 
 A tiny invoice module with one planted defect and a test suite that already catches it. The
-point is not the bug; it is what `qagent verify` does with it.
+point is not the bug; it is what `trajan verify` does with it.
 
 The coding agent's report for this change would say: *done, the happy path works, tests pass.*
 One of those is false, and the verification run does not have to trust any of it — it runs the
@@ -12,8 +12,8 @@ make verify-demo          # from the repository root
 ```
 
 ```bash
-qagent verify --repo examples/verification_demo \
-    --policy .qagent/policy.toml \
+trajan verify --repo examples/verification_demo \
+    --policy .trajan/policy.toml \
     --out reports/verification_demo
 ```
 
@@ -33,7 +33,7 @@ and a test in `tests/unit/test_verify_verdict.py` re-renders every committed pai
 
 ## The arrow: a finding that cites the requirement it breaks
 
-The project also carries its own knowledge — [`.qagent/context.toml`](.qagent/context.toml) —
+The project also carries its own knowledge — [`.trajan/context.toml`](.trajan/context.toml) —
 with one requirement and one invariant: `R1` says a line is counted as `price × quantity` and is
 guarded by the `tests` check; `I1` says a destructive migration is marked by a human and is guarded
 by `sql`. Both are `approved`, which is the part that matters: only approved promises bind.
@@ -41,8 +41,8 @@ by `sql`. Both are `approved`, which is the part that matters: only approved pro
 Run the demo with a live reviewer and the arrow becomes visible:
 
 ```bash
-qagent verify --repo examples/verification_demo --policy .qagent/policy.toml \
-    --diff change.diff --reviewer qagent.review.factory:from_env \
+trajan verify --repo examples/verification_demo --policy .trajan/policy.toml \
+    --diff change.diff --reviewer trajan.review.factory:from_env \
     --out reports/verification_demo_review
 ```
 
@@ -82,7 +82,7 @@ the verdict is still `HOLD` (the planted defect is still there), and the report 
 policy made in advance, and the report says so. A run whose every gate was not selected cannot
 come out `PASS` — it is `INCONCLUSIVE`, because a change outside the net is not a verified one.
 
-The reviewer in that run is `qagent.review.scripted:from_env`, labelled `scripted (no model
+The reviewer in that run is `trajan.review.scripted:from_env`, labelled `scripted (no model
 call)` in the report: the demo is about the plan, and a demo that quietly spends money is a bad
 demo.
 

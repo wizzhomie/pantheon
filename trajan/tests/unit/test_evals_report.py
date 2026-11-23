@@ -15,7 +15,7 @@ from support import (
     toy_scoring,
 )
 
-from qagent import (
+from trajan import (
     Dataset,
     EvalReport,
     JudgePolicy,
@@ -23,8 +23,8 @@ from qagent import (
     QAConfig,
     guard,
 )
-from qagent.contracts.evals import Metrics
-from qagent.evals.report import (
+from trajan.contracts.evals import Metrics
+from trajan.evals.report import (
     build_report,
     git_revision,
     make_run_id,
@@ -155,7 +155,7 @@ def test_run_id_is_sortable_and_short(rubric: object) -> None:
 
 
 def test_git_revision_reads_the_environment(monkeypatch: object) -> None:
-    monkeypatch.setenv("QAGENT_GIT_SHA", "abc1234")  # type: ignore[attr-defined]
+    monkeypatch.setenv("TRAJAN_GIT_SHA", "abc1234")  # type: ignore[attr-defined]
 
     assert git_revision() == "abc1234"
 

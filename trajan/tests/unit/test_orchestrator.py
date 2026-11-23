@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from qagent.cli import main
-from qagent.orchestrator import (
+from trajan.cli import main
+from trajan.orchestrator import (
     _look_summary,
     execute,
     plan_lines,
@@ -24,8 +24,8 @@ from qagent.orchestrator import (
     render_show,
     show,
 )
-from qagent.review.contracts import ReviewOutcome
-from qagent.verify import VerificationRequest
+from trajan.review.contracts import ReviewOutcome
+from trajan.verify import VerificationRequest
 
 
 def request_file(tmp_path: Path, body: str) -> Path:
@@ -37,8 +37,8 @@ def request_file(tmp_path: Path, body: str) -> Path:
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
     root.mkdir()
-    (root / ".qagent").mkdir()
-    (root / ".qagent" / "policy.toml").write_text(
+    (root / ".trajan").mkdir()
+    (root / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "probe"\n'
         f'argv = {json.dumps([sys.executable, "-c", "print(1)"])}\n',
         encoding="utf-8",
@@ -60,9 +60,9 @@ def test_a_request_is_read_from_toml(tmp_path: Path) -> None:
     path = request_file(
         tmp_path,
         'name = "review the change"\n'
-        'policy = ".qagent/policy.toml"\n'
+        'policy = ".trajan/policy.toml"\n'
         'diff = "diff.patch"\n'
-        'reviewer = "qagent.review.scripted:from_env"\n',
+        'reviewer = "trajan.review.scripted:from_env"\n',
     )
 
     request = read_request(path)
@@ -70,7 +70,7 @@ def test_a_request_is_read_from_toml(tmp_path: Path) -> None:
     assert request.name == "review the change"
     assert request.needs_review
     assert request.describe().startswith(
-        "review the change · .qagent/policy.toml · diff diff.patch"
+        "review the change · .trajan/policy.toml · diff diff.patch"
     )
 
 
@@ -97,7 +97,7 @@ def test_a_reviewer_without_a_change_has_nothing_to_read() -> None:
 def test_the_dry_run_shows_the_plan_and_the_review(tmp_path: Path) -> None:
     root = project(tmp_path)
     request = VerificationRequest(
-        policy=".qagent/policy.toml", diff="diff.patch", reviewer="qagent.review.scripted:from_env"
+        policy=".trajan/policy.toml", diff="diff.patch", reviewer="trajan.review.scripted:from_env"
     )
 
     lines = plan_lines(request, root)
@@ -109,9 +109,9 @@ def test_the_dry_run_shows_the_plan_and_the_review(tmp_path: Path) -> None:
 def test_the_dry_run_says_the_second_look_costs_another_call(tmp_path: Path) -> None:
     root = project(tmp_path)
     request = VerificationRequest(
-        policy=".qagent/policy.toml",
+        policy=".trajan/policy.toml",
         diff="diff.patch",
-        reviewer="qagent.review.scripted:from_env",
+        reviewer="trajan.review.scripted:from_env",
         second_look=True,
     )
 
@@ -133,7 +133,7 @@ def test_show_says_what_the_second_reader_did() -> None:
 
 def test_execute_stores_the_request_and_the_report(tmp_path: Path) -> None:
     root = project(tmp_path)
-    request = VerificationRequest(policy=".qagent/policy.toml", name="probe run")
+    request = VerificationRequest(policy=".trajan/policy.toml", name="probe run")
 
     report, target = asyncio.run(execute(request, root))
 
@@ -148,7 +148,7 @@ def test_show_explains_without_running_anything(tmp_path: Path) -> None:
     marker = tmp_path / "ran"
     root = project(tmp_path)
     script = f"from pathlib import Path; Path({str(marker)!r}).touch()"
-    (root / ".qagent" / "policy.toml").write_text(
+    (root / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "probe"\n'
         f"argv = {json.dumps([sys.executable, '-c', script])}\n",
         encoding="utf-8",
@@ -182,13 +182,13 @@ def test_the_verify_command_accepts_a_request_file(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     root = project(tmp_path)
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", '{"summary": "ok", "findings": []}')
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", '{"summary": "ok", "findings": []}')
     path = request_file(
         tmp_path,
         'name = "scripted review"\n'
-        'policy = ".qagent/policy.toml"\n'
+        'policy = ".trajan/policy.toml"\n'
         'diff = "diff.patch"\n'
-        'reviewer = "qagent.review.scripted:from_env"\n',
+        'reviewer = "trajan.review.scripted:from_env"\n',
     )
 
     code = main(["verify", "--repo", str(root), "--request", str(path), "--out", str(root / "run")])
@@ -203,7 +203,7 @@ def test_a_request_file_and_flags_cannot_disagree(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = project(tmp_path)
-    path = request_file(tmp_path, 'name = "x"\npolicy = ".qagent/policy.toml"\n')
+    path = request_file(tmp_path, 'name = "x"\npolicy = ".trajan/policy.toml"\n')
 
     code = main(
         [
@@ -240,7 +240,7 @@ def test_the_show_command_returns_the_verdict_code(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     root = project(tmp_path)
-    (root / ".qagent" / "policy.toml").write_text(
+    (root / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "probe"\n'
         f'argv = {json.dumps([sys.executable, "-c", "raise SystemExit(1)"])}\n',
         encoding="utf-8",

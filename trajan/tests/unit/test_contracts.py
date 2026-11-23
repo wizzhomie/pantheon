@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import ValidationError
 
-from qagent.contracts import Case, CheckResult, Feedback, GateResult, Issue
+from trajan.contracts import Case, CheckResult, Feedback, GateResult, Issue
 
 
 def test_case_rejects_unknown_fields() -> None:

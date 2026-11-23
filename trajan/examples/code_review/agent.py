@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 
-from qagent import (
+from trajan import (
     AgentFn,
     AgentReply,
     Case,

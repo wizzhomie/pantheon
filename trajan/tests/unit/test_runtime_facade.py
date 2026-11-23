@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 from support import ScriptedAgent, ToyOutput, toy_preset, verdict
 
-from qagent import (
+from trajan import (
     Case,
     FakeClient,
     FunctionJudge,

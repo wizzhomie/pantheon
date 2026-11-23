@@ -13,9 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from qagent import ProjectProfile, detect_profile
-from qagent.cli import main
-from qagent.context import profile_path, read_profile, write_profile
+from trajan import ProjectProfile, detect_profile
+from trajan.cli import main
+from trajan.context import profile_path, read_profile, write_profile
 
 
 def make_repo(root: Path, files: dict[str, str]) -> Path:
@@ -130,7 +130,7 @@ def test_the_profile_round_trips_through_its_file(tmp_path: Path) -> None:
 
     target = write_profile(profile, root)
 
-    assert target == profile_path(root) == root / ".qagent" / "profile.json"
+    assert target == profile_path(root) == root / ".trajan" / "profile.json"
     assert read_profile(root) == profile
     assert json.loads(target.read_text(encoding="utf-8"))["name"] == "mini"
 
@@ -199,4 +199,4 @@ def test_inspect_says_what_it_found_without_writing(
     assert "mini" in out
     assert "pytest" in out
     assert "not written" in out
-    assert not (root / ".qagent" / "profile.json").exists()
+    assert not (root / ".trajan" / "profile.json").exists()

@@ -2,7 +2,7 @@
 
 Field-by-field comparison cannot express this: "did the review point at line 7" is a
 relation between the answer and a golden line, not a field value. The project therefore
-owns the rule, and ``[scoring] custom`` in ``qagent.toml`` names it.
+owns the rule, and ``[scoring] custom`` in ``trajan.toml`` names it.
 
 Two numbers matter and they pull in opposite directions:
 
@@ -17,7 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from qagent.evals.scoring import CaseScore
+from trajan.evals.scoring import CaseScore
 
 from .schema import Review
 

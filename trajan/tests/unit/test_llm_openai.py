@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import pytest
 
-from qagent.llm import (
+from trajan.llm import (
     LLMAuthError,
     LLMBadResponse,
     LLMError,

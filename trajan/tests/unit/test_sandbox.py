@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from qagent.orchestrator import plan_lines
-from qagent.verify import (
+from trajan.orchestrator import plan_lines
+from trajan.verify import (
     Budget,
     CommandSpec,
     Sandbox,
@@ -192,13 +192,13 @@ def test_limits_the_kernel_refuses_are_could_not_run(
 
 
 def test_the_plan_says_what_would_be_limited(tmp_path: Path) -> None:
-    (tmp_path / ".qagent").mkdir()
-    (tmp_path / ".qagent" / "policy.toml").write_text(
+    (tmp_path / ".trajan").mkdir()
+    (tmp_path / ".trajan" / "policy.toml").write_text(
         'name = "test"\n\n[sandbox]\nmemory_mb = 512\n\n'
         '[[checks]]\nid = "check"\nargv = ["python", "-c", "print(1)"]\n',
         encoding="utf-8",
     )
-    request = VerificationRequest(policy=".qagent/policy.toml")
+    request = VerificationRequest(policy=".trajan/policy.toml")
 
     lines = plan_lines(request, tmp_path)
 

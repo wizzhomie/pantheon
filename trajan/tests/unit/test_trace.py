@@ -14,18 +14,18 @@ from pathlib import Path
 
 import pytest
 
-from qagent.cli import main
-from qagent.context import ContextItem, ProjectContext
-from qagent.contracts.findings import Finding
-from qagent.review import ProposedFinding, anchor, build_user_message, parse_diff
-from qagent.verify import (
+from trajan.cli import main
+from trajan.context import ContextItem, ProjectContext
+from trajan.contracts.findings import Finding
+from trajan.review import ProposedFinding, anchor, build_user_message, parse_diff
+from trajan.verify import (
     CheckRun,
     VerificationRun,
     build_report,
     decide,
     render_markdown,
 )
-from qagent.verify.trace import build_trace, summarise, unlinked_findings
+from trajan.verify.trace import build_trace, summarise, unlinked_findings
 
 NOW = datetime(2026, 11, 23, 6, 0, tzinfo=UTC)
 
@@ -283,11 +283,11 @@ def test_a_link_without_context_is_dropped(tmp_path: Path) -> None:
 
 def project(tmp_path: Path) -> Path:
     root = tmp_path / "project"
-    (root / ".qagent").mkdir(parents=True)
-    (root / ".qagent" / "policy.toml").write_text(
+    (root / ".trajan").mkdir(parents=True)
+    (root / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "tests"\nargv = ["true"]\n', encoding="utf-8"
     )
-    (root / ".qagent" / "context.toml").write_text(
+    (root / ".trajan" / "context.toml").write_text(
         'schema_version = 1\n[[requirements]]\nid = "R1"\ntitle = "the verdict is code"\n'
         'status = "approved"\nchecks = ["tests"]\n',
         encoding="utf-8",

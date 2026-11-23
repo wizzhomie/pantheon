@@ -7,7 +7,7 @@ from collections.abc import Callable
 import pytest
 from pydantic import BaseModel
 
-from qagent.checks import CheckContext, ConsistencyCheck, Rule
+from trajan.checks import CheckContext, ConsistencyCheck, Rule
 
 
 class Toy(BaseModel):

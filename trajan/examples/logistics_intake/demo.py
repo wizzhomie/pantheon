@@ -17,7 +17,7 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, replace
 from typing import Any
 
-from qagent import (
+from trajan import (
     Case,
     Dataset,
     Feedback,

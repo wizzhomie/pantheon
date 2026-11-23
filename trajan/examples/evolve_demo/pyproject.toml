@@ -1,15 +1,15 @@
-# The demo is checked by the qagent checkout's own tools (pytest, mypy) from this directory,
+# The demo is checked by the trajan checkout's own tools (pytest, mypy) from this directory,
 # so the configuration has to be local: without it, pytest would climb to the parent project
 # and run the wrong suite with the wrong options.
 
 [tool.pytest.ini_options]
 testpaths = ["."]
 addopts = ""
-# qagent's environment loads pytest-asyncio; the demo is not async and the plugin's warning
+# trajan's environment loads pytest-asyncio; the demo is not async and the plugin's warning
 # would end up inside the recorded evidence, next to a path from this machine.
 asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
-# Local on purpose: without a [tool.mypy] section mypy climbs to the qagent checkout and
+# Local on purpose: without a [tool.mypy] section mypy climbs to the trajan checkout and
 # checks the demo as part of `examples`, which is a different project with different rules.
 strict = true

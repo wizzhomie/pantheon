@@ -1,6 +1,6 @@
-# qagent
+# trajan
 
-[![ci](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/qagent/actions/workflows/ci.yml)
+[![ci](https://github.com/wizzhomie/pantheon/actions/workflows/ci.yml/badge.svg)](https://github.com/wizzhomie/pantheon/actions/workflows/ci.yml)
 
 **Independent verification for AI-assisted development.** You hand it a change — a commit, a diff,
 a dataset run — and it returns findings and a verdict backed by evidence it collected itself, not
@@ -8,15 +8,11 @@ by what the coding agent said about its own work.
 
 *[Читать по-русски →](README.ru.md)*
 
-> **Where the project is right now.** The evaluation core works and is measured: deterministic
-> checks, a rubric judge, a bounded correction loop, offline regression with report diff, two
-> examples with committed live runs and cassettes. The verification loop is being built phase by
-> phase; the plan and the decisions are in [`docs/roadmap.md`](docs/roadmap.md). What works
-> already: the project profile (`qagent inspect`), the deterministic engine (`qagent run`), the
-> end-to-end pass — checks → findings → verdict → report (`qagent verify`) — the independent
-> reviewer, which proposes findings about a diff and has each one checked against the file, and
-> evolution of the rules (`qagent learn`): the loop proposes a change to its own checks, proves it
-> on the recorded runs, and waits for a human's approval.
+> **Where the project is right now.** The verification contour is built and measured: deterministic
+> checks with statuses and artifacts, a reviewer whose claims are anchored to the code they name, a
+> verdict computed by code, and a held-out benchmark of 25 cases, run live and repeated four times.
+> What it refuses to do is claim safety it cannot prove: an unchecked claim stays `unverified`, and
+> "no evidence" is `INCONCLUSIVE`, never `PASS`.
 
 ---
 
@@ -88,9 +84,9 @@ flowchart LR
 ## Two levels: core and project
 
 The core knows how to verify; it knows nothing about your project. Knowledge about the project
-lives in the project itself, in `.qagent/`: profile, architecture baseline and target, milestones,
+lives in the project itself, in `.trajan/`: profile, architecture baseline and target, milestones,
 requirements, invariants, verification policies. It is committed with the code and reviewed like
-the code, because it goes stale at the same speed. QAgent stays a tool, not a store of other
+the code, because it goes stale at the same speed. Trajan stays a tool, not a store of other
 people's projects.
 
 Verification modes (`pre-commit`, `change review`, `feature evaluation`, `architecture review`,
@@ -122,58 +118,58 @@ engine turns that evidence into a verdict.
 | Deterministic checks | required fields, formats, ranges, cross-field rules, quoted evidence, PII, refusals, duplicates | 9 built-in checks, extendable by config or code |
 | Independent judge | a model scores a data-driven rubric; **the code** recomputes pass/score from weights | judge cannot grade itself |
 | Bounded loop | structured feedback, at most N attempts, cost and latency budget, escalation with a reason | every step recorded in the trace |
-| Preset as a file | schema, checks, rubric, prompts, limits, prices, report — one `qagent.toml` | config and code build the same preset, fingerprint-tested |
+| Preset as a file | schema, checks, rubric, prompts, limits, prices, report — one `trajan.toml` | config and code build the same preset, fingerprint-tested |
 | Offline regression | dataset → run → scoring → metrics → report → diff of two runs | comparable only with matching hashes |
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
-| Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
-| Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
+| Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `trajan inspect`, deterministic and digest-stable |
+| Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `trajan run`; a missing tool is `not_applicable`, not a pass |
 | Resource limits | every check runs under a memory and file-size ceiling from `[sandbox]`, and the report states in the same breath what is *not* isolated: the network and the file system | `make verify` on this repo; a check over the ceiling is named as that, and a platform that cannot apply limits refuses to run the check ungated |
-| Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
+| Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `trajan verify --diff ... --reviewer ...`; an unverified finding never blocks |
 | Second reader | one more call checks every claim against the change and drops the ones its own reasoning refutes — the failure mode prompt wording cannot fix; a dropped claim becomes `false-positive`, stays in the report, and is counted in the tokens | `--second-look`; off by default because it doubles the review call; `make verify` and the demo runs stay one call per review |
 | Dev set | a second suite of thirteen changes, disjoint from the holdout, where tuning is allowed: prompt rules and pipeline steps are changed because of what it shows, and the holdout is measured afterwards | `make bench-dev` and [`examples/devset`](examples/devset/README.md); the second reader was born here — the holdout's one false alarm became a condition |
 | Review cache | a review already paid for is reused only when the question is byte-identical — prompt, model, temperature, token ceiling — and the report says the answer is cached | a second run on the same change calls no model; `--no-cache` forces a fresh one |
-| Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
-| Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
+| Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.trajan/context.toml`, each with `approved` / `proposed` / `superseded` | `trajan context --check`; only approved items bind |
+| Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `trajan verify --request request.toml`, `trajan show <run>` |
 | Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids; the demo's live run has finding `F1` citing `R1`, and the row is `failed` for both reasons |
 | Plan under the change | a check can declare the paths it guards; a run plans it only when the change touches them, and the report says why it did not run | `make plan-demo`: the SQL gate is not selected for an `app.py` change |
-| Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
+| Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `trajan verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 | Evolution of the rules | reads the decided runs, proposes making an optional check required, and re-decides past verdicts with the same `decide()`; an accepted rule is a file in the project, the policy is not rewritten | `make evolve-demo`: three runs, a proposal, `HOLD` after approval |
 | Holdout bench | a fixed suite of changes whose verdict is written down before the run: planted defects must be held, clean changes must not be, and a miss is counted apart from a false alarm; five cases carry defects only a reviewer can see, and four carry changes with nothing wrong | `make bench`: 3 of 3 checks-layer defects held, 0 of 4 clean changes held, no model call; live `--layer all --second-look`: 3 of 3 held, 5 of 5 reviewer cases detected, 0 of 4 clean changes held, one of them with a condition the `Result:` line names |
 
 ```bash
-qagent inspect --repo . --write            # describe the repository: stack, checks, layout
-qagent context --repo . --check            # what the project promises, and the links to checks
-qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
-qagent verify --repo .                     # run, decide a verdict, write the report pair
-qagent verify --repo . --diff change.diff --reviewer qagent.review.factory:from_env  # + review
-qagent verify --repo . --diff change.diff --reviewer ... --second-look  # + a reader for the claims
-qagent verify --repo . --request request.toml      # the same, described in a file
-qagent show .qagent/runs/<run id>                  # explain a stored run, run nothing
-qagent bench --suite examples/holdout --reviewer qagent.review.scripted:from_env  # holdout the contour is graded on
-qagent bench --suite examples/devset --reviewer ...        # the suite tuning is allowed on
-qagent learn --repo .                      # what the recorded runs argue should change, and why
-qagent learn --repo . --approve <id> --note "why"     # record the decision on a proposal
-qagent init --dir ./qa                     # starter config plus a one-case dataset
-qagent check --config qagent.toml          # validate config and dataset, run nothing
-qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
-qagent record --config qagent.toml         # live model, answers written to the cassette
-qagent replay --config qagent.toml         # same numbers from the cassette, free
-qagent compare a.json b.json               # what changed between two runs
+trajan inspect --repo . --write            # describe the repository: stack, checks, layout
+trajan context --repo . --check            # what the project promises, and the links to checks
+trajan run --repo . --policy .trajan/policy.toml   # run its checks, keep the evidence
+trajan verify --repo .                     # run, decide a verdict, write the report pair
+trajan verify --repo . --diff change.diff --reviewer trajan.review.factory:from_env  # + review
+trajan verify --repo . --diff change.diff --reviewer ... --second-look  # + a reader for the claims
+trajan verify --repo . --request request.toml      # the same, described in a file
+trajan show .trajan/runs/<run id>                  # explain a stored run, run nothing
+trajan bench --suite examples/holdout --reviewer trajan.review.scripted:from_env  # holdout the contour is graded on
+trajan bench --suite examples/devset --reviewer ...        # the suite tuning is allowed on
+trajan learn --repo .                      # what the recorded runs argue should change, and why
+trajan learn --repo . --approve <id> --note "why"     # record the decision on a proposal
+trajan init --dir ./qa                     # starter config plus a one-case dataset
+trajan check --config trajan.toml          # validate config and dataset, run nothing
+trajan eval  --config trajan.toml --out reports/guarded.json --markdown reports/guarded.md
+trajan record --config trajan.toml         # live model, answers written to the cassette
+trajan replay --config trajan.toml         # same numbers from the cassette, free
+trajan compare a.json b.json               # what changed between two runs
 ```
 
-`qagent run` and `qagent verify` execute the commands exactly as the policy writes them. The
+`trajan run` and `trajan verify` execute the commands exactly as the policy writes them. The
 policy in this repo expects the checkout's `.venv/bin` on `PATH`, the same assumption the Makefile
 makes with `PYTHON=.venv/bin/python`.
 
-`qagent verify` is the first end-to-end pass of the loop: it runs the policy, turns failures into
+`trajan verify` is the first end-to-end pass of the loop: it runs the policy, turns failures into
 findings, computes the verdict in code, and writes `report.json` + `report.md` into the run
 directory. The exit code is `0` for `PASS` / `PASS WITH CONDITIONS`, `1` for `HOLD`, `2` for
 `INCONCLUSIVE` — a pipeline can stop on it without parsing prose. On this repository, `make verify`
 gives `PASS` with three checks in a few seconds, under the limits its own policy declares, and
 without a model call.
 
-`qagent learn` is the other half: the loop not only verifies, it proposes **what** to verify. It
+`trajan learn` is the other half: the loop not only verifies, it proposes **what** to verify. It
 reads the decided runs, finds an optional check that failed in runs that shipped anyway, and
 re-decides those same runs with that check required — same verdict code, same recorded evidence.
 Nothing is executed and nothing is spent. The proposal is data: what would change, which runs
@@ -235,15 +231,15 @@ line can name those, or a file can:
 
 ```toml
 name = "review the checkout fix"
-policy = ".qagent/policy.toml"
+policy = ".trajan/policy.toml"
 since = "HEAD~1"                                  # or: diff = "change.patch"
-reviewer = "qagent.review.factory:from_env"
-instructions = ".qagent/review.md"
+reviewer = "trajan.review.factory:from_env"
+instructions = ".trajan/review.md"
 max_tokens = 1500
 ```
 
-`qagent verify --repo . --request request.toml` stores the request inside the report, so
-`qagent show` can answer "what was asked, what happened, what does it mean" months later —
+`trajan verify --repo . --request request.toml` stores the request inside the report, so
+`trajan show` can answer "what was asked, what happened, what does it mean" months later —
 without running a check or calling a model. That is the whole point of the orchestrator: a
 verdict you cannot reconstruct is a sentence, not a record.
 
@@ -268,13 +264,13 @@ new role is actually used.
 | Phase | What | Status |
 |---|---|---|
 | 0 | Architecture assessment: what exists, what the gap is, decisions | done — [`docs/roadmap.md`](docs/roadmap.md) |
-| 1 | Project context: profile, requirements, invariants, baseline | done — `qagent inspect` and `qagent context` |
-| 2 | Verification orchestrator: request, plan, run, persistence | done — `--request` and `qagent show` |
-| 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `qagent run` |
-| 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `qagent verify --diff` with a reviewer |
-| 5 | Findings, verdict, verification report | done — `qagent verify` |
+| 1 | Project context: profile, requirements, invariants, baseline | done — `trajan inspect` and `trajan context` |
+| 2 | Verification orchestrator: request, plan, run, persistence | done — `--request` and `trajan show` |
+| 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `trajan run` |
+| 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `trajan verify --diff` with a reviewer |
+| 5 | Findings, verdict, verification report | done — `trajan verify` |
 | 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
-| 7 | Verification evolution: proposed rules, validation, promotion | done — `qagent learn`, decisions in `.qagent/proposals/` |
+| 7 | Verification evolution: proposed rules, validation, promotion | done — `trajan learn`, decisions in `.trajan/proposals/` |
 | 8 | Risk-based plans, resource limits, holdout bench, mutation testing | done — plan under the change, `[sandbox]` limits, the holdout bench and its live reviewer layer, a dev set for tuning, and a second reader for claims the first one refutes (the live run's one false alarm became a condition, and the `Result:` line names it); a general mutator is deliberately outside the contour: it rewrites the tree and takes minutes, so it is a project audit, not a gate on a change; real isolation needs an environment this machine does not have, and the contour says so instead of pretending |
 
 ## Docs

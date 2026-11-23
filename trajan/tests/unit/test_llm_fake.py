@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from qagent.llm import FakeClient, LLMError, LLMRequest, LLMResponse, Message
+from trajan.llm import FakeClient, LLMError, LLMRequest, LLMResponse, Message
 
 
 def request(content: str = "hi", model: str = "m") -> LLMRequest:

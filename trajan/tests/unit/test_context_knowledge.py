@@ -15,14 +15,14 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from qagent.cli import main
-from qagent.context import (
+from trajan.cli import main
+from trajan.context import (
     ContextItem,
     ProjectContext,
     check_context,
     read_context,
 )
-from qagent.verify import CommandSpec, VerificationPolicy, read_policy
+from trajan.verify import CommandSpec, VerificationPolicy, read_policy
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -46,14 +46,14 @@ status = "proposed"
 
 [[milestones]]
 id = "M1"
-title = "context in .qagent"
+title = "context in .trajan"
 status = "proposed"
 '''
 
 
 def project(tmp_path: Path, body: str = MINIMAL) -> Path:
-    (tmp_path / ".qagent").mkdir(exist_ok=True)
-    (tmp_path / ".qagent" / "context.toml").write_text(body, encoding="utf-8")
+    (tmp_path / ".trajan").mkdir(exist_ok=True)
+    (tmp_path / ".trajan" / "context.toml").write_text(body, encoding="utf-8")
     return tmp_path
 
 
@@ -99,8 +99,8 @@ def test_a_duplicate_id_across_sections_is_refused(tmp_path: Path) -> None:
 
 
 def test_a_milestone_with_a_check_is_refused(tmp_path: Path) -> None:
-    body = MINIMAL.replace('id = "M1"\ntitle = "context in .qagent"',
-                           'id = "M1"\ntitle = "context in .qagent"\nchecks = ["tests"]')
+    body = MINIMAL.replace('id = "M1"\ntitle = "context in .trajan"',
+                           'id = "M1"\ntitle = "context in .trajan"\nchecks = ["tests"]')
 
     with pytest.raises(ValidationError, match="milestone"):
         read_context(project(tmp_path, body))
@@ -174,10 +174,10 @@ def test_without_a_policy_the_links_are_not_judged() -> None:
 
 def test_this_repository_context_is_valid() -> None:
     """The project's own promises must load and must not point at checks that do not exist."""
-    from qagent.verify import read_policy
+    from trajan.verify import read_policy
 
     context = read_context(ROOT)
-    problems = check_context(context, read_policy(ROOT / ".qagent" / "policy.toml"))
+    problems = check_context(context, read_policy(ROOT / ".trajan" / "policy.toml"))
 
     assert context.requirements
     assert [problem for problem in problems if problem.level == "error"] == []
@@ -188,7 +188,7 @@ def test_the_verification_demo_states_promises_its_checks_cover() -> None:
     demo = ROOT / "examples" / "verification_demo"
     context = read_context(demo)
 
-    assert check_context(context, read_policy(demo / ".qagent" / "policy.toml")) == []
+    assert check_context(context, read_policy(demo / ".trajan" / "policy.toml")) == []
     assert [item.id for item in context.approved()] == ["R1", "I1"]
 
 
@@ -220,7 +220,7 @@ def test_the_context_check_returns_zero_for_notes(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     target = project(tmp_path, MINIMAL.replace('checks = ["tests"]\n', ""))
-    (target / ".qagent" / "policy.toml").write_text(
+    (target / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "tests"\nargv = ["true"]\n', encoding="utf-8"
     )
 
@@ -235,7 +235,7 @@ def test_the_context_check_returns_one_for_a_broken_link(
 ) -> None:
     body = MINIMAL.replace('checks = ["tests"]', 'checks = ["nope"]')
     target = project(tmp_path, body)
-    (target / ".qagent" / "policy.toml").write_text(
+    (target / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "tests"\nargv = ["true"]\n', encoding="utf-8"
     )
 

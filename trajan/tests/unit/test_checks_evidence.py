@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from qagent.checks import CheckContext, EvidenceCheck, coverage, quotes_from_attribute
+from trajan.checks import CheckContext, EvidenceCheck, coverage, quotes_from_attribute
 
 SOURCE = (
     "Добрый день, это Марина из ООО Северный ветер. Заберите 4 паллеты в Гданьске, "

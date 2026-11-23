@@ -7,8 +7,8 @@ from datetime import date
 import pytest
 from pydantic import ValidationError
 
-from qagent import DEFAULT_CONFIG
-from qagent.config import JudgePolicy, ModelPrice, Pricing, QAConfig, RetryPolicy
+from trajan import DEFAULT_CONFIG
+from trajan.config import JudgePolicy, ModelPrice, Pricing, QAConfig, RetryPolicy
 
 
 def test_defaults_are_conservative() -> None:

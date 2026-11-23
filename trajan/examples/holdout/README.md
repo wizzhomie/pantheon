@@ -9,8 +9,8 @@ make bench          # from the repository root: the checks layer, free
 ```
 
 ```bash
-qagent bench --suite examples/holdout \
-    --reviewer qagent.review.scripted:from_env \
+trajan bench --suite examples/holdout \
+    --reviewer trajan.review.scripted:from_env \
     --review-model "scripted (no model call)" \
     --out reports/holdout
 ```
@@ -29,7 +29,7 @@ comes out `HOLD` — which is why CI installs both before running the suite.
 `base/` is a whole little project: an invoice total, its tests, a migration guard and the policy
 that runs them. A case is `cases/<id>/` with two parts — `files/`, laid over a fresh copy of the
 base, and `change.diff`, the change that is being verified. The runner copies the base to a
-temporary directory, applies the case, and calls the ordinary `qagent verify` path. The bench has
+temporary directory, applies the case, and calls the ordinary `trajan verify` path. The bench has
 no verification path of its own, on purpose: otherwise it would be measuring that path.
 
 | Case | What it plants | Expected |
@@ -65,7 +65,7 @@ expected = "hold"
 note = "the total ignores the quantity, and the project's own test says so"
 ```
 
-3. Run `make bench` (checks layer) or `qagent bench --layer reviewer` (only a model can pass
+3. Run `make bench` (checks layer) or `trajan bench --layer reviewer` (only a model can pass
    those). If the answer changes, that is a decision about the contour, not a test to adjust:
    either the contour broke, or the case was wrong when it was written.
 
@@ -78,14 +78,14 @@ as not touching its argument that sorts it in place. The project's own checks pa
 that is the point. Their answer
 is a *confirmed finding*, not a verdict: grading the reviewer on `HOLD` would measure how severe
 the model felt like calling the defect, when the question is whether it saw it at all.
-`qagent bench --layer reviewer` runs just them, and with a scripted reviewer the honest result is
+`trajan bench --layer reviewer` runs just them, and with a scripted reviewer the honest result is
 **0 of 5 caught**: nothing but a model can see these defects, so the number is the reviewer's, not
 the checks'.
 
 ```bash
-DEEPSEEK_API_KEY=... QAGENT_REVIEW_MODEL=deepseek-flash \
-qagent bench --suite examples/holdout --layer all --second-look \
-    --reviewer qagent.review.factory:from_env --review-model deepseek-flash \
+DEEPSEEK_API_KEY=... TRAJAN_REVIEW_MODEL=deepseek-flash \
+trajan bench --suite examples/holdout --layer all --second-look \
+    --reviewer trajan.review.factory:from_env --review-model deepseek-flash \
     --out reports/holdout_all
 ```
 
@@ -136,7 +136,7 @@ whether its own suite notices — that is an adequacy audit of the whole project
 change: it mutates the tree, takes minutes, and fits neither a check's timeout nor a run's budget.
 The three `mutant-*` cases answer the same question at the scale of a change, one planted defect per
 tool. If a project wants the full audit, it is `mutmut` or `cosmic-ray` run against that project,
-not a feature of the contour — qagent runs a project's tooling, it does not reimplement it.
+not a feature of the contour — trajan runs a project's tooling, it does not reimplement it.
 
 The prompts are not tuned against this suite — that happens on [`examples/devset`](../devset/README.md),
 whose cases are disjoint from these, and this suite is run afterwards to see whether the change

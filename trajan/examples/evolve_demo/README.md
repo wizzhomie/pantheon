@@ -2,7 +2,7 @@
 
 This directory is a small project with a real defect, three real verification runs, and the
 proposal those runs produced. Nothing here is hand-written evidence: every file under
-`history/` was written by `qagent verify` against this directory, and the proposal was mined
+`history/` was written by `trajan verify` against this directory, and the proposal was mined
 from those files.
 
 ## The defect
@@ -30,7 +30,7 @@ The three runs in `history/` are the evidence of that:
 ## What the contour proposed
 
 ```bash
-qagent learn --repo examples/evolve_demo \
+trajan learn --repo examples/evolve_demo \
   --policy examples/evolve_demo/policy.toml \
   --history examples/evolve_demo/history
 ```
@@ -44,18 +44,18 @@ proposed
     evidence: 3 of 3 recorded runs failed it; 3 still shipped, 0 were already held
 ```
 
-The number that matters is `3 still shipped`: `qagent learn` took each recorded run and
+The number that matters is `3 still shipped`: `trajan learn` took each recorded run and
 re-decided it with the one field changed — `types` required — using the same `decide()`
 function that will judge the next run. This is a counterfactual over evidence that already
 exists, not a model's opinion and not a new run: nothing was executed and nothing was spent.
 
 ## The decision, and what it changed
 
-Approving is a separate, deliberate command. It writes a file in the project (`.qagent/
+Approving is a separate, deliberate command. It writes a file in the project (`.trajan/
 proposals/`, reviewed like code); it does not edit `policy.toml`.
 
 ```bash
-qagent learn --repo examples/evolve_demo --policy examples/evolve_demo/policy.toml \
+trajan learn --repo examples/evolve_demo --policy examples/evolve_demo/policy.toml \
   --history examples/evolve_demo/history \
   --approve p-promote-types-ece7fe --note "three green runs shipped this"
 ```
@@ -65,7 +65,7 @@ same evidence — and the verdict is `HOLD`, because the check that sees the def
 gate. The report names the rule it used (`Accepted rules` in the header), and the declared
 policy is still exactly as a human wrote it, comment and all.
 
-`qagent learn` on the four runs then reports the decision and what it has done since:
+`trajan learn` on the four runs then reports the decision and what it has done since:
 
 ```
 decided
@@ -78,13 +78,13 @@ decided
 ## Reproducing it from scratch
 
 The history is committed, so nothing has to be regenerated to read it. To rebuild the whole
-demo (the tools come from the qagent checkout's environment):
+demo (the tools come from the trajan checkout's environment):
 
 ```bash
 cd examples/evolve_demo
-rm -rf history .qagent
+rm -rf history .trajan
 for n in 1 2 3; do
-  (cd ../.. && PYTHONPATH=src PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m qagent verify \
+  (cd ../.. && PYTHONPATH=src PATH="$PWD/.venv/bin:$PATH" .venv/bin/python -m trajan verify \
     --repo examples/evolve_demo --policy policy.toml --out examples/evolve_demo/history/run-$n)
 done
 ```
@@ -93,7 +93,7 @@ then `learn`, `--approve`, and one more `verify` into `history/run-4`.
 
 Two details worth knowing, because they are the demo's own honest limits:
 
-- `mypy` runs with `--explicit-package-bases` because this demo lives inside the qagent
+- `mypy` runs with `--explicit-package-bases` because this demo lives inside the trajan
   checkout's `examples` package and mypy would otherwise take the wrong root. The flag is
   about the demo's location, not about the defect.
 - Three runs are enough to argue for a rule, not enough to prove the rule was right. That

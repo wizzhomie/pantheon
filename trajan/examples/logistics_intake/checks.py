@@ -13,8 +13,8 @@ from datetime import date
 
 from pydantic import BaseModel
 
-from qagent import Check
-from qagent.checks import (
+from trajan import Check
+from trajan.checks import (
     ConsistencyCheck,
     DuplicatesCheck,
     EvidenceCheck,
@@ -206,7 +206,7 @@ CHECKS: list[Check] = [
 def extra_checks() -> list[Check]:
     """The checks a config file cannot express: they carry Python predicates.
 
-    A ``qagent.toml`` names this function in ``[checks] extra``, so the same rules apply
+    A ``trajan.toml`` names this function in ``[checks] extra``, so the same rules apply
     whether the preset is built from code or from the file.
     """
     return [CONSISTENCY]

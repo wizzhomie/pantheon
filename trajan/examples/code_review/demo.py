@@ -15,7 +15,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import replace
 
-from qagent import (
+from trajan import (
     Case,
     Dataset,
     Feedback,
@@ -98,7 +98,7 @@ def build_demo_guarded() -> GuardedAgent[Review]:
 
     config = load_config()
     dataset = Dataset.load(config.dataset)
-    from qagent.project import build_preset
+    from trajan.project import build_preset
 
     # A stub model name in the report, so nobody can read it as a measurement of a model.
     preset = replace(build_preset(config), agent_model=DEMO_MODEL)

@@ -23,7 +23,7 @@
 
 Every check ran with 1024 MB memory, 16 MB per file, and core dumps were disabled.
 
-These are resource ceilings, not isolation: a check can still reach the network and read or write any path the user running the agent can. qagent limits what a check may consume; it does not yet confine where it may go, and this report does not claim otherwise.
+These are resource ceilings, not isolation: a check can still reach the network and read or write any path the user running the agent can. trajan limits what a check may consume; it does not yet confine where it may go, and this report does not claim otherwise.
 
 ## Why
 

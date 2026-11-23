@@ -16,12 +16,12 @@ from pathlib import Path
 
 import pytest
 
-from qagent.cli import main
-from qagent.contracts.findings import Finding
-from qagent.llm.base import LLMResponse
-from qagent.llm.errors import LLMError
-from qagent.llm.fake import FakeClient
-from qagent.review import (
+from trajan.cli import main
+from trajan.contracts.findings import Finding
+from trajan.llm.base import LLMResponse
+from trajan.llm.errors import LLMError
+from trajan.llm.fake import FakeClient
+from trajan.review import (
     Diff,
     ProposedFinding,
     ReviewerConfig,
@@ -31,8 +31,8 @@ from qagent.review import (
     parse_diff,
     review_diff,
 )
-from qagent.verify import VerificationRequest
-from qagent.verify.report import _request_section, _review_section
+from trajan.verify import VerificationRequest
+from trajan.verify.report import _request_section, _review_section
 
 MODIFIED_DIFF = (
     "diff --git a/app.py b/app.py\n"
@@ -453,8 +453,8 @@ def temp_project(tmp_path: Path, response: str | None = None) -> Path:
     """A project whose one check passes, so only the reviewer can move the verdict."""
     (tmp_path / "project").mkdir()
     project = repo(tmp_path / "project")
-    (project / ".qagent").mkdir()
-    (project / ".qagent" / "policy.toml").write_text(
+    (project / ".trajan").mkdir()
+    (project / ".trajan" / "policy.toml").write_text(
         'name = "p"\n[[checks]]\nid = "probe"\n'
         f'argv = {json.dumps([sys.executable, "-c", "print(1)"])}\n',
         encoding="utf-8",
@@ -474,7 +474,7 @@ def run_verify(project: Path, capsys: pytest.CaptureFixture[str]) -> int:
             "--diff",
             str(project / "change.diff"),
             "--reviewer",
-            "qagent.review.scripted:from_env",
+            "trajan.review.scripted:from_env",
             "--out",
             str(project / "run"),
         ]
@@ -485,7 +485,7 @@ def test_a_confirmed_reviewer_finding_holds_a_green_run(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = temp_project(tmp_path)
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
 
     code = run_verify(project, capsys)
 
@@ -505,19 +505,19 @@ def test_a_failed_review_makes_the_run_inconclusive(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = temp_project(tmp_path)
-    monkeypatch.delenv("QAGENT_REVIEW_RESPONSE", raising=False)
+    monkeypatch.delenv("TRAJAN_REVIEW_RESPONSE", raising=False)
 
     code = run_verify(project, capsys)
 
     assert code == 1  # the factory refuses to build a client; that is a command error
-    assert "QAGENT_REVIEW_RESPONSE" in capsys.readouterr().err
+    assert "TRAJAN_REVIEW_RESPONSE" in capsys.readouterr().err
 
 
 def test_a_review_that_returns_garbage_is_inconclusive(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = temp_project(tmp_path)
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", "not json at all")
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", "not json at all")
 
     code = run_verify(project, capsys)
 
@@ -532,7 +532,7 @@ def test_an_unverified_finding_is_only_a_condition(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
 ) -> None:
     project = temp_project(tmp_path)
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer(proposal(line=999).model_dump(mode="json")))
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", answer(proposal(line=999).model_dump(mode="json")))
 
     code = run_verify(project, capsys)
 
@@ -557,7 +557,7 @@ def test_the_command_records_the_second_look_in_the_request(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = temp_project(tmp_path)
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
 
     code = main(
         [
@@ -567,7 +567,7 @@ def test_the_command_records_the_second_look_in_the_request(
             "--diff",
             str(project / "change.diff"),
             "--reviewer",
-            "qagent.review.scripted:from_env",
+            "trajan.review.scripted:from_env",
             "--second-look",
             "--out",
             str(project / "run"),
@@ -594,7 +594,7 @@ def test_the_dry_run_does_not_need_a_key_or_a_model(tmp_path: Path) -> None:
             "--diff",
             str(project / "change.diff"),
             "--reviewer",
-            "qagent.review.factory:from_env",
+            "trajan.review.factory:from_env",
             "--dry-run",
         ]
     )
@@ -613,7 +613,7 @@ def test_since_reads_the_change_from_git(
         [*git, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base"], check=True
     )
     (project / "app.py").write_text(APP + "\nEXTRA = 1\n", encoding="utf-8")
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer())
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", answer())
 
     code = main(
         [
@@ -623,7 +623,7 @@ def test_since_reads_the_change_from_git(
             "--since",
             "HEAD",
             "--reviewer",
-            "qagent.review.scripted:from_env",
+            "trajan.review.scripted:from_env",
             "--out",
             str(project / "run"),
         ]

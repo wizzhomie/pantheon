@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-from qagent.contracts import Case, Criterion, Rubric
-from qagent.judge import build_messages, render_rubric
-from qagent.judge.prompt import OUTPUT_LIMIT
+from trajan.contracts import Case, Criterion, Rubric
+from trajan.judge import build_messages, render_rubric
+from trajan.judge.prompt import OUTPUT_LIMIT
 
 
 def rubric() -> Rubric:

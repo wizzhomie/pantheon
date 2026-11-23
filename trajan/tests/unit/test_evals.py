@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError
 
-from qagent.contracts import (
+from trajan.contracts import (
     CaseResult,
     CategoryMetrics,
     EvalCase,

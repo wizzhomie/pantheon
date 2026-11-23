@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel
 
-from qagent.checks.paths import MISSING, get_path, is_present, iter_leaves
+from trajan.checks.paths import MISSING, get_path, is_present, iter_leaves
 
 
 class Inner(BaseModel):

@@ -12,8 +12,8 @@ make bench-dev      # from the repository root: the checks layer, free
 ```
 
 ```bash
-qagent bench --suite examples/devset --layer all --second-look \
-    --reviewer qagent.review.factory:from_env --review-model deepseek-flash \
+trajan bench --suite examples/devset --layer all --second-look \
+    --reviewer trajan.review.factory:from_env --review-model deepseek-flash \
     --out reports/devset_all
 ```
 

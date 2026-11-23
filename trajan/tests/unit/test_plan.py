@@ -16,11 +16,11 @@ from pathlib import Path
 
 import pytest
 
-from qagent.context import ProjectContext
-from qagent.context.knowledge import ContextItem
-from qagent.orchestrator import changed_paths, plan_lines
-from qagent.review import Diff, parse_diff
-from qagent.verify import (
+from trajan.context import ProjectContext
+from trajan.context.knowledge import ContextItem
+from trajan.orchestrator import changed_paths, plan_lines
+from trajan.review import Diff, parse_diff
+from trajan.verify import (
     Budget,
     CheckRun,
     CommandSpec,
@@ -33,7 +33,7 @@ from qagent.verify import (
     render_markdown,
     run_policy,
 )
-from qagent.verify.trace import build_trace, summarise
+from trajan.verify.trace import build_trace, summarise
 
 NOW = datetime(2026, 11, 23, 7, 0, tzinfo=UTC)
 
@@ -117,7 +117,7 @@ def test_a_selector_cannot_climb_out_of_the_project() -> None:
 
 
 def test_a_missing_tool_is_still_not_applicable_before_selection() -> None:
-    from qagent.context import ProjectProfile
+    from trajan.context import ProjectProfile
 
     plan = build_plan(
         policy(spec("sql", paths=["db/**"], requires="psql")),
@@ -249,7 +249,7 @@ DIFF = """diff --git a/app.py b/app.py
 def test_execute_plans_from_the_diff_it_was_given(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from qagent.orchestrator import execute
+    from trajan.orchestrator import execute
 
     repo = tmp_path / "demo"
     repo.mkdir()
@@ -274,11 +274,11 @@ def test_execute_plans_from_the_diff_it_was_given(
         encoding="utf-8",
     )
     (repo / "change.diff").write_text(DIFF, encoding="utf-8")
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", json.dumps({"findings": []}))
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", json.dumps({"findings": []}))
     request = VerificationRequest(
         policy="policy.toml",
         diff="change.diff",
-        reviewer="qagent.review.scripted:from_env",
+        reviewer="trajan.review.scripted:from_env",
     )
 
     report, _ = asyncio.run(execute(request, repo))
@@ -310,7 +310,7 @@ def test_the_dry_run_shows_the_same_selection(tmp_path: Path) -> None:
     )
     (repo / "change.diff").write_text(DIFF, encoding="utf-8")
     request = VerificationRequest(
-        policy="policy.toml", diff="change.diff", reviewer="qagent.review.scripted:from_env"
+        policy="policy.toml", diff="change.diff", reviewer="trajan.review.scripted:from_env"
     )
 
     lines = plan_lines(request, repo)

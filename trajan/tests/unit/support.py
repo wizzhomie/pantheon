@@ -11,7 +11,7 @@ from typing import Any
 
 from pydantic import BaseModel
 
-from qagent import (
+from trajan import (
     Case,
     CheckContext,
     Criterion,
@@ -27,8 +27,8 @@ from qagent import (
     Totals,
     Usage,
 )
-from qagent.evals.metrics import CaseRecord
-from qagent.evals.scoring import CaseScore
+from trajan.evals.metrics import CaseRecord
+from trajan.evals.scoring import CaseScore
 
 ReplyItem = Any
 
@@ -239,7 +239,7 @@ def case_record(
 
 def _gate_for(status: str) -> Any:
     if status == "escalated":
-        from qagent import CheckResult, GateResult
+        from trajan import CheckResult, GateResult
 
         issue = qty_issue()
         return GateResult(

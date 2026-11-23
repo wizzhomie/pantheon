@@ -19,11 +19,11 @@ from examples.code_review.checks import (
 )
 from examples.code_review.schema import Finding, Review
 from examples.code_review.scoring import score_review
-from qagent import Case, CheckContext, Dataset, evaluate
-from qagent.cli import main
-from qagent.evals.scoring import CaseScore
+from trajan import Case, CheckContext, Dataset, evaluate
+from trajan.cli import main
+from trajan.evals.scoring import CaseScore
 
-CONFIG = Path(__file__).resolve().parents[2] / "examples" / "code_review" / "qagent.toml"
+CONFIG = Path(__file__).resolve().parents[2] / "examples" / "code_review" / "trajan.toml"
 NOW = datetime(2026, 11, 23, tzinfo=UTC)
 
 SOURCE = """\

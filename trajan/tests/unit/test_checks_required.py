@@ -6,7 +6,7 @@ from collections.abc import Callable
 
 from pydantic import BaseModel
 
-from qagent.checks import CheckContext, RequiredCheck, RequiredRule
+from trajan.checks import CheckContext, RequiredCheck, RequiredRule
 
 
 class Contact(BaseModel):

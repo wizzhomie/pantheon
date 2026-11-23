@@ -7,13 +7,13 @@ from uuid import uuid4
 
 from support import eval_case
 
-from qagent import Dataset, EvalReport
-from qagent.cli import main
+from trajan import Dataset, EvalReport
+from trajan.cli import main
 
 SPEC_SOURCE = '''
 from pydantic import BaseModel
 
-from qagent import (
+from trajan import (
     Case,
     Criterion,
     FieldSpec,
@@ -146,7 +146,7 @@ def test_an_unimportable_spec_fails_cleanly(
     )
 
     assert code == 1
-    assert "qagent:" in capsys.readouterr().err  # type: ignore[attr-defined]
+    assert "trajan:" in capsys.readouterr().err  # type: ignore[attr-defined]
 
 
 def test_a_factory_returning_the_wrong_type_fails_cleanly(

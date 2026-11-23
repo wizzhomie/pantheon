@@ -1,4 +1,4 @@
-# qagent — дизайн ядра
+# trajan — дизайн ядра
 
 Статус: ядро оценки построено и покрыто тестами (фазы 0–11 истории проекта). Куда проект идёт
 дальше — контур независимой проверки — описано в [roadmap.md](roadmap.md); этот документ
@@ -6,7 +6,7 @@
 направления.
 Простыми словами: [how-it-works.md](how-it-works.md).
 
-Одна фраза: **`qagent` — это QA-слой для любого шага LLM-пайплайна, который обязан вернуть
+Одна фраза: **`trajan` — это QA-слой для любого шага LLM-пайплайна, который обязан вернуть
 структурированный результат.** Ты оборачиваешь свой агент, приносишь свой пресет (схема, проверки,
 рубрика, датасет) — получаешь цикл «проверка → критика → фикс-фидбек → ретрай → эскалация»,
 трейс с токенами и стоимостью, и офлайн-регрессию с метриками и отчётом для сравнения версий.
@@ -32,7 +32,7 @@
 
 ```mermaid
 flowchart LR
-    subgraph core["qagent (ядро, домена не знает)"]
+    subgraph core["trajan (ядро, домена не знает)"]
         direction TB
         L[цикл: попытки / бюджет / эскалация]
         C[встроенные проверки<br/>схема, форматы, диапазоны, цитаты, PII]
@@ -71,7 +71,7 @@ flowchart LR
 Фасад и несколько функций, дальше — конфиг. Всё остальное внутреннее.
 
 ```python
-guarded = qagent.guard(
+guarded = trajan.guard(
     agent=my_agent,              # Callable[[Case, Feedback | None], Awaitable[Attempt]]
     preset=LOGISTICS_PRESET,     # Preset
     llm=openai_compatible(...),  # LLMClient (для судьи); FakeClient в тестах
@@ -79,13 +79,13 @@ guarded = qagent.guard(
 )
 
 result = await guarded.run(case)                    # RunResult[Intake]
-report = await qagent.evaluate(guarded, dataset)   # EvalReport (+ meta_eval при метках)
-qagent.report.write_json(report, "reports/run.json")
-qagent.report.write_markdown(report, "reports/run.md")
-qagent.compare(baseline_json, guarded_json)        # ReportDiff
+report = await trajan.evaluate(guarded, dataset)   # EvalReport (+ meta_eval при метках)
+trajan.report.write_json(report, "reports/run.json")
+trajan.report.write_markdown(report, "reports/run.md")
+trajan.compare(baseline_json, guarded_json)        # ReportDiff
 ```
 
-Отдельная калибровка судьи (`qagent.calibrate(judge, labelled)`) остаётся доступной, но в обычном
+Отдельная калибровка судьи (`trajan.calibrate(judge, labelled)`) остаётся доступной, но в обычном
 прогоне её делать не нужно: если в датасете есть `human_verdict`, `evaluate()` сам кладёт `meta_eval`
 в отчёт.
 
@@ -578,9 +578,9 @@ sha256 канонического JSON, **без** `notes` и `human_verdict`: �
 ### CLI
 
 ```
-python -m qagent eval --spec examples.intake.runner:build_guarded \
+python -m trajan eval --spec examples.intake.runner:build_guarded \
     --dataset dataset.jsonl --out reports/guarded.json --markdown reports/guarded.md
-python -m qagent compare reports/baseline.json reports/guarded.json --markdown reports/diff.md
+python -m trajan compare reports/baseline.json reports/guarded.json --markdown reports/diff.md
 ```
 
 `--spec` — `module:factory`, возвращающая готовый `GuardedAgent`. Библиотека не пытается угадать,
@@ -632,16 +632,16 @@ class MetaEval(StrictModel):
   контракта — мажор.
 
 ```
-qagent/
+trajan/
 ├── pyproject.toml            # hatchling, extras: openai, anthropic, dev
 ├── README.md                 # EN: проблема → идея → быстрый старт → пример → отчёт
 ├── README.ru.md              # русская версия витрины
 ├── LICENSE                   # MIT
 ├── Makefile                  # check / demo / sample / eval / baseline / diff
 ├── .github/workflows/ci.yml  # ruff + mypy + pytest, без секретов
-├── src/qagent/
+├── src/trajan/
 │   ├── __init__.py           # публичный API: guard, evaluate, compare, score_case, …
-│   ├── __main__.py           # python -m qagent
+│   ├── __main__.py           # python -m trajan
 │   ├── cli.py                # eval / compare, --spec module:factory
 │   ├── config.py             # QAConfig, RunLimits, RetryPolicy, JudgePolicy, Pricing
 │   ├── parsing.py            # P1_BAD_JSON / P2_SCHEMA / P3_TRUNCATED
@@ -713,8 +713,8 @@ qagent/
 | 5 | цикл: попытки, бюджет, режимы, эскалации, трейс | 4 сценария: pass / recover / escalate / budget |
 | 6 | evals: датасет, скоринг, метрики, отчёт, сравнение | `eval` даёт отчёт без сети на fake/replay |
 | 7 | `examples/logistics_intake` + датасет + образцы отчётов + `README.ru.md` | `make demo` без ключа, README читается за 2 минуты, цифры образца воспроизводятся тестом |
-| 8 | реальный прогон, кассеты, цифры в README, бейджи | цифры воспроизводятся из кассет (`QAGENT_LLM=replay`) |
-| 9 | `qagent.toml`, команды `init` и `check`, `eval --config` | `check` на конфиге примера; тест: файл и `preset.py` собирают пресет с одинаковым отпечатком |
+| 8 | реальный прогон, кассеты, цифры в README, бейджи | цифры воспроизводятся из кассет (`TRAJAN_LLM=replay`) |
+| 9 | `trajan.toml`, команды `init` и `check`, `eval --config` | `check` на конфиге примера; тест: файл и `preset.py` собирают пресет с одинаковым отпечатком |
 | 10 | `examples/code_review`: фикстуры с багами, проверки цитат, свой скоринг | живой прогон 24 кейса, ложные пропуски 12.5% → 0%, кассета в репозитории |
 
 Фазы 0–10 закрыты. Приёмка фазы 5 — `tests/unit/test_runtime_*.py`: pass / recover / escalate /
@@ -728,7 +728,7 @@ budget / no_progress / shadow / baseline, плюс таблица решений
 ложные пропуски 40.6% → 18.8%, $0.108 на весь прогон; `reports/baseline.*`, `reports/guarded.*` и
 `reports/diff.md` воспроизводятся из `examples/logistics_intake/cassettes/` без ключа и без сети
 (`make replay` даёт те же метрики, отличаются только задержки). Приёмка фазы 9 — `test_project_config.py` и
-`qagent check` на обоих конфигах: файл не является пересказом `preset.py`, отпечатки совпадают, а
+`trajan check` на обоих конфигах: файл не является пересказом `preset.py`, отпечатки совпадают, а
 прогон через файл из кассеты даёт те же 81.2%. Приёмка фазы 10 — `test_example_code_review.py`:
 закоммиченный датасет совпадает со сборщиком, каждая фикстура проверена пробником на наблюдаемость
 бага, проверки ловят выдуманную цитату, строку вне файла и чужую цитату, скоринг считает найденное,
@@ -755,13 +755,13 @@ budget / no_progress / shadow / baseline, плюс таблица решений
 
 Решено 2026-11-23 (публикация):
 
-1. **Имя пакета на PyPI.** `qagent` занято (`aixiasang/qagent` 0.1.0, не связанный проект), поэтому
-   дистрибутив называется `qagent-qa`, а импорт остаётся `qagent`; имя репозитория тоже не меняется.
+1. **Имя пакета на PyPI.** `trajan` занято (`aixiasang/trajan` 0.1.0, не связанный проект), поэтому
+   дистрибутив называется `pantheon-trajan`, а импорт остаётся `trajan`; имя репозитория тоже не меняется.
    Разойтись им можно, потому что дистрибутив — это то, что человек пишет в `pip install`, а пакет —
    то, что он пишет в `import`; переименовать пакет значило бы переписать весь код ради вывески,
    а переименовать репозиторий — сломать ссылки, на которые уже смотрят. Пока пакет ставится из
-   репозитория (`pip install -e .`), а опубликованный будет ставиться как `pip install qagent-qa`
-   и запускаться как `python -m qagent`.
+   репозитория (`pip install -e .`), а опубликованный будет ставиться как `pip install pantheon-trajan`
+   и запускаться как `python -m trajan`.
 
 Решено в фазе 5 (записано, чтобы не пересматривать без причины):
 

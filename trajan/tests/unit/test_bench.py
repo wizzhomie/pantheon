@@ -18,13 +18,13 @@ from pathlib import Path
 
 import pytest
 
-from qagent.bench import BenchReport, CaseResult, discover, run_suite, write_bench
-from qagent.bench.runner import render_bench
-from qagent.cli import main
+from trajan.bench import BenchReport, CaseResult, discover, run_suite, write_bench
+from trajan.bench.runner import render_bench
+from trajan.cli import main
 
 SUITE = Path(__file__).resolve().parents[2] / "examples" / "holdout"
 DEV_SET = Path(__file__).resolve().parents[2] / "examples" / "devset"
-SCRIPTED = "qagent.review.scripted:from_env"
+SCRIPTED = "trajan.review.scripted:from_env"
 LABEL = "scripted (no model call)"
 
 
@@ -32,7 +32,7 @@ LABEL = "scripted (no model call)"
 def _tools_on_path(monkeypatch: pytest.MonkeyPatch) -> None:
     """The cases run the project's own tools; the bench must find them the way a user would."""
     monkeypatch.setenv("PATH", f"{Path(sys.executable).parent}{os.pathsep}{os.environ['PATH']}")
-    monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", '{"findings": []}')
+    monkeypatch.setenv("TRAJAN_REVIEW_RESPONSE", '{"findings": []}')
 
 
 def one_case(

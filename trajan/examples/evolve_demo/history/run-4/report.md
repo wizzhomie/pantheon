@@ -12,7 +12,7 @@
 | Spent | 0.5s |
 | Accepted rules | `p-promote-types-ece7fe` |
 
-This run also used rules the project accepted from its own history: `p-promote-types-ece7fe`. Each one is a file in `.qagent/proposals/`, with the recorded runs
+This run also used rules the project accepted from its own history: `p-promote-types-ece7fe`. Each one is a file in `.trajan/proposals/`, with the recorded runs
 behind it; the declared policy was not edited.
 
 ## Request

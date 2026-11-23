@@ -15,9 +15,9 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from qagent.cli import main
-from qagent.context import ProfileTool, ProjectProfile
-from qagent.verify import (
+from trajan.cli import main
+from trajan.context import ProfileTool, ProjectProfile
+from trajan.verify import (
     Budget,
     CommandSpec,
     VerificationPolicy,
@@ -81,7 +81,7 @@ def test_a_check_can_expect_a_non_zero_exit_code(tmp_path: Path) -> None:
 
 def test_a_missing_program_is_an_error_not_a_failure(tmp_path: Path) -> None:
     run, _ = asyncio.run(
-        run_one(spec(argv=["qagent-definitely-not-installed-xyz"]), tmp_path)
+        run_one(spec(argv=["trajan-definitely-not-installed-xyz"]), tmp_path)
     )
 
     check = run.checks[0]
@@ -92,13 +92,13 @@ def test_a_missing_program_is_an_error_not_a_failure(tmp_path: Path) -> None:
 
 def test_a_module_that_is_not_installed_is_not_applicable(tmp_path: Path) -> None:
     run, _ = asyncio.run(
-        run_one(spec(argv=[sys.executable, "-m", "qagent-not-installed-xyz"]), tmp_path)
+        run_one(spec(argv=[sys.executable, "-m", "trajan-not-installed-xyz"]), tmp_path)
     )
 
     check = run.checks[0]
     assert check.status == "not_applicable"
     assert check.reason == (
-        "the qagent-not-installed-xyz module is not installed, so the check could not run"
+        "the trajan-not-installed-xyz module is not installed, so the check could not run"
     )
     assert not check.blocking
 
@@ -155,13 +155,13 @@ def test_a_shell_string_in_one_element_is_rejected_at_load_time() -> None:
 def test_the_child_does_not_inherit_secrets(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    monkeypatch.setenv("QAGENT_TEST_SECRET", "do-not-leak")
+    monkeypatch.setenv("TRAJAN_TEST_SECRET", "do-not-leak")
 
     run, _ = asyncio.run(
         run_one(
             spec(
                 argv=code(
-                    "import os; print(os.environ.get('QAGENT_TEST_SECRET', 'absent'))"
+                    "import os; print(os.environ.get('TRAJAN_TEST_SECRET', 'absent'))"
                 )
             ),
             tmp_path,
@@ -356,4 +356,4 @@ def test_the_cli_dry_run_prints_the_plan_and_runs_nothing(
 
     out = capsys.readouterr().out
     assert "noop: echo hi [required]" in out
-    assert not (repo / ".qagent").exists()
+    assert not (repo / ".trajan").exists()

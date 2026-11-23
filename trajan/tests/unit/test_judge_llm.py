@@ -9,10 +9,10 @@ from typing import Any
 import pytest
 from pydantic import BaseModel
 
-from qagent.config import ModelPrice, Pricing
-from qagent.contracts import Case, Issue, Rubric
-from qagent.judge import JudgeReport, LLMJudge, normalise_code
-from qagent.llm import FakeClient, JudgeError, LLMResponse
+from trajan.config import ModelPrice, Pricing
+from trajan.contracts import Case, Issue, Rubric
+from trajan.judge import JudgeReport, LLMJudge, normalise_code
+from trajan.llm import FakeClient, JudgeError, LLMResponse
 
 
 class Output(BaseModel):

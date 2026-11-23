@@ -19,7 +19,7 @@ Two things make this example different from the logistics one:
 | [`checks.py`](checks.py) | `C1`–`C4` | quote exists, line exists, quote is on that line, verdict agrees |
 | [`scoring.py`](scoring.py) | recall plus a spurious-finding veto | whole-answer scoring through `[scoring] custom` |
 | [`fixtures.py`](fixtures.py) | 24 snippets, 18 with planted bugs | bugs are marked in source and verified by a probe |
-| [`qagent.toml`](qagent.toml) | the whole preset, as data | the config path this library is built around |
+| [`trajan.toml`](trajan.toml) | the whole preset, as data | the config path this library is built around |
 
 Supporting files: [`build_dataset.py`](build_dataset.py) turns the fixtures into the committed
 `dataset.jsonl` and refuses to write a fixture whose bug is not observable; [`demo.py`](demo.py)
@@ -30,10 +30,10 @@ factories the config names; [`agent.py`](agent.py) is the whole model integratio
 
 ```bash
 make check                                     # lint, types, tests (offline)
-qagent check --config examples/code_review/qagent.toml
-QAGENT_LLM=replay qagent eval --config examples/code_review/qagent.toml \
+trajan check --config examples/code_review/trajan.toml
+TRAJAN_LLM=replay trajan eval --config examples/code_review/trajan.toml \
     --out reports/code_review/replay.json --markdown reports/code_review/replay.md
-QAGENT_LLM=live qagent eval --config examples/code_review/qagent.toml \
+TRAJAN_LLM=live trajan eval --config examples/code_review/trajan.toml \
     --out reports/code_review/guarded.json --markdown reports/code_review/guarded.md
 ```
 

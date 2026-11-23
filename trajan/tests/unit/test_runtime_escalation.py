@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
-from qagent import EscalationPolicy, Issue, JudgeVerdict, RetryPolicy, Rubric
-from qagent.runtime.escalation import budget_outcome, decide
+from trajan import EscalationPolicy, Issue, JudgeVerdict, RetryPolicy, Rubric
+from trajan.runtime.escalation import budget_outcome, decide
 
 
 def issue(severity: str = "error", code: str = "G1_REQUIRED_MISSING") -> Issue:

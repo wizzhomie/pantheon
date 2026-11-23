@@ -17,8 +17,8 @@ from examples.logistics_intake.build_dataset import DATASET_PATH, build
 from examples.logistics_intake.demo import DEMO_MODEL, DEMO_PRESET, build_demo_guarded
 from examples.logistics_intake.preset import PRESET, SCORING, build_retry
 from examples.logistics_intake.runner import build_guarded
-from qagent import Case, Dataset, EvalReport, FakeClient, Feedback, Issue, ReplayClient, evaluate
-from qagent.checks.paths import MISSING, get_path
+from trajan import Case, Dataset, EvalReport, FakeClient, Feedback, Issue, ReplayClient, evaluate
+from trajan.checks.paths import MISSING, get_path
 
 REPORTS = Path(__file__).resolve().parents[2] / "reports"
 
@@ -72,7 +72,7 @@ def test_retry_hook_adds_domain_advice_and_respects_the_cap() -> None:
 
 
 def test_the_cli_factory_builds_the_demo_without_network(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("QAGENT_LLM", raising=False)
+    monkeypatch.delenv("TRAJAN_LLM", raising=False)
 
     guarded = build_guarded()
 
@@ -126,13 +126,13 @@ def test_record_mode_appends_live_answers_to_the_cassette(
     assert recorder.mode == "record"
     assert recorder.inner is inner
 
-    monkeypatch.setenv("QAGENT_RECORD", "1")
+    monkeypatch.setenv("TRAJAN_RECORD", "1")
     assert runner._record_requested() is True
 
-    monkeypatch.setenv("QAGENT_RECORD", "TRUE")
+    monkeypatch.setenv("TRAJAN_RECORD", "TRUE")
     assert runner._record_requested() is True
 
-    monkeypatch.setenv("QAGENT_RECORD", "0")
+    monkeypatch.setenv("TRAJAN_RECORD", "0")
     assert runner._record_requested() is False
-    monkeypatch.delenv("QAGENT_RECORD")
+    monkeypatch.delenv("TRAJAN_RECORD")
     assert runner._record_requested() is False

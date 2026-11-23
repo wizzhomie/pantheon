@@ -14,7 +14,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from qagent import StrictModel
+from trajan import StrictModel
 
 
 class Finding(StrictModel):

@@ -5,9 +5,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from pathlib import Path
 
-from qagent import EvalReport, Metrics
-from qagent.contracts.evals import CaseResult
-from qagent.evals.compare import compare, load_report, render_markdown, write_markdown
+from trajan import EvalReport, Metrics
+from trajan.contracts.evals import CaseResult
+from trajan.evals.compare import compare, load_report, render_markdown, write_markdown
 
 AT = datetime(2026, 11, 22, 17, 0, tzinfo=UTC)
 

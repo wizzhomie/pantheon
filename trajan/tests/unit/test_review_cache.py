@@ -12,11 +12,11 @@ import asyncio
 import json
 from pathlib import Path
 
-from qagent.llm.fake import FakeClient
-from qagent.review import ProposedFinding, ReviewerConfig, ReviewOutcome, anchor, parse_diff
-from qagent.review.cache import ReviewCache
-from qagent.review.reviewer import review_diff
-from qagent.verify.report import _review_section
+from trajan.llm.fake import FakeClient
+from trajan.review import ProposedFinding, ReviewerConfig, ReviewOutcome, anchor, parse_diff
+from trajan.review.cache import ReviewCache
+from trajan.review.reviewer import review_diff
+from trajan.verify.report import _review_section
 
 DIFF_TEXT = (
     "diff --git a/app.py b/app.py\n"

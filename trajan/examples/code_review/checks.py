@@ -15,8 +15,8 @@ from collections.abc import Sequence
 
 from pydantic import BaseModel
 
-from qagent import CheckContext, Issue
-from qagent.checks import Tier
+from trajan import CheckContext, Issue
+from trajan.checks import Tier
 
 from .schema import Review
 
@@ -133,5 +133,5 @@ CHECKS: Sequence[object] = (AnchorCheck(), VerdictCheck())
 
 
 def extra_checks() -> list[object]:
-    """The factory ``qagent.toml`` names under ``[checks] extra``."""
+    """The factory ``trajan.toml`` names under ``[checks] extra``."""
     return list(CHECKS)

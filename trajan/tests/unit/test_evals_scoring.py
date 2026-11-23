@@ -6,8 +6,8 @@ import pytest
 from pydantic import BaseModel, ValidationError
 from support import ToyOutput, eval_case
 
-from qagent import FieldSpec, ScoringSpec, Trap
-from qagent.evals.scoring import CaseScore, score_case
+from trajan import FieldSpec, ScoringSpec, Trap
+from trajan.evals.scoring import CaseScore, score_case
 
 
 def spec(**overrides: object) -> ScoringSpec:

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from qagent import Case, Criterion, Feedback, FieldSpec, Preset, Rubric, ScoringSpec
+from trajan import Case, Criterion, Feedback, FieldSpec, Preset, Rubric, ScoringSpec
 
 from .checks import CHECKS
 from .schema import ExtractedIntake

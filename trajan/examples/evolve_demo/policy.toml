@@ -20,7 +20,7 @@ purpose = "the suite that is green while the annotation is wrong"
 [[checks]]
 id = "types"
 name = "mypy"
-# `--explicit-package-bases` is only here because this demo lives inside the qagent
+# `--explicit-package-bases` is only here because this demo lives inside the trajan
 # checkout's own `examples` package; it tells mypy to take the demo directory as the root.
 argv = ["python", "-m", "mypy", "--explicit-package-bases", "."]
 timeout_s = 60

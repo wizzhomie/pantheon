@@ -15,8 +15,8 @@ from pathlib import Path
 
 import pytest
 
-from qagent.cli import main
-from qagent.evolve import (
+from trajan.cli import main
+from trajan.evolve import (
     PROPOSAL_DIR,
     Audit,
     History,
@@ -36,9 +36,9 @@ from qagent.evolve import (
     retrospective,
     save_proposal,
 )
-from qagent.evolve.history import RunFacts
-from qagent.evolve.rules import gaps_from, promote
-from qagent.verify import (
+from trajan.evolve.history import RunFacts
+from trajan.evolve.rules import gaps_from, promote
+from trajan.verify import (
     Budget,
     CheckRun,
     CommandSpec,
@@ -144,7 +144,7 @@ def held_after_adoption(run_id: str, started_at: datetime | None = None) -> RunF
 
 
 def _findings(run: VerificationRun) -> list[Finding]:
-    from qagent.verify import findings_from_run
+    from trajan.verify import findings_from_run
 
     return findings_from_run(run)
 
@@ -560,7 +560,7 @@ def test_the_whole_loop_from_history_to_a_stricter_verdict(
     assert proposal["retrospective"]["caught"] == 2
 
     assert _learn(repo, "--approve", proposal["id"], "--note", "shipped twice") == 0
-    assert (repo / ".qagent" / PROPOSAL_DIR / f'{proposal["id"]}.json').is_file()
+    assert (repo / ".trajan" / PROPOSAL_DIR / f'{proposal["id"]}.json').is_file()
     capsys.readouterr()
 
     assert _verify(repo, repo / "run-3") == 1  # the same evidence, now a gate

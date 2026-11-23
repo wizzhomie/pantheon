@@ -1,4 +1,4 @@
-"""A project as a file: ``qagent.toml`` builds the same preset the code builds."""
+"""A project as a file: ``trajan.toml`` builds the same preset the code builds."""
 
 from __future__ import annotations
 
@@ -9,11 +9,11 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from examples.logistics_intake.preset import PRESET
-from qagent.cli import main
-from qagent.project import ProjectConfig, build_preset, build_pricing
+from trajan.cli import main
+from trajan.project import ProjectConfig, build_preset, build_pricing
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
-EXAMPLE_CONFIG = REPO_ROOT / "examples" / "logistics_intake" / "qagent.toml"
+EXAMPLE_CONFIG = REPO_ROOT / "examples" / "logistics_intake" / "trajan.toml"
 
 MINIMAL: dict[str, Any] = {
     "name": "toy",
@@ -63,7 +63,7 @@ def test_check_command_accepts_the_example(capsys: pytest.CaptureFixture[str]) -
 
 def test_init_writes_a_starter_and_does_not_overwrite(tmp_path: Path) -> None:
     assert main(["init", "--dir", str(tmp_path)]) == 0
-    config_path = tmp_path / "qagent.toml"
+    config_path = tmp_path / "trajan.toml"
     assert config_path.is_file()
     assert (tmp_path / "dataset.jsonl").is_file()
     # A second run must not silently replace an edited file.
@@ -91,7 +91,7 @@ def test_prompt_file_is_read_with_its_bytes_intact(tmp_path: Path) -> None:
     prompt = tmp_path / "prompt.txt"
     prompt.write_text("line one\nline two\n", encoding="utf-8")
     (tmp_path / "dataset.jsonl").write_text("{}\n", encoding="utf-8")
-    (tmp_path / "qagent.toml").write_text(
+    (tmp_path / "trajan.toml").write_text(
         "\n".join(
             [
                 'name = "toy"',
@@ -111,7 +111,7 @@ def test_prompt_file_is_read_with_its_bytes_intact(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    config = ProjectConfig.load(tmp_path / "qagent.toml")
+    config = ProjectConfig.load(tmp_path / "trajan.toml")
     assert config.agent_prompt == "line one\nline two\n"
 
 

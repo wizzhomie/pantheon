@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import pytest
 
-from qagent import RunLimits, Usage
-from qagent.runtime.budget import Budget
+from trajan import RunLimits, Usage
+from trajan.runtime.budget import Budget
 
 
 class Clock:

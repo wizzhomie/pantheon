@@ -6,8 +6,8 @@ from datetime import date
 
 import pytest
 
-from qagent.config import ModelPrice, Pricing
-from qagent.llm import LLMResponse, usage_of
+from trajan.config import ModelPrice, Pricing
+from trajan.llm import LLMResponse, usage_of
 
 
 def pricing() -> Pricing:

@@ -1,8 +1,8 @@
 """Wiring: which client, which model, which prices. Project code, not library code.
 
 Same seam as the logistics example: ``build_agent`` and ``build_judge_client`` are the two
-factories ``qagent.toml`` names, and ``build_guarded`` is the one-call entry point for
-``qagent eval --spec``. The preset itself is not written in Python here — it is built from
+factories ``trajan.toml`` names, and ``build_guarded`` is the one-call entry point for
+``trajan eval --spec``. The preset itself is not written in Python here — it is built from
 the config file, which is the point of this example.
 """
 
@@ -12,8 +12,8 @@ import os
 from datetime import date
 from pathlib import Path
 
-from qagent import AgentFn, GuardedAgent, LLMClient, ModelPrice, Pricing, ReplayClient
-from qagent.project import ProjectConfig, build_preset
+from trajan import AgentFn, GuardedAgent, LLMClient, ModelPrice, Pricing, ReplayClient
+from trajan.project import ProjectConfig, build_preset
 
 from .agent import make_llm_agent
 from .demo import build_demo_guarded
@@ -23,7 +23,7 @@ DEFAULT_MODEL = "deepseek-flash"
 JUDGE_MODEL = "deepseek-v4-pro"
 DEFAULT_BASE_URL = "https://api.deepseek.com/v1"
 API_KEY_ENV = "DEEPSEEK_API_KEY"
-CONFIG_PATH = Path(__file__).with_name("qagent.toml")
+CONFIG_PATH = Path(__file__).with_name("trajan.toml")
 CASSETTE_PATH = Path(__file__).with_name("cassettes") / "deepseek-flash.jsonl"
 
 PRICING = Pricing(
@@ -53,19 +53,19 @@ def load_config() -> ProjectConfig:
 
 def build_client() -> LLMClient:
     """Replay of the committed cassette, or a live endpoint."""
-    source = os.environ.get("QAGENT_LLM", "stub").strip().lower()
+    source = os.environ.get("TRAJAN_LLM", "stub").strip().lower()
     if source == "replay":
         if not CASSETTE_PATH.exists():
             raise FileNotFoundError(
-                f"no cassette at {CASSETTE_PATH}; record one with QAGENT_LLM=live first"
+                f"no cassette at {CASSETTE_PATH}; record one with TRAJAN_LLM=live first"
             )
         return ReplayClient(CASSETTE_PATH, mode="replay")
     if source == "live":
-        from qagent.llm import OpenAICompatibleClient
+        from trajan.llm import OpenAICompatibleClient
 
         client: LLMClient = OpenAICompatibleClient(
             model=DEFAULT_MODEL,
-            base_url=os.environ.get("QAGENT_BASE_URL", DEFAULT_BASE_URL),
+            base_url=os.environ.get("TRAJAN_BASE_URL", DEFAULT_BASE_URL),
             api_key_env=API_KEY_ENV,
             structured_output="json_object",
             timeout_s=180.0,
@@ -76,13 +76,13 @@ def build_client() -> LLMClient:
         )
         return _recording(client) if _record_requested() else client
     raise ValueError(
-        f"QAGENT_LLM={source!r} has no model to build: the stub runs the demo agent; "
-        "use QAGENT_LLM=replay or QAGENT_LLM=live"
+        f"TRAJAN_LLM={source!r} has no model to build: the stub runs the demo agent; "
+        "use TRAJAN_LLM=replay or TRAJAN_LLM=live"
     )
 
 
 def build_agent() -> AgentFn:
-    """The agent function ``qagent.toml`` names."""
+    """The agent function ``trajan.toml`` names."""
     return make_llm_agent(
         llm=build_client(),
         model=DEFAULT_MODEL,
@@ -97,11 +97,11 @@ def build_judge_client() -> LLMClient:
 
 
 def build_guarded() -> GuardedAgent[Review]:
-    """One-call entry point for ``qagent eval --spec``; the stub path is the demo."""
-    if os.environ.get("QAGENT_LLM", "stub").strip().lower() == "stub":
+    """One-call entry point for ``trajan eval --spec``; the stub path is the demo."""
+    if os.environ.get("TRAJAN_LLM", "stub").strip().lower() == "stub":
         return build_demo_guarded()
-    from qagent import guard
-    from qagent.project import build_pricing, build_qa_config
+    from trajan import guard
+    from trajan.project import build_pricing, build_qa_config
 
     config = load_config()
     return guard(
@@ -114,7 +114,7 @@ def build_guarded() -> GuardedAgent[Review]:
 
 
 def _record_requested() -> bool:
-    return os.environ.get("QAGENT_RECORD", "").strip().lower() in {"1", "true", "yes"}
+    return os.environ.get("TRAJAN_RECORD", "").strip().lower() in {"1", "true", "yes"}
 
 
 def _recording(client: LLMClient) -> ReplayClient:

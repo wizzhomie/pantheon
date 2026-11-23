@@ -10,8 +10,8 @@ from __future__ import annotations
 import asyncio
 from datetime import UTC, datetime
 
-from qagent import EvalReport
-from qagent.evals import (
+from trajan import EvalReport
+from trajan.evals import (
     Dataset,
     compare,
     evaluate,

@@ -1,6 +1,6 @@
 # Logistics intake — one preset, end to end
 
-This is the example `qagent` exists for, built the way a real project would build it: a
+This is the example `trajan` exists for, built the way a real project would build it: a
 freight forwarder receives a dirty email and needs a structured intake request out of it —
 origin, destination, cargo, dates, amount, contact — without inventing a single value.
 
@@ -17,9 +17,9 @@ the 32 labelled cases.
 | [`preset.py`](preset.py) | `PRESET`: rubric, prompt, scoring spec, retry hook | the one object `guard()` needs |
 | [`agent.py`](agent.py) | one model call, feedback appended on retry | the entire integration surface |
 | [`runner.py`](runner.py) | client/model/pricing wiring | the `module:factory` the CLI calls |
-| [`qagent.toml`](qagent.toml) | the same preset as data | the file-based path: `qagent eval --config` |
+| [`trajan.toml`](trajan.toml) | the same preset as data | the file-based path: `trajan eval --config` |
 
-`qagent.toml` is not a summary of `preset.py`: it builds the same preset (a test asserts the two
+`trajan.toml` is not a summary of `preset.py`: it builds the same preset (a test asserts the two
 fingerprints are equal), and a replay run through the file gives the same numbers.
 Prompts live in [`prompts/`](prompts/) text files, read by both paths, so they cannot drift.
 
@@ -49,11 +49,11 @@ A real model run (needs `DEEPSEEK_API_KEY`, costs cents):
 make baseline           # one call per case, no checks
 make eval               # full loop, judge on
 make diff               # baseline vs guarded -> reports/diff.md
-QAGENT_RECORD=1 make eval   # ...and append every answer to the cassette as well
+TRAJAN_RECORD=1 make eval   # ...and append every answer to the cassette as well
 ```
 
-`QAGENT_LLM` selects the source: `stub` (default), `replay` (the committed cassette, no key)
-or `live`. `QAGENT_RECORD=1` on a live run is the only way the cassette grows; in `replay`
+`TRAJAN_LLM` selects the source: `stub` (default), `replay` (the committed cassette, no key)
+or `live`. `TRAJAN_RECORD=1` on a live run is the only way the cassette grows; in `replay`
 mode a changed prompt is a `CassetteMiss` with the key it wanted, never a silent fallback.
 
 ## What the live run says
@@ -137,14 +137,14 @@ still format-checked; it just is not a quality signal.
 
 1. Write the output model; make every field the email might not state optional, and add
    `unresolved: list[str]` plus `evidence: list[Evidence]`.
-2. Write the checks: generic ones from `qagent.checks`, domain rules as `Rule` predicates.
+2. Write the checks: generic ones from `trajan.checks`, domain rules as `Rule` predicates.
 3. Write the rubric (criteria and weights, not prose) and the scoring spec (which fields,
    which comparator, which traps).
 4. Write the agent: `(case, feedback) -> attempt | AgentReply`. Append
    `render_feedback(feedback)` on a retry; report usage if the agent knows it.
 5. Build 30–50 cases, label the hard half, and add traps for the values a model is tempted
    to invent.
-6. Connect it: `guard(agent, preset, llm=...)` and `python -m qagent eval --spec ...`.
+6. Connect it: `guard(agent, preset, llm=...)` and `python -m trajan eval --spec ...`.
 
 Nothing in this folder was needed to change the core, except fixes for two bugs the example
 exposed (a loose phone pattern that flagged ISO dates, and a numeric comparator that treated
