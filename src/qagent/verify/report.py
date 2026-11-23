@@ -185,6 +185,8 @@ def _request_section(request: VerificationRequest | None) -> str:
         lines.append(f"| Change | `git diff {request.since}` |")
     if request.reviewer is not None:
         lines.append(f"| Reviewer | `{request.reviewer}` |")
+    if request.second_look:
+        lines.append("| Second look | on: one more call checks every claim |")
     if request.notes:
         lines.append(f"| Notes | {request.notes} |")
     return "\n".join(lines)

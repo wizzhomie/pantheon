@@ -31,7 +31,8 @@ from qagent.review import (
     parse_diff,
     review_diff,
 )
-from qagent.verify.report import _review_section
+from qagent.verify import VerificationRequest
+from qagent.verify.report import _request_section, _review_section
 
 MODIFIED_DIFF = (
     "diff --git a/app.py b/app.py\n"
@@ -417,6 +418,15 @@ def test_a_review_without_the_second_look_says_nothing_about_it() -> None:
     assert "Second look" not in _review_section(ReviewOutcome(status="ok", model="reviewer"))
 
 
+def test_the_request_table_records_the_second_look() -> None:
+    request = VerificationRequest(
+        policy="p.toml", diff="change.diff", reviewer="m:f", second_look=True
+    )
+
+    assert "| Second look | on: one more call checks every claim |" in _request_section(request)
+    assert "Second look" not in _request_section(request.model_copy(update={"second_look": False}))
+
+
 def test_the_second_look_pays_for_both_calls(tmp_path: Path) -> None:
     first = LLMResponse(
         text=answer(proposal().model_dump(mode="json")),
@@ -544,7 +554,7 @@ def test_a_diff_without_a_reviewer_is_an_error(
 
 
 def test_the_command_records_the_second_look_in_the_request(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = temp_project(tmp_path)
     monkeypatch.setenv("QAGENT_REVIEW_RESPONSE", answer(proposal().model_dump(mode="json")))
@@ -570,6 +580,7 @@ def test_the_command_records_the_second_look_in_the_request(
     assert report["review"]["second_look"] == "failed"
     assert report["review"]["refuted"] == 0
     assert report["review"]["findings"][0]["status"] == "confirmed"
+    assert "second look failed" in capsys.readouterr().out
 
 
 def test_the_dry_run_does_not_need_a_key_or_a_model(tmp_path: Path) -> None:

@@ -72,6 +72,7 @@ from .orchestrator import (
 )
 from .orchestrator import show as read_run
 from .project import ProjectConfig, build_guarded, validate
+from .review.contracts import ReviewOutcome
 from .runtime.facade import GuardedAgent
 from .verify import (
     CheckRun,
@@ -529,6 +530,15 @@ def _policy_or_none(repo: Path) -> VerificationPolicy | None:
     return read_policy(path) if path.is_file() else None
 
 
+def _look_label(review: ReviewOutcome) -> str:
+    """One clause a terminal can show; the report has the whole story."""
+    if review.second_look == "failed":
+        return ", second look failed"
+    if review.second_look == "ok":
+        return f", {review.refuted} dropped by the second look"
+    return ""
+
+
 def _run_verify(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
     request = _request_from_args(args, repo)
@@ -552,10 +562,11 @@ def _run_verify(args: argparse.Namespace) -> int:
         if review.status == "failed":
             print(f"review: failed ({review.error})")
         else:
+            look = _look_label(review)
             print(
                 f"review: {review.proposed} proposed, {review.confirmed} confirmed, "
                 f"{review.unverified} unverified, "
-                f"{review.prompt_tokens}+{review.completion_tokens} tokens"
+                f"{review.prompt_tokens}+{review.completion_tokens} tokens{look}"
             )
     traced = trace_line(report)
     if traced is not None:

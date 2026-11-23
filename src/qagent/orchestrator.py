@@ -145,6 +145,8 @@ def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
             f"  review: {len(diff.files)} file(s), {diff.added_lines} added line(s), "
             f"reviewer {request.reviewer}"
         )
+        if request.second_look:
+            lines.append("  second look: on — another call checks every claim before the anchor")
     return lines
 
 
@@ -178,6 +180,15 @@ def show(path: str | Path) -> tuple[VerificationReport, Path]:
     if not target.is_file():
         raise FileNotFoundError(f"no report at {target}")
     return read_report(target), target
+
+
+def _look_summary(review: ReviewOutcome) -> str:
+    """What the second reader did, on the same line as the review it checked."""
+    if review.second_look == "off":
+        return ""
+    if review.second_look == "failed":
+        return ", second look failed (claims stand)"
+    return f", {review.refuted} dropped by the second look"
 
 
 def render_show(report: VerificationReport) -> str:
@@ -214,9 +225,10 @@ def render_show(report: VerificationReport) -> str:
             lines.append(f"  review: failed ({report.review.error})")
         else:
             cached = " (cached)" if report.review.cached else ""
+            look = _look_summary(report.review)
             lines.append(
                 f"  review: {report.review.model}{cached}, {report.review.proposed} proposed, "
-                f"{report.review.confirmed} confirmed"
+                f"{report.review.confirmed} confirmed{look}"
             )
     traced = trace_line(report)
     if traced is not None:

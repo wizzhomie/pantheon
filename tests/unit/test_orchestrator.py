@@ -17,12 +17,14 @@ from pydantic import ValidationError
 
 from qagent.cli import main
 from qagent.orchestrator import (
+    _look_summary,
     execute,
     plan_lines,
     read_request,
     render_show,
     show,
 )
+from qagent.review.contracts import ReviewOutcome
 from qagent.verify import VerificationRequest
 
 
@@ -102,6 +104,31 @@ def test_the_dry_run_shows_the_plan_and_the_review(tmp_path: Path) -> None:
 
     assert any("probe" in line for line in lines)
     assert any("review: 1 file(s)" in line for line in lines)
+
+
+def test_the_dry_run_says_the_second_look_costs_another_call(tmp_path: Path) -> None:
+    root = project(tmp_path)
+    request = VerificationRequest(
+        policy=".qagent/policy.toml",
+        diff="diff.patch",
+        reviewer="qagent.review.scripted:from_env",
+        second_look=True,
+    )
+
+    lines = plan_lines(request, root)
+
+    assert any("second look: on" in line for line in lines)
+    assert not any("second look: on" in line for line in plan_lines(request.model_copy(
+        update={"second_look": False}
+    ), root))
+
+
+def test_show_says_what_the_second_reader_did() -> None:
+    assert _look_summary(ReviewOutcome(status="ok", second_look="ok", refuted=2)) == (
+        ", 2 dropped by the second look"
+    )
+    assert "failed" in _look_summary(ReviewOutcome(status="ok", second_look="failed"))
+    assert _look_summary(ReviewOutcome(status="ok")) == ""
 
 
 def test_execute_stores_the_request_and_the_report(tmp_path: Path) -> None:
