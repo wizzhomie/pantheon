@@ -10,11 +10,11 @@ by what the coding agent said about its own work.
 
 > **Where the project is right now.** The evaluation core works and is measured: deterministic
 > checks, a rubric judge, a bounded correction loop, offline regression with report diff, two
-> examples with committed live runs and cassettes, 388 tests. The verification loop — project
-> context, budgeted plans, tool execution in a target repository, findings and verdicts — is
-> being built now, phase by phase; the plan and the decisions are in
-> [`docs/roadmap.md`](docs/roadmap.md). **There is no `verify` command yet**: this README
-> describes what runs today and what is coming, and keeps the two apart.
+> examples with committed live runs and cassettes. The verification loop is being built phase by
+> phase; the plan and the decisions are in [`docs/roadmap.md`](docs/roadmap.md). What works
+> already: the project profile (`qagent inspect`), the deterministic engine (`qagent run`), and
+> the first end-to-end pass — checks → findings → verdict → report (`qagent verify`). The
+> independent reviewer that proposes findings about a diff is the next phase.
 
 ---
 
@@ -103,8 +103,9 @@ what was not checked and why; a second run on the same inputs is cached.
 
 ## What runs today
 
-The table below is the honest part: this is the evaluation core, and it is where the verification
-loop gets its evidence and its ability to measure itself.
+The table below is the honest part: what is built, what it does, and how to see it work. The
+evaluation core provides the evidence and the ability to measure the loop itself; the verification
+engine turns that evidence into a verdict.
 
 | Piece | What it does | Proof |
 |---|---|---|
@@ -116,10 +117,13 @@ loop gets its evidence and its ability to measure itself.
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
 | Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
 | Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
+| Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
+| Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
 qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
+qagent verify --repo .                     # run, decide a verdict, write the report pair
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
@@ -128,9 +132,24 @@ qagent replay --config qagent.toml         # same numbers from the cassette, fre
 qagent compare a.json b.json               # what changed between two runs
 ```
 
-`qagent run` executes the commands exactly as the policy writes them. The policy in this repo
-expects the checkout's `.venv/bin` on `PATH`, the same assumption the Makefile makes with
-`PYTHON=.venv/bin/python`.
+`qagent run` and `qagent verify` execute the commands exactly as the policy writes them. The
+policy in this repo expects the checkout's `.venv/bin` on `PATH`, the same assumption the Makefile
+makes with `PYTHON=.venv/bin/python`.
+
+`qagent verify` is the first end-to-end pass of the loop: it runs the policy, turns failures into
+findings, computes the verdict in code, and writes `report.json` + `report.md` into the run
+directory. The exit code is `0` for `PASS` / `PASS WITH CONDITIONS`, `1` for `HOLD`, `2` for
+`INCONCLUSIVE` — a pipeline can stop on it without parsing prose. On this repository, `make verify`
+gives `PASS` with three checks in about two seconds and no model call.
+
+### Example 0 — a claim the verdict does not believe (HOLD)
+
+A tiny invoice module with a planted defect: it ignores `Item.quantity`, so the happy path looks
+right and one of the project's own tests fails. `make verify-demo` runs the policy, gets exit 1 from
+the test suite, and produces [`reports/verification_demo/report.md`](reports/verification_demo/report.md)
+— verdict `HOLD`, one reason, one blocking finding, and the failing assertion kept as an artifact.
+No model was asked whether the tests pass: the exit code is the evidence. The demo project is
+[`examples/verification_demo/`](examples/verification_demo/README.md).
 
 ### Example 1 — logistics intake (32 cases)
 
@@ -168,11 +187,11 @@ new role is actually used.
 | Phase | What | Status |
 |---|---|---|
 | 0 | Architecture assessment: what exists, what the gap is, decisions | done — [`docs/roadmap.md`](docs/roadmap.md) |
-| 1 | Project context: profile, requirements, invariants, baseline | in progress |
+| 1 | Project context: profile, requirements, invariants, baseline | in progress — profile done, requirements and baseline next |
 | 2 | Verification orchestrator: request, plan, run, persistence | planned |
-| 3 | Deterministic engine: run project tools, capture evidence, statuses | planned |
+| 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `qagent run` |
 | 4 | Independent reviewer: change analysis, architecture, tests, risk | planned |
-| 5 | Findings, verdict, verification report | planned |
+| 5 | Findings, verdict, verification report | done — `qagent verify` |
 | 6 | Architecture contracts and traceability | planned |
 | 7 | Verification evolution: proposed rules, validation, promotion | planned |
 | 8 | Risk-based plans, sandbox, mutation testing, holdout evaluation | planned |

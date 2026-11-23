@@ -184,6 +184,8 @@ def test_every_committed_report_renders_its_own_markdown() -> None:
     for path in sorted(REPORTS.rglob("*.json")):
         if path.stem.startswith("sample_") or "diff" in path.stem:
             continue  # stub reports carry a hand-written banner; diffs have another shape
+        if path.stem in {"report", "run"}:
+            continue  # a verification report and its run record have their own shape
         report = EvalReport.model_validate(json.loads(path.read_text(encoding="utf-8")))
         assert path.with_suffix(".md").read_text(encoding="utf-8") == render_markdown(report)
         checked += 1

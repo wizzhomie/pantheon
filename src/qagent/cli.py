@@ -28,14 +28,25 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from .context import detect_profile, read_profile, write_profile
+from .context import ProjectProfile, detect_profile, read_profile, write_profile
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
 from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
-from .verify import build_plan, describe_plan, read_policy, run_policy
+from .verify import (
+    build_plan,
+    build_report,
+    decide,
+    describe_plan,
+    findings_from_run,
+    read_policy,
+    run_policy,
+    write_report,
+)
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
+EXIT_INCONCLUSIVE = 2
+# HOLD is 1 (the project is broken); 2 means the run could not answer.
 
 CONFIG_TEMPLATE = '''\
 # One project, one file. Run it with: qagent eval --config qagent.toml
@@ -129,6 +140,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_inspect(args)
         if args.command == "run":
             return _run_command(args)
+        if args.command == "verify":
+            return _run_verify(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -197,6 +210,20 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     run.add_argument("--out", type=Path, help="run directory; defaults to .qagent/runs/<run id>")
     run.add_argument(
+        "--dry-run", action="store_true", help="print the plan and the budget, run nothing"
+    )
+
+    verify = subcommands.add_parser(
+        "verify", help="run the checks, decide a verdict and write the report"
+    )
+    verify.add_argument("--repo", type=Path, default=Path("."), help="repository to verify")
+    verify.add_argument(
+        "--policy",
+        type=Path,
+        help="policy file; defaults to <repo>/.qagent/policy.toml",
+    )
+    verify.add_argument("--out", type=Path, help="run directory; defaults to .qagent/runs/<run id>")
+    verify.add_argument(
         "--dry-run", action="store_true", help="print the plan and the budget, run nothing"
     )
 
@@ -269,10 +296,7 @@ def _run_inspect(args: argparse.Namespace) -> int:
 def _run_command(args: argparse.Namespace) -> int:
     repo = Path(args.repo)
     policy = read_policy(args.policy)
-    try:
-        profile = read_profile(repo)
-    except FileNotFoundError:
-        profile = None
+    profile = _profile_or_none(repo)
     plan = build_plan(policy, profile)
     budget = policy.budget
     if args.dry_run:
@@ -282,8 +306,6 @@ def _run_command(args: argparse.Namespace) -> int:
         )
         for line in describe_plan(plan):
             print(f"  {line}")
-        if profile is None:
-            print("  note: no .qagent/profile.json; checks are not filtered by the project")
         return EXIT_OK
     run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
     print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
@@ -295,6 +317,62 @@ def _run_command(args: argparse.Namespace) -> int:
         print(f"blocking: {', '.join(check.check_id for check in blocking)}")
         return EXIT_FAILURE
     return EXIT_OK
+
+
+def _run_verify(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    policy_path = args.policy or repo / ".qagent" / "policy.toml"
+    if not Path(policy_path).is_file():
+        raise ValueError(
+            f"no policy at {policy_path}; point --policy at one "
+            "(the file lives in the project, in .qagent/policy.toml)"
+        )
+    policy = read_policy(policy_path)
+    profile = _profile_or_none(repo)
+    plan = build_plan(policy, profile)
+    if args.dry_run:
+        print(
+            f"{policy.name}: {len(plan)} checks, "
+            f"budget {policy.budget.max_seconds:g}s / {policy.budget.max_checks} checks"
+        )
+        for line in describe_plan(plan):
+            print(f"  {line}")
+        return EXIT_OK
+
+    run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
+    findings = findings_from_run(run)
+    verdict = decide(run, findings)
+    report = build_report(run, findings, verdict)
+    json_path, md_path = write_report(report, target)
+
+    print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
+    for check in run.checks:
+        detail = f"  ({check.reason})" if check.reason else ""
+        print(f"  {check.status:14} {check.check_id}{detail}")
+    print(f"verdict: {verdict.headline}")
+    for reason in verdict.reasons:
+        print(f"  {reason.code}: {reason.detail}")
+    print(f"report: {json_path} and {md_path}")
+    if verdict.status == "hold":
+        return EXIT_FAILURE
+    if verdict.status == "inconclusive":
+        return EXIT_INCONCLUSIVE
+    return EXIT_OK
+
+
+def _profile_or_none(repo: Path) -> ProjectProfile | None:
+    """The stored profile, or a fresh one when the project has not written it yet.
+
+    Detecting on the fly is deterministic, so a verification run does not depend on whether
+    someone remembered to run ``qagent inspect --write`` first.
+    """
+    try:
+        return read_profile(repo)
+    except FileNotFoundError:
+        try:
+            return detect_profile(repo)
+        except NotADirectoryError:
+            return None
 
 
 def _run_check(args: argparse.Namespace) -> int:

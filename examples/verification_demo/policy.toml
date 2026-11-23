@@ -1,0 +1,19 @@
+# What qagent checks about this demo project, and what it costs.
+#
+# The point of the demo is the verdict, not the check: the project's own test suite already
+# fails, so `qagent verify` must say HOLD and point at the evidence instead of trusting a
+# claim that "tests pass".
+
+name = "verification-demo"
+
+[budget]
+max_seconds = 60
+max_checks = 5
+
+[[checks]]
+id = "tests"
+name = "test suite"
+argv = ["python", "-m", "pytest", "-q"]
+timeout_s = 60
+requires = "pytest"
+purpose = "the planted defect is caught by a test the project already had"
