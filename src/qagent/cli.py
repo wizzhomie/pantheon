@@ -28,10 +28,11 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
-from .context import detect_profile, write_profile
+from .context import detect_profile, read_profile, write_profile
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
 from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
+from .verify import build_plan, describe_plan, read_policy, run_policy
 
 EXIT_OK = 0
 EXIT_FAILURE = 1
@@ -126,6 +127,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _run_init(args)
         if args.command == "inspect":
             return _run_inspect(args)
+        if args.command == "run":
+            return _run_command(args)
         return _run_compare(args)
     except (ValueError, ImportError, AttributeError, OSError) as exc:
         print(f"qagent: {exc}", file=sys.stderr)
@@ -184,6 +187,18 @@ def _build_parser() -> argparse.ArgumentParser:
         "--write", action="store_true", help="write .qagent/profile.json inside the repository"
     )
     inspect.add_argument("--json", action="store_true", help="print the profile as JSON")
+
+    run = subcommands.add_parser(
+        "run", help="run the project's own checks and keep the evidence"
+    )
+    run.add_argument("--repo", type=Path, default=Path("."), help="repository to check")
+    run.add_argument(
+        "--policy", type=Path, required=True, help="policy file: which checks, what budget"
+    )
+    run.add_argument("--out", type=Path, help="run directory; defaults to .qagent/runs/<run id>")
+    run.add_argument(
+        "--dry-run", action="store_true", help="print the plan and the budget, run nothing"
+    )
 
     diff = subcommands.add_parser("compare", help="compare two JSON reports")
     diff.add_argument("a", type=Path)
@@ -248,6 +263,37 @@ def _run_inspect(args: argparse.Namespace) -> int:
         print(f"profile: {target}")
     else:
         print("profile not written; pass --write to store it in .qagent/profile.json")
+    return EXIT_OK
+
+
+def _run_command(args: argparse.Namespace) -> int:
+    repo = Path(args.repo)
+    policy = read_policy(args.policy)
+    try:
+        profile = read_profile(repo)
+    except FileNotFoundError:
+        profile = None
+    plan = build_plan(policy, profile)
+    budget = policy.budget
+    if args.dry_run:
+        print(
+            f"{policy.name}: {len(plan)} checks, "
+            f"budget {budget.max_seconds:g}s / {budget.max_checks} checks"
+        )
+        for line in describe_plan(plan):
+            print(f"  {line}")
+        if profile is None:
+            print("  note: no .qagent/profile.json; checks are not filtered by the project")
+        return EXIT_OK
+    run, target = asyncio.run(run_policy(policy, repo, out_dir=args.out, profile=profile))
+    print(f"{run.run_id}: {len(run.checks)} checks in {run.spent_seconds:.1f}s -> {target}")
+    for check in run.checks:
+        detail = f"  ({check.reason})" if check.reason else ""
+        print(f"  {check.status:14} {check.check_id}{detail}")
+    blocking = run.blocking()
+    if blocking:
+        print(f"blocking: {', '.join(check.check_id for check in blocking)}")
+        return EXIT_FAILURE
     return EXIT_OK
 
 

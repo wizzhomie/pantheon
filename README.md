@@ -115,9 +115,11 @@ loop gets its evidence and its ability to measure itself.
 | Offline regression | dataset → run → scoring → metrics → report → diff of two runs | comparable only with matching hashes |
 | Reproducibility | committed cassettes replay a live run with no key and no bill | `make replay` |
 | Project profile | reads a repository from disk — languages, package managers, test/lint/type commands, entry points — with no model and no network | `qagent inspect`, deterministic and digest-stable |
+| Command execution | runs the project's own checks — argv only, whitelisted environment, timeout, budget — and keeps stdout/stderr as artifacts | `qagent run`; a missing tool is `not_applicable`, not a pass |
 
 ```bash
 qagent inspect --repo . --write            # describe the repository: stack, checks, layout
+qagent run --repo . --policy .qagent/policy.toml   # run its checks, keep the evidence
 qagent init --dir ./qa                     # starter config plus a one-case dataset
 qagent check --config qagent.toml          # validate config and dataset, run nothing
 qagent eval  --config qagent.toml --out reports/guarded.json --markdown reports/guarded.md
@@ -125,6 +127,10 @@ qagent record --config qagent.toml         # live model, answers written to the 
 qagent replay --config qagent.toml         # same numbers from the cassette, free
 qagent compare a.json b.json               # what changed between two runs
 ```
+
+`qagent run` executes the commands exactly as the policy writes them. The policy in this repo
+expects the checkout's `.venv/bin` on `PATH`, the same assumption the Makefile makes with
+`PYTHON=.venv/bin/python`.
 
 ### Example 1 — logistics intake (32 cases)
 
