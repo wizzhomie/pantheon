@@ -1,170 +1,316 @@
-"""Trace and result invariants: a result is evidence, so it cannot be self-contradictory."""
+"""Traceability: which approved promise does this evidence belong to?
+
+The states are the test. A promise is "covered" only when its checks ran and passed; a failed
+check or a confirmed finding that cites it makes it "failed"; a check that did not run is
+"not-run", not "covered"; and a promise with no check is "unchecked" — the gap the whole
+project exists to make visible.
+"""
 
 from __future__ import annotations
 
+import json
+from datetime import UTC, datetime
+from pathlib import Path
+
 import pytest
-from pydantic import BaseModel, ValidationError
 
-from qagent.contracts import RunResult, Totals, TraceEvent, Usage
+from qagent.cli import main
+from qagent.context import ContextItem, ProjectContext
+from qagent.contracts.findings import Finding
+from qagent.review import ProposedFinding, anchor, build_user_message, parse_diff
+from qagent.verify import (
+    CheckRun,
+    VerificationRun,
+    build_report,
+    decide,
+    render_markdown,
+)
+from qagent.verify.trace import build_trace, summarise, unlinked_findings
+
+NOW = datetime(2026, 11, 23, 6, 0, tzinfo=UTC)
 
 
-class Output(BaseModel):
-    value: int
+def check(check_id: str = "tests", status: str = "passed") -> CheckRun:
+    return CheckRun(check_id=check_id, name=check_id, status=status)  # type: ignore[arg-type]
 
 
-def totals(attempts: int = 1) -> Totals:
-    return Totals(
-        latency_ms=10.0,
-        attempts=attempts,
-        prompt_tokens=100,
-        completion_tokens=50,
-        cost_usd=0.0002,
+def run(*checks: CheckRun) -> VerificationRun:
+    return VerificationRun(
+        run_id="20261123T060000-t",
+        policy_name="t",
+        policy_digest="d",
+        started_at=NOW,
+        checks=list(checks),
+        planned=len(checks),
     )
 
 
-def test_run_result_carries_the_preset_type() -> None:
-    result = RunResult[Output](
-        case_id="case-1",
-        mode="guarded",
-        status="passed",
-        output=Output(value=1),
-        totals=totals(),
-    )
-    assert result.output is not None
-    assert result.output.value == 1
+def context(**items: list[ContextItem]) -> ProjectContext:
+    return ProjectContext(**items)  # type: ignore[arg-type]
 
 
-def test_escalated_result_needs_a_reason() -> None:
-    with pytest.raises(ValidationError, match="escalation_reason"):
-        RunResult[Output](
-            case_id="case-1",
-            mode="guarded",
-            status="escalated",
-            output=Output(value=1),
-            totals=totals(),
-        )
-
-
-def test_reason_is_only_for_escalations() -> None:
-    with pytest.raises(ValidationError, match="only meaningful"):
-        RunResult[Output](
-            case_id="case-1",
-            mode="guarded",
-            status="passed",
-            output=Output(value=1),
-            escalation_reason="critical_issue",
-            totals=totals(),
-        )
-
-
-def test_passed_result_needs_output() -> None:
-    with pytest.raises(ValidationError, match="must carry output"):
-        RunResult[Output](case_id="case-1", mode="guarded", status="passed", totals=totals())
-
-
-def test_failed_result_may_have_no_output() -> None:
-    result = RunResult[Output](
-        case_id="case-1", mode="guarded", status="failed", totals=totals(attempts=2)
-    )
-    assert result.output is None
-
-
-def test_usage_rejects_negative_tokens() -> None:
-    with pytest.raises(ValidationError):
-        Usage(model="m", prompt_tokens=-1, completion_tokens=0, cost_usd=0.0, latency_ms=1.0)
-
-
-def test_trace_event_hash_is_strict() -> None:
-    with pytest.raises(ValidationError):
-        TraceEvent(attempt=1, stage="agent", ok=True, duration_ms=1.0, payload_sha256="not-a-hash")
-    event = TraceEvent(
-        attempt=1,
-        stage="agent",
-        ok=True,
-        duration_ms=1.0,
-        payload_sha256="a" * 64,
-        usage=Usage(model="m", prompt_tokens=1, completion_tokens=1, cost_usd=0.0, latency_ms=1.0),
-    )
-    assert event.usage is not None
-    assert event.usage.price_known is True
-
-
-def test_totals_allow_zero_attempts_when_the_input_was_rejected() -> None:
-    totals = Totals(latency_ms=1.0, attempts=0, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)
-    assert totals.attempts == 0
-
-
-def test_totals_reject_negative_attempts() -> None:
-    with pytest.raises(ValidationError):
-        Totals(latency_ms=1.0, attempts=-1, prompt_tokens=0, completion_tokens=0, cost_usd=0.0)
-
-
-def test_a_shadow_result_must_state_whether_it_would_block() -> None:
-    with pytest.raises(ValidationError, match="must state would_have_blocked"):
-        RunResult[Output](
-            case_id="case-1",
-            mode="shadow",
-            status="passed",
-            output=Output(value=1),
-            totals=totals(),
-        )
-
-
-def test_would_have_blocked_must_match_the_status() -> None:
-    with pytest.raises(ValidationError, match="must match the status"):
-        RunResult[Output](
-            case_id="case-1",
-            mode="shadow",
-            status="passed",
-            output=Output(value=1),
-            would_have_blocked=True,
-            totals=totals(),
-        )
-
-
-def test_would_have_blocked_is_only_meaningful_in_shadow_mode() -> None:
-    with pytest.raises(ValidationError, match="only meaningful in shadow"):
-        RunResult[Output](
-            case_id="case-1",
-            mode="guarded",
-            status="passed",
-            output=Output(value=1),
-            would_have_blocked=False,
-            totals=totals(),
-        )
-
-
-def test_shadow_results_never_block_while_guarded_ones_do() -> None:
-    shadow = RunResult[Output](
-        case_id="case-1",
-        mode="shadow",
-        status="escalated",
-        escalation_reason="critical_issue",
-        would_have_blocked=True,
-        totals=totals(),
-    )
-    guarded = RunResult[Output](
-        case_id="case-1",
-        mode="guarded",
-        status="escalated",
-        escalation_reason="critical_issue",
-        totals=totals(),
+def finding(
+    finding_id: str = "R1",
+    *,
+    status: str = "confirmed",
+    severity: str = "major",
+    requirement: str | None = None,
+) -> Finding:
+    return Finding(
+        id=finding_id,
+        title=finding_id,
+        kind="defect",
+        status=status,  # type: ignore[arg-type]
+        severity=severity,  # type: ignore[arg-type]
+        source="reviewer",
+        requirement=requirement,
     )
 
-    assert shadow.blocking is False
-    assert guarded.blocking is True
 
-
-def test_result_survives_a_json_round_trip() -> None:
-    result = RunResult[Output](
-        case_id="case-1",
-        mode="guarded",
-        status="passed_after_retry",
-        output=Output(value=7),
-        totals=totals(attempts=2),
-        trace=[
-            TraceEvent(attempt=1, stage="parse", ok=False, duration_ms=0.5, notes="P1_BAD_JSON")
-        ],
+def test_a_promise_with_passing_checks_is_covered() -> None:
+    ctx = context(
+        requirements=[ContextItem(id="R1", title="t", status="approved", checks=["tests"])]
     )
-    restored = RunResult[Output].model_validate_json(result.model_dump_json())
-    assert restored == result
+
+    (row,) = build_trace(ctx, run(check()), [])
+
+    assert row.status == "covered"
+    assert row.checks == ["tests"]
+
+
+def test_a_failed_check_fails_the_promise() -> None:
+    ctx = context(
+        requirements=[ContextItem(id="R1", title="t", status="approved", checks=["tests"])]
+    )
+
+    (row,) = build_trace(ctx, run(check(status="failed")), [])
+
+    assert row.status == "failed"
+
+
+def test_a_confirmed_finding_fails_the_promise_it_cites() -> None:
+    ctx = context(
+        requirements=[ContextItem(id="R1", title="t", status="approved", checks=["tests"])]
+    )
+
+    (row,) = build_trace(ctx, run(check()), [finding(requirement="R1")])
+
+    assert row.status == "failed"
+    assert row.findings == ["R1"]
+
+
+def test_an_unconfirmed_link_does_not_fail_a_promise() -> None:
+    ctx = context(
+        requirements=[ContextItem(id="R1", title="t", status="approved", checks=["tests"])]
+    )
+
+    (row,) = build_trace(ctx, run(check()), [finding(status="unverified", requirement="R1")])
+
+    assert row.status == "covered"
+
+
+def test_checks_that_did_not_run_are_not_a_pass() -> None:
+    ctx = context(
+        requirements=[ContextItem(id="R1", title="t", status="approved", checks=["tests"])]
+    )
+
+    (row,) = build_trace(ctx, run(check(status="skipped")), [])
+
+    assert row.status == "not-run"
+
+
+def test_a_promise_without_a_check_is_unchecked() -> None:
+    ctx = context(requirements=[ContextItem(id="R1", title="t", status="approved")])
+
+    (row,) = build_trace(ctx, run(check()), [])
+
+    assert row.status == "unchecked"
+
+
+def test_only_approved_promises_are_traced() -> None:
+    ctx = context(
+        requirements=[
+            ContextItem(id="R1", title="agreed", status="approved", checks=["tests"]),
+            ContextItem(id="R2", title="later", status="proposed", checks=["tests"]),
+            ContextItem(id="R3", title="gone", status="superseded", checks=["tests"]),
+        ]
+    )
+
+    rows = build_trace(ctx, run(check()), [])
+
+    assert [row.id for row in rows] == ["R1"]
+
+
+def test_invariants_are_traced_too() -> None:
+    ctx = context(invariants=[ContextItem(id="I1", title="no shell", status="approved", checks=[])])
+
+    (row,) = build_trace(ctx, run(check()), [])
+
+    assert row.id == "I1"
+    assert row.status == "unchecked"
+
+
+def test_a_confirmed_finding_without_a_requirement_is_named() -> None:
+    findings = [finding("R1"), finding("R2", requirement="R1")]
+
+    assert [item.id for item in unlinked_findings(findings)] == ["R1"]
+
+
+def test_the_summary_counts_each_state() -> None:
+    ctx = context(
+        requirements=[
+            ContextItem(id="R1", title="a", status="approved", checks=["tests"]),
+            ContextItem(id="R2", title="b", status="approved"),
+        ]
+    )
+
+    rows = build_trace(ctx, run(check()), findings=[finding(requirement="R2")])
+
+    assert summarise(rows) == "2 approved, 1 covered, 1 failed"
+
+
+# --- the report --------------------------------------------------------------------------
+
+
+def test_the_report_traces_promises_when_context_is_present() -> None:
+    ctx = context(
+        requirements=[
+            ContextItem(id="R1", title="the verdict is code", status="approved", checks=["tests"]),
+            ContextItem(id="R2", title="docs are honest", status="approved"),
+        ]
+    )
+    record = run(check())
+    verdict = decide(record)
+    report = build_report(record, [], verdict, context=ctx)
+
+    text = render_markdown(report)
+
+    assert "## Traceability" in text
+    assert "2 approved" in text
+    assert "| **R1** — the verdict is code | covered | `tests` | — |" in text
+    assert "| **R2** — docs are honest | unchecked | — | — |" in text
+
+
+def test_a_report_without_context_has_no_traceability_section() -> None:
+    report = build_report(run(check()), [], decide(run(check())))
+
+    assert "## Traceability" not in render_markdown(report)
+
+
+def test_a_verdict_reason_names_the_requirement() -> None:
+    record = run(check())
+    verdict = decide(record, [finding(severity="blocking", requirement="R1")])
+
+    assert verdict.reasons[-1].detail == "R1: R1 (requirement R1)"
+
+
+def test_confirmed_findings_without_a_link_are_named_in_the_report() -> None:
+    ctx = context(requirements=[ContextItem(id="R1", title="t", status="approved")])
+    record = run(check())
+    verdict = decide(record, [finding()])
+    report = build_report(record, [finding()], verdict, context=ctx)
+
+    assert "Confirmed findings with no approved requirement: **R1**." in render_markdown(report)
+
+
+# --- the reviewer ------------------------------------------------------------------------
+
+
+DIFF = (
+    "diff --git a/app.py b/app.py\n"
+    "--- a/app.py\n"
+    "+++ b/app.py\n"
+    "@@ -1 +1 @@\n"
+    "-x = 1\n"
+    "+x = 2\n"
+)
+
+
+def proposal(**overrides: object) -> ProposedFinding:
+    base: dict[str, object] = {
+        "file": "app.py",
+        "line": 1,
+        "quote": "x = 2",
+        "title": "x is wrong",
+        "severity": "major",
+        "kind": "defect",
+    }
+    base.update(overrides)
+    return ProposedFinding(**base)  # type: ignore[arg-type]
+
+
+def test_the_prompt_lists_approved_requirements() -> None:
+    text = build_user_message(
+        parse_diff(DIFF), max_bytes=10_000, requirements=[("R1", "the verdict is code")]
+    )
+
+    assert "Approved requirements" in text
+    assert "- R1: the verdict is code" in text
+
+
+def test_a_link_to_an_approved_requirement_is_kept(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 2\n", encoding="utf-8")
+
+    found = anchor(
+        1, proposal(requirement="R1"), tmp_path, parse_diff(DIFF), approved={"R1"}
+    )
+
+    assert found.requirement == "R1"
+
+
+def test_a_link_to_a_proposed_requirement_is_dropped(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 2\n", encoding="utf-8")
+
+    found = anchor(
+        1, proposal(requirement="R9"), tmp_path, parse_diff(DIFF), approved={"R1"}
+    )
+
+    assert found.requirement is None
+    assert "not approved" in found.detail
+
+
+def test_a_link_without_context_is_dropped(tmp_path: Path) -> None:
+    (tmp_path / "app.py").write_text("x = 2\n", encoding="utf-8")
+
+    found = anchor(1, proposal(requirement="R1"), tmp_path, parse_diff(DIFF))
+
+    assert found.requirement is None
+    assert "no project context" in found.detail
+
+
+# --- the command -------------------------------------------------------------------------
+
+
+def project(tmp_path: Path) -> Path:
+    root = tmp_path / "project"
+    (root / ".qagent").mkdir(parents=True)
+    (root / ".qagent" / "policy.toml").write_text(
+        'name = "p"\n[[checks]]\nid = "tests"\nargv = ["true"]\n', encoding="utf-8"
+    )
+    (root / ".qagent" / "context.toml").write_text(
+        'schema_version = 1\n[[requirements]]\nid = "R1"\ntitle = "the verdict is code"\n'
+        'status = "approved"\nchecks = ["tests"]\n',
+        encoding="utf-8",
+    )
+    return root
+
+
+def test_the_verify_command_prints_the_trace_line(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = project(tmp_path)
+
+    code = main(["verify", "--repo", str(root), "--out", str(tmp_path / "run")])
+
+    assert code == 0
+    assert "traceability: 1 approved, 1 covered" in capsys.readouterr().out
+
+
+def test_the_report_carries_the_context_it_used(tmp_path: Path) -> None:
+    root = project(tmp_path)
+
+    main(["verify", "--repo", str(root), "--out", str(tmp_path / "run")])
+
+    report = json.loads((tmp_path / "run" / "report.json").read_text(encoding="utf-8"))
+    assert report["context"]["requirements"][0]["id"] == "R1"
+    assert "## Traceability" in (tmp_path / "run" / "report.md").read_text(encoding="utf-8")

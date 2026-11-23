@@ -43,7 +43,14 @@ from .context import (
     write_profile,
 )
 from .evals import Dataset, compare, evaluate, write_diff_markdown, write_json, write_markdown
-from .orchestrator import execute, exit_code_for, plan_lines, read_request, render_show
+from .orchestrator import (
+    execute,
+    exit_code_for,
+    plan_lines,
+    read_request,
+    render_show,
+    trace_line,
+)
 from .orchestrator import show as read_run
 from .project import ProjectConfig, build_guarded, validate
 from .runtime.facade import GuardedAgent
@@ -448,6 +455,9 @@ def _run_verify(args: argparse.Namespace) -> int:
                 f"{review.unverified} unverified, "
                 f"{review.prompt_tokens}+{review.completion_tokens} tokens"
             )
+    traced = trace_line(report)
+    if traced is not None:
+        print(traced)
     print(f"verdict: {report.verdict.headline}")
     for reason in report.verdict.reasons:
         print(f"  {reason.code}: {reason.detail}")

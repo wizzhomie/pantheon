@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Sequence
 from pathlib import Path
 
 from ..contracts.findings import Finding, FindingSeverity, Location
@@ -30,6 +31,8 @@ async def review_diff(
     root: Path,
     client: LLMClient,
     config: ReviewerConfig,
+    *,
+    requirements: Sequence[tuple[str, str]] = (),
 ) -> ReviewOutcome:
     """Ask the model about the change, then check every answer against the repository.
 
@@ -38,7 +41,9 @@ async def review_diff(
     not happen.
     """
     started = time.monotonic()
-    user_message = build_user_message(diff, max_bytes=config.max_diff_bytes)
+    user_message = build_user_message(
+        diff, max_bytes=config.max_diff_bytes, requirements=requirements
+    )
     request = LLMRequest(
         model=config.model,
         messages=[
@@ -74,8 +79,10 @@ async def review_diff(
             spent_seconds=round(time.monotonic() - started, 3),
         )
 
+    approved = {item_id for item_id, _ in requirements}
     findings = [
-        anchor(index + 1, proposal, root, diff) for index, proposal in enumerate(proposed.findings)
+        anchor(index + 1, proposal, root, diff, approved=approved)
+        for index, proposal in enumerate(proposed.findings)
     ]
     return ReviewOutcome(
         status="ok",
@@ -85,6 +92,7 @@ async def review_diff(
         proposed=len(findings),
         confirmed=sum(1 for finding in findings if finding.status == "confirmed"),
         unverified=sum(1 for finding in findings if finding.status == "unverified"),
+        linked=sum(1 for finding in findings if finding.requirement is not None),
         findings=findings,
         prompt_tokens=response.prompt_tokens,
         completion_tokens=response.completion_tokens,
@@ -92,17 +100,32 @@ async def review_diff(
     )
 
 
-def anchor(index: int, proposal: ProposedFinding, root: Path, diff: Diff) -> Finding:
-    """Turn a proposal into a finding, and say how much of it the repository confirms."""
+def anchor(
+    index: int,
+    proposal: ProposedFinding,
+    root: Path,
+    diff: Diff,
+    *,
+    approved: set[str] | None = None,
+) -> Finding:
+    """Turn a proposal into a finding, and say how much of it the repository confirms.
+
+    ``approved`` is the vocabulary of requirements the model was allowed to cite. A link to
+    anything else is dropped, not trusted: the contour may only trace to promises a human
+    approved (ADR-004).
+    """
     root = Path(root).resolve()
     severity, adjusted = _severity(proposal)
     location = Location(file=proposal.file, line=proposal.line, quote=proposal.quote)
     problem = _anchor_problem(proposal, root, diff)
+    requirement, link_note = _requirement(proposal, approved)
     detail = proposal.detail
     if adjusted:
         detail = f"{detail} (severity lowered: a {proposal.kind} cannot block)".strip()
     if problem is not None:
         detail = f"{detail} (anchor: {problem})".strip()
+    if link_note is not None:
+        detail = f"{detail} ({link_note})".strip()
     return Finding(
         id=f"R{index}",
         title=proposal.title,
@@ -112,7 +135,21 @@ def anchor(index: int, proposal: ProposedFinding, root: Path, diff: Diff) -> Fin
         source="reviewer",
         detail=detail,
         location=location,
+        requirement=requirement,
     )
+
+
+def _requirement(
+    proposal: ProposedFinding, approved: set[str] | None
+) -> tuple[str | None, str | None]:
+    """Keep a requirement link only when it names an approved promise."""
+    if proposal.requirement is None:
+        return None, None
+    if approved is None:
+        return None, "requirement link dropped: no project context"
+    if proposal.requirement not in approved:
+        return None, f"requirement {proposal.requirement} is not approved"
+    return proposal.requirement, None
 
 
 def _severity(proposal: ProposedFinding) -> tuple[FindingSeverity, bool]:

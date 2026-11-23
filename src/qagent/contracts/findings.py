@@ -82,6 +82,11 @@ class Finding(StrictModel):
     location: Location | None = Field(
         default=None, description="unset for a failed check: a command has no line"
     )
+    requirement: str | None = Field(
+        default=None,
+        max_length=12,
+        description="id of the approved requirement this finding violates, when one is known",
+    )
     evidence: list[str] = Field(
         default_factory=list,
         description="check ids and artifact paths that support the finding",

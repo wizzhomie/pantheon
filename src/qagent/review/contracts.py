@@ -31,6 +31,11 @@ class ProposedFinding(StrictModel):
     title: str = Field(min_length=1, max_length=200)
     severity: ProposedSeverity
     kind: ProposedKind = "defect"
+    requirement: str | None = Field(
+        default=None,
+        max_length=12,
+        description="id of the approved requirement this finding violates, if any",
+    )
     detail: str = Field(default="", max_length=2000)
 
 
@@ -64,6 +69,9 @@ class ReviewOutcome(StrictModel):
     proposed: int = Field(default=0, ge=0)
     confirmed: int = Field(default=0, ge=0, description="findings the anchor accepted")
     unverified: int = Field(default=0, ge=0, description="proposals the anchor refused")
+    linked: int = Field(
+        default=0, ge=0, description="findings tied to an approved requirement"
+    )
     findings: list[Finding] = Field(default_factory=list)
     prompt_tokens: int = Field(default=0, ge=0)
     completion_tokens: int = Field(default=0, ge=0)

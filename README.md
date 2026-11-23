@@ -120,6 +120,7 @@ engine turns that evidence into a verdict.
 | Independent reviewer | a model reads the diff and proposes findings; the anchor confirms only a file in the change, a line that exists, and a verbatim quote | `qagent verify --diff ... --reviewer ...`; an unverified finding never blocks |
 | Project knowledge | requirements, invariants, milestones and the architecture baseline/target in `.qagent/context.toml`, each with `approved` / `proposed` / `superseded` | `qagent context --check`; only approved items bind |
 | Orchestrator | one request (policy, change, reviewer, budget) becomes one stored run, and the run can be read back and explained | `qagent verify --request request.toml`, `qagent show <run>` |
+| Traceability | each approved requirement or invariant is traced to its checks, the findings that cite it, and one of four states: covered, failed, not-run, unchecked | a `## Traceability` section in every report; the reviewer may only cite approved ids |
 | Findings and verdict | failures become structured findings; four verdicts computed by code from the checks, with the reason for each | `qagent verify`; `HOLD` is exit 1, `INCONCLUSIVE` is exit 2 |
 | Verification report | verdict, reasons, every check with its evidence, findings, and the list of what was **not** checked | `report.md`, rendered from `report.json` |
 
@@ -228,7 +229,7 @@ new role is actually used.
 | 3 | Deterministic engine: run project tools, capture evidence, statuses | done — `qagent run` |
 | 4 | Independent reviewer: change analysis, architecture, tests, risk | done — `qagent verify --diff` with a reviewer |
 | 5 | Findings, verdict, verification report | done — `qagent verify` |
-| 6 | Architecture contracts and traceability | planned |
+| 6 | Architecture contracts and traceability | done — requirement → check → finding → verdict in the report |
 | 7 | Verification evolution: proposed rules, validation, promotion | planned |
 | 8 | Risk-based plans, sandbox, mutation testing, holdout evaluation | planned |
 

@@ -20,7 +20,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import cast
 
-from .context import ProjectProfile, detect_profile, read_profile
+from .context import ProjectContext, ProjectProfile, detect_profile, read_context, read_profile
 from .llm.base import LLMClient
 from .review import Diff, ReviewerConfig, ReviewOutcome, parse_diff, review_diff
 from .verify import (
@@ -36,6 +36,7 @@ from .verify import (
     run_policy,
     write_report,
 )
+from .verify.trace import build_trace, summarise
 
 REQUEST_JSON = "request.json"
 REPORT_JSON = "report.json"
@@ -64,11 +65,19 @@ async def execute(
     policy = read_policy(_path(root, request.policy))
     profile = _profile(root)
 
+    context = _context(root)
+    requirements = _requirements(context)
     review: ReviewOutcome | None = None
     gaps: list[str] = []
     if request.needs_review:
         diff = load_diff(request, root)
-        review = await review_diff(diff, root, _client(request), _reviewer_config(request, root))
+        review = await review_diff(
+            diff,
+            root,
+            _client(request),
+            _reviewer_config(request, root),
+            requirements=requirements,
+        )
         if review.status == "failed":
             gaps.append(f"the reviewer did not run: {review.error}")
 
@@ -78,10 +87,20 @@ async def execute(
     if review is not None:
         findings.extend(review.findings)
     verdict = decide(run, findings, gaps=gaps)
-    report = build_report(run, findings, verdict, review, request)
+    report = build_report(run, findings, verdict, review, request, context)
     (target / REQUEST_JSON).write_text(request.model_dump_json(indent=2) + "\n", encoding="utf-8")
     write_report(report, target)
     return report, target
+
+
+def trace_line(report: VerificationReport) -> str | None:
+    """One line about approved promises, when the project has any."""
+    if report.context is None:
+        return None
+    rows = build_trace(report.context, report.run, report.findings)
+    if not rows:
+        return None
+    return f"traceability: {summarise(rows)}"
 
 
 def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
@@ -153,6 +172,9 @@ def render_show(report: VerificationReport) -> str:
                 f"  review: {report.review.model}, {report.review.proposed} proposed, "
                 f"{report.review.confirmed} confirmed"
             )
+    traced = trace_line(report)
+    if traced is not None:
+        lines.append(f"  {traced}")
     gaps = [
         check
         for check in run.checks
@@ -197,6 +219,24 @@ def _client(request: VerificationRequest) -> LLMClient:
     if not callable(getattr(client, "complete", None)):
         raise ValueError(f"{request.reviewer} must return an LLMClient with a complete() method")
     return cast(LLMClient, client)
+
+
+def _context(root: Path) -> ProjectContext | None:
+    try:
+        return read_context(root)
+    except FileNotFoundError:
+        return None
+
+
+def _requirements(context: ProjectContext | None) -> tuple[tuple[str, str], ...]:
+    """The approved promises the reviewer may cite, as (id, title) pairs."""
+    if context is None:
+        return ()
+    return tuple(
+        (item.id, item.title)
+        for item in (*context.requirements, *context.invariants)
+        if item.status == "approved"
+    )
 
 
 def _profile(root: Path) -> ProjectProfile | None:

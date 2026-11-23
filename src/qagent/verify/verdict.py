@@ -134,7 +134,7 @@ def decide(
     if failed or blocking:
         reasons = [_failure_reason(check) for check in failed]
         reasons.extend(
-            VerdictReason(code="blocking-finding", detail=f"{finding.id}: {finding.title}")
+            VerdictReason(code="blocking-finding", detail=_describe(finding))
             for finding in blocking
             if finding.source != "check"  # the failed check already gave its own reason
         )
@@ -166,14 +166,14 @@ def _shippable(findings: Sequence[Finding]) -> Verdict:
             reasons.append(
                 VerdictReason(
                     code="unresolved-finding",
-                    detail=f"{finding.id} ({finding.status}): {finding.title}",
+                    detail=_describe(finding, suffix=f" ({finding.status})"),
                 )
             )
         elif finding.status == "confirmed":
             reasons.append(
                 VerdictReason(
                     code="non-blocking-finding",
-                    detail=f"{finding.id} ({finding.severity}): {finding.title}",
+                    detail=_describe(finding, suffix=f" ({finding.severity})"),
                 )
             )
     if reasons:
@@ -187,6 +187,12 @@ def _shippable(findings: Sequence[Finding]) -> Verdict:
             )
         ],
     )
+
+
+def _describe(finding: Finding, suffix: str = "") -> str:
+    """A finding and its trace: the promise it breaks, when the project approved one."""
+    trace = f" (requirement {finding.requirement})" if finding.requirement else ""
+    return f"{finding.id}{suffix}: {finding.title}{trace}"
 
 
 def _failure_reason(check: CheckRun) -> VerdictReason:

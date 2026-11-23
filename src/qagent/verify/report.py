@@ -18,10 +18,12 @@ from pathlib import Path
 
 from pydantic import Field, model_validator
 
+from ..context.knowledge import ProjectContext
 from ..contracts.base import StrictModel
 from ..review.contracts import ReviewOutcome
 from .contracts import VerificationRequest, VerificationRun
 from .findings import Finding
+from .trace import build_trace, summarise, unlinked_findings
 from .verdict import Verdict
 
 REPORT_VERSION = 1
@@ -49,6 +51,9 @@ class VerificationReport(StrictModel):
     request: VerificationRequest | None = Field(
         default=None, description="what was asked for, so the run can be explained later"
     )
+    context: ProjectContext | None = Field(
+        default=None, description="the approved promises this run was judged against"
+    )
     review: ReviewOutcome | None = Field(
         default=None, description="the reviewer's proposals and their anchors, when one ran"
     )
@@ -71,9 +76,15 @@ def build_report(
     verdict: Verdict,
     review: ReviewOutcome | None = None,
     request: VerificationRequest | None = None,
+    context: ProjectContext | None = None,
 ) -> VerificationReport:
     return VerificationReport(
-        run=run, findings=findings, verdict=verdict, review=review, request=request
+        run=run,
+        findings=findings,
+        verdict=verdict,
+        review=review,
+        request=request,
+        context=context,
     )
 
 
@@ -101,6 +112,7 @@ def render_markdown(report: VerificationReport) -> str:
         _review_section(report.review),
         _findings_section(report.findings),
         _quotes_section(report.findings),
+        _trace_section(report),
         _gaps_section(run, report.review),
         "## How this verdict was reached\n\n"
         "The verdict is computed from the evidence above by code, not by a model: a failed or\n"
@@ -240,6 +252,36 @@ def _quotes_section(findings: list[Finding]) -> str:
         lines.append(f"> {finding.location.quote}")
         lines.append("")
     return "\n".join(lines).rstrip()
+
+
+def _trace_section(report: VerificationReport) -> str:
+    """Every approved promise and what this run knows about it — the "why" behind the checks."""
+    if report.context is None:
+        return ""
+    rows = build_trace(report.context, report.run, report.findings)
+    if not rows:
+        return ""
+    lines = [
+        "## Traceability",
+        "",
+        f"{summarise(rows)}.",
+        "",
+        "| Requirement | Status | Checks | Findings |",
+        "|---|---|---|---|",
+    ]
+    for row in rows:
+        checks = ", ".join(f"`{check}`" for check in row.checks) or "—"
+        findings = ", ".join(row.findings) or "—"
+        lines.append(f"| **{row.id}** — {row.title} | {row.status} | {checks} | {findings} |")
+    unlinked = unlinked_findings(report.findings)
+    if unlinked:
+        lines.append("")
+        lines.append(
+            "Confirmed findings with no approved requirement: "
+            + ", ".join(f"**{finding.id}**" for finding in unlinked)
+            + "."
+        )
+    return "\n".join(lines)
 
 
 def _gaps_section(run: VerificationRun, review: ReviewOutcome | None) -> str:
