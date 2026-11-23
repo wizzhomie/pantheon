@@ -204,12 +204,22 @@ def render_bench(report: BenchReport) -> str:
         elif case.false_alarm:
             mark = "**false alarm**"
         else:
-            mark = f"**{case.actual}**"
+            mark = "**off the answer**"
         reason = case.reasons[0] if case.reasons else "—"
         if case.expected == "finding":
             reason = f"{case.confirmed} confirmed finding(s); {reason}"
         lines.append(
             f"| `{case.id}` | {case.expected} | {case.actual} | {mark} | {reason} |"
+        )
+    unmatched = [case for case in cases if not case.matched]
+    if unmatched:
+        names = ", ".join(f"`{case.id}`" for case in unmatched)
+        lines.extend(
+            [
+                "",
+                f"Result: {len(cases) - len(unmatched)} of {len(cases)} cases matched "
+                f"the suite; {names} did not.",
+            ]
         )
     lines.extend(
         [

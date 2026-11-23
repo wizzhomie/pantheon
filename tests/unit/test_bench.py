@@ -113,6 +113,25 @@ def test_a_miss_and_a_false_alarm_are_different_numbers() -> None:
     assert report.passed is False
 
 
+def test_a_report_names_every_case_that_did_not_match() -> None:
+    ok = CaseResult(id="ok", expected="hold", actual="hold", matched=True)
+    off = CaseResult(id="odd", expected="pass", actual="pass_with_conditions", matched=False)
+    report = BenchReport(
+        suite="test", reviewer=LABEL, started_at=datetime.now(UTC), cases=[ok, off]
+    )
+
+    markdown = render_bench(report)
+
+    assert "Result: 1 of 2 cases matched the suite; `odd` did not." in markdown
+    assert "**off the answer**" in markdown
+
+
+def test_a_matching_report_has_no_result_line() -> None:
+    report, _ = asyncio.run(run_suite(SUITE, reviewer=SCRIPTED, model=LABEL))
+
+    assert "Result:" not in render_bench(report)
+
+
 def test_the_report_is_a_rendering_of_the_json(tmp_path: Path) -> None:
     report, _ = asyncio.run(run_suite(SUITE, reviewer=SCRIPTED, model=LABEL))
     json_path, md_path = write_bench(report, tmp_path)
@@ -153,9 +172,10 @@ def test_the_cli_stops_on_a_wrong_committed_answer(
     assert "MISS" in output
 
 
-def test_the_committed_bench_is_the_rendering_of_its_json() -> None:
+@pytest.mark.parametrize("name", ["holdout", "holdout_reviewer", "holdout_all"])
+def test_a_committed_bench_is_the_rendering_of_its_json(name: str) -> None:
     """The committed pair must not drift: a bench report is evidence, not a note."""
-    target = Path(__file__).resolve().parents[2] / "reports" / "holdout"
+    target = Path(__file__).resolve().parents[2] / "reports" / name
     stored = BenchReport.model_validate(
         json.loads((target / "bench.json").read_text(encoding="utf-8"))
     )

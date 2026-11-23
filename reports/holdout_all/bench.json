@@ -1,0 +1,120 @@
+{
+  "suite": "holdout",
+  "reviewer": "deepseek-flash",
+  "started_at": "2026-11-23T07:16:49.773688Z",
+  "cases": [
+    {
+      "id": "control-clean",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 830,
+      "completion_tokens": 32,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 3.993
+    },
+    {
+      "id": "control-unrelated",
+      "expected": "pass",
+      "actual": "pass",
+      "matched": true,
+      "confirmed": 0,
+      "prompt_tokens": 359,
+      "completion_tokens": 23,
+      "cached": false,
+      "reasons": [
+        "checks-passed: every required check passed and nothing was left unresolved"
+      ],
+      "spent_seconds": 2.283
+    },
+    {
+      "id": "mutant-arithmetic",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 388,
+      "completion_tokens": 160,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check tests failed: exit 1, expected 0",
+        "blocking-finding: R1: Quantity is ignored in total price"
+      ],
+      "spent_seconds": 2.674
+    },
+    {
+      "id": "mutant-sql",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 353,
+      "completion_tokens": 143,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check sql failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 2.648
+    },
+    {
+      "id": "mutant-types",
+      "expected": "hold",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 1,
+      "prompt_tokens": 417,
+      "completion_tokens": 177,
+      "cached": false,
+      "reasons": [
+        "check-failed: required check types failed: exit 1, expected 0"
+      ],
+      "spent_seconds": 3.123
+    },
+    {
+      "id": "reviewer-injection",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 506,
+      "completion_tokens": 411,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: R1: SQL injection via interpolated customer name"
+      ],
+      "spent_seconds": 4.115
+    },
+    {
+      "id": "reviewer-percent",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 2,
+      "prompt_tokens": 438,
+      "completion_tokens": 282,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: R1: Discount subtracts percent as an absolute amount, not a percentage"
+      ],
+      "spent_seconds": 3.78
+    },
+    {
+      "id": "reviewer-swallow",
+      "expected": "finding",
+      "actual": "hold",
+      "matched": true,
+      "confirmed": 3,
+      "prompt_tokens": 507,
+      "completion_tokens": 387,
+      "cached": false,
+      "reasons": [
+        "blocking-finding: R1: Blanket exception handler turns scan failures into a passing check"
+      ],
+      "spent_seconds": 4.047
+    }
+  ]
+}
