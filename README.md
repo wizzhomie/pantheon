@@ -10,13 +10,25 @@ afterthought here; it is the part that already works, and it is where the projec
 
 | Part | State |
 |---|---|
-| **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 653 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
-| **Box** — one project, one container, one ledger | designed, not built |
+| **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
+| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box and `pantheon status` describes the project, its policy and its requirements; the container, the ledger and the agent are not built — `pantheon up` refuses |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
 | **Aurelius** — architecture model and deterministic drift check | designed, not built |
 | **Augustus** — orchestration inside the box | designed, not built |
 
-The table is the honest status, not a roadmap promise: only the first row is running code today.
+The table is the honest status, not a roadmap promise: the first two rows are running code today,
+and the box row is only the half of it that can be built before there is an agent to put inside.
+
+## Using the box
+
+```console
+$ ./bin/pantheon new trajan          # a box next to the project, project mounted by path
+$ ./bin/pantheon status              # what the project promises, read, never executed
+$ ./bin/pantheon up                  # refuses: stage 1.1 has no container to start
+```
+
+The harness is standard library only and needs no install: `bin/pantheon` runs from the checkout on
+the system Python. Its tests are the other half of `make check`.
 
 ## Why a box
 
@@ -50,9 +62,12 @@ A model may propose findings; it cannot change the verdict. That is the whole po
 
 ```
 pantheon/
+├── harness/     the box: create it, describe it; standard library only
+├── bin/pantheon the command a person types
+├── tests/       the harness's own tests
 ├── trajan/      the verification contour (Python, installable, runs on its own)
 ├── docs/        architecture discovery for the harness
-└── boxes/       created per project by the box CLI (git-ignored)
+└── boxes/       one per project, created by `pantheon new` (git-ignored)
 ```
 
 `trajan/` is deliberately a self-contained package: it can be installed and run without the harness,

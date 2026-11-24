@@ -1,0 +1,30 @@
+# Tool configuration for the harness at the repository root.
+#
+# There is no [project] table on purpose: the harness is not installed and has no
+# dependencies. It runs from the checkout with the system Python (`bin/pantheon`, or
+# `python3 -m harness`), so the box directory can be created before anything is installed
+# and so a box does not depend on the interpreter that happens to be active.
+#
+# Contracts of the monorepo itself live in trajan/ and are configured in trajan/pyproject.toml.
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+# The repository is bilingual: Russian strings in fixtures and examples are deliberate, so
+# "confusable character" warnings would be noise, not signal.
+ignore = ["RUF001", "RUF002", "RUF003"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+files = ["harness", "tests"]
