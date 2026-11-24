@@ -46,3 +46,14 @@ argv = ["python", "-m", "mypy"]
 timeout_s = 180
 requires = "mypy"
 purpose = "the strict typing is part of the contract here, not a preference"
+
+# The net under the suite: a green run that got there by deleting the failing tests is not
+# green. No `requires` on purpose — git and python are what trajan already runs on, and a
+# `requires` naming a tool the profile does not know would turn the guard into a silent
+# `not_applicable` (the profile knows pytest, ruff, mypy, not interpreters).
+[[checks]]
+id = "test-floor"
+name = "test floor"
+argv = ["python", "-m", "trajan.guards.floor", "--base", "HEAD"]
+timeout_s = 30
+purpose = "the suite may grow; the change may not take tests away to make it pass"
