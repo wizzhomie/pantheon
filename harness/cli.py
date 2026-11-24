@@ -231,6 +231,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
                 "at": task.at,
                 "verify": task.verify,
                 "record": str(task.record),
+                "unknowns": list(task.unknowns),
             }
             for task in tasks
         ]
@@ -253,6 +254,8 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         for task in tasks:
             verify = f"verify {task.verify}" if task.verify else "not verified"
             print(f"task       {task.id}  {task.state}  {task.at}  {verify}")
+        for unknown in tasks[-1].unknowns:
+            print(f"unknown    {unknown}")
     else:
         print("tasks      none dispatched yet")
     return 0
@@ -271,7 +274,11 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
             "or drop --since/--diff to run the checks only"
         )
     trajan = contour.trajan_root(args.trajan)
-    out = Path(args.out) if args.out else box.root / "artifacts" / _run_name(box.root)
+    out = (
+        Path(args.out)
+        if args.out
+        else contour.run_directory(box.root / "artifacts", datetime.now(UTC))
+    )
     result = contour.run_verify(
         box.project,
         root=trajan,
@@ -381,17 +388,6 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
-
-
-def _run_name(box_root: Path) -> str:
-    """The run directory name: it carries the moment, and never overwrites an earlier run."""
-    base = "verify-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
-    candidate = base
-    number = 2
-    while (box_root / "artifacts" / candidate).exists():
-        candidate = f"{base}-{number}"
-        number += 1
-    return candidate
 
 
 def _list(args: argparse.Namespace, root: Path) -> int:

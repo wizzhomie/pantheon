@@ -53,6 +53,8 @@ class VerifyResult:
     checks: int
     exit_code: int
     reused_from: Path | None = None
+    reviewed: bool = False
+    """Whether a reviewer read the change: a checks-only run says nothing about the change."""
 
     @property
     def passed(self) -> bool:
@@ -159,6 +161,17 @@ def run_verify(
     if evidence is not None and box_root is not None:
         _remember(out, project, policy_path, evidence, result)
     return result
+
+
+def run_directory(parent: Path, when: datetime) -> Path:
+    """A run directory that never overwrites an earlier run: the stamp, then a counter."""
+    base = "verify-" + when.strftime("%Y%m%dT%H%M%SZ")
+    candidate = base
+    number = 2
+    while (parent / candidate).exists():
+        candidate = f"{base}-{number}"
+        number += 1
+    return parent / candidate
 
 
 def digest(project: Path, policy: Path, root: Path) -> dict[str, str]:
@@ -280,30 +293,24 @@ def _file_digest(path: Path) -> str:
 
 
 def _tree_digest(project: Path) -> str:
-    """The working tree as a value: the commit, the diff against it, and untracked content.
+    """The working tree as a value: the content of every tracked and untracked file.
 
-    ``git status`` sees a new file's name but not its bytes, so untracked files are hashed
-    one by one: a change that only adds a file must not reuse a verdict about a tree without
-    it. Ignored files are not covered — a check that reads them can answer differently on the
-    same digest, which is why reuse lives in a window and says where it came from.
+    Not the commit: moving a file into a commit does not change what the checks read, and a
+    verdict about the same bytes should survive one. Ignored files are not covered — a check
+    that reads them can answer differently on the same digest, which is why reuse lives in a
+    window and says where it came from.
     """
     top = _git(project, "rev-parse", "--show-toplevel")
     if top is None:
         return _plain_digest(project)
-    # `git status` names paths from the repository root even when it runs in a subdirectory,
-    # so an untracked file is read from the top, not from the project.
+    # `git ls-files` names paths from the repository root even inside a subdirectory.
     base = Path(top.strip())
-    head = (_git(project, "rev-parse", "HEAD") or "").strip()
-    diff = _git(project, "diff", "HEAD", "--binary", "--", ".") or ""
-    status = _git(project, "status", "--porcelain=v1", "--untracked-files=all", "--", ".") or ""
-    parts = [f"head {head}", f"diff {_sha(diff)}", f"status {status}"]
-    for line in status.splitlines():
-        if not line.startswith("?? "):
-            continue
-        relative = line[3:].strip().strip('"')
-        path = base / relative
-        if path.is_file():
-            parts.append(f"untracked {relative} {_file_digest(path)}")
+    tracked = _git(project, "ls-files", "-z", "--", ".") or ""
+    untracked = (
+        _git(project, "ls-files", "--others", "--exclude-standard", "-z", "--", ".") or ""
+    )
+    paths = sorted({item for item in (tracked + "\0" + untracked).split("\0") if item})
+    parts = [f"{relative} {_file_digest(base / relative)}" for relative in paths]
     return _sha("\n".join(parts))
 
 
@@ -355,6 +362,8 @@ def read_report(path: Path, exit_code: int = 0) -> VerifyResult:
     )
     findings = data.get("findings", [])
     blocking = verdict.get("blocking_findings", [])
+    request = data.get("request")
+    reviewed = isinstance(request, dict) and request.get("reviewer") is not None
     return VerifyResult(
         run=path.parent,
         report=path,
@@ -365,6 +374,7 @@ def read_report(path: Path, exit_code: int = 0) -> VerifyResult:
         blocking=len(blocking) if isinstance(blocking, list) else 0,
         checks=len(run.get("checks", [])) if isinstance(run.get("checks"), list) else 0,
         exit_code=exit_code,
+        reviewed=reviewed,
     )
 
 

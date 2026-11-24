@@ -138,6 +138,18 @@ def test_a_changed_tree_runs_the_checks_again(
 
 
 @requires_trajan
+def test_a_commit_does_not_invalidate_reuse(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    verify(box, capsys)
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "empty",
+        "--allow-empty")
+    _, second = verify(box, capsys)
+    assert second["reused_from"] is not None, "a commit moves the bytes nowhere"
+
+
+@requires_trajan
 def test_an_untracked_file_changes_the_digest(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

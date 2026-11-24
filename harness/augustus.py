@@ -558,7 +558,7 @@ def resume(
 def _verify(
     box: boxes.Box, directory: Path, stamp: datetime, trajan_root: Path, trajan_python: Path
 ) -> contour.VerifyResult:
-    out = directory / f"verify-{stamp:%Y%m%dT%H%M%SZ}"
+    out = contour.run_directory(directory, stamp)
     return contour.run_verify(
         box.project, root=trajan_root, python=trajan_python, out=out, box_root=box.root
     )
@@ -709,6 +709,7 @@ class TaskSummary:
     at: str
     verify: str | None
     record: Path
+    unknowns: tuple[str, ...] = ()
 
 
 def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
@@ -728,6 +729,7 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
         except (OSError, json.JSONDecodeError):
             continue
         verify = data.get("verify")
+        unknowns = data.get("unknowns")
         found.append(
             TaskSummary(
                 id=str(data.get("task", task_dir.name)),
@@ -735,6 +737,9 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
                 at=str(data.get("at", "")) or records[-1].stem.removeprefix("dispatch-"),
                 verify=str(verify.get("status")) if isinstance(verify, dict) else None,
                 record=records[-1],
+                unknowns=tuple(str(item) for item in unknowns)
+                if isinstance(unknowns, list)
+                else (),
             )
         )
     return tuple(found[-limit:])
@@ -784,6 +789,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         },
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
+        "unknowns": _unknowns(result),
         "notes": list(result.notes),
         "outbox": None if result.outbox is None else str(result.outbox),
         "exit_code": result.exit_code,
@@ -896,6 +902,12 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- write gate: {_attempt_line(result.attempt)}",
         f"- verification: {_verify_line(result.verify)}",
         "",
+        "## what we did not check",
+    ]
+    unknowns = _unknowns(result)
+    lines.extend(f"- {unknown}" for unknown in unknowns) if unknowns else lines.append("- none")
+    lines += [
+        "",
         "## open questions",
     ]
     questions = _questions(result)
@@ -907,6 +919,45 @@ def _summary(result: Dispatch, when: datetime) -> str:
     lines.extend(_cost_lines(result))
     lines += ["", f"record: {result.directory}"]
     return "\n".join(lines) + "\n"
+
+
+def _unknowns(result: Dispatch) -> list[str]:
+    """What this dispatch did not establish, said before anyone reads the word "closed".
+
+    A verdict is only as wide as what it looked at: a checks-only run says nothing about the
+    change, a reused run says nothing new at all, and an unchecked architecture is not a
+    passing one. These lines exist so "closed" cannot be read as "everything was seen".
+    """
+    unknown: list[str] = []
+    task = result.task
+    if result.arch is not None and result.arch.status != "ok":
+        unknown.append(f"the architecture was not confirmed ({result.arch.status})")
+    if result.verify is None:
+        if "verify" in result.stages:
+            unknown.append("verification was routed but left no result")
+        else:
+            unknown.append("verification was not routed: nothing was checked")
+    else:
+        if result.verify.reused_from is not None:
+            unknown.append(
+                "the checks did not run in this dispatch: the verdict is the one computed "
+                f"earlier for the same tree ({result.verify.reused_from})"
+            )
+        if not result.verify.reviewed:
+            unknown.append(
+                "no reviewer read the change: the verdict is about the checks, not about what "
+                "the change does"
+            )
+        if result.verify.status != "pass":
+            unknown.append(f"the verdict is {result.verify.status}, not pass")
+    if result.attempt is not None and result.attempt.applied and "verify" not in result.stages:
+        unknown.append("the change is in the tree and was never verified")
+    usage = result.proposal.usage if result.proposal is not None else None
+    if usage is not None and usage.cost_cents is None:
+        unknown.append("the executor reported no cost: the budget could not be checked")
+    if not task.budget:
+        unknown.append("the task declared no budget: nothing limited this run")
+    return unknown
 
 
 def _questions(result: Dispatch) -> list[str]:
