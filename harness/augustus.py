@@ -559,7 +559,9 @@ def _verify(
     box: boxes.Box, directory: Path, stamp: datetime, trajan_root: Path, trajan_python: Path
 ) -> contour.VerifyResult:
     out = directory / f"verify-{stamp:%Y%m%dT%H%M%SZ}"
-    return contour.run_verify(box.project, root=trajan_root, python=trajan_python, out=out)
+    return contour.run_verify(
+        box.project, root=trajan_root, python=trajan_python, out=out, box_root=box.root
+    )
 
 
 def _check_tree_still_holds(box: boxes.Box, attempt_path: Path) -> str | None:
@@ -983,7 +985,10 @@ def _attempt_line(result: caesar.Attempt | None) -> str:
 def _verify_line(result: contour.VerifyResult | None) -> str:
     if result is None:
         return "not run"
-    return f"{result.status} ({result.checks} checks, report {result.report})"
+    line = f"{result.status} ({result.checks} checks, report {result.report})"
+    if result.reused_from is not None:
+        line += f", reused from {result.reused_from}"
+    return line
 
 
 def _event(

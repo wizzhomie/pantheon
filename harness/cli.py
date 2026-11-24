@@ -271,7 +271,7 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
             "or drop --since/--diff to run the checks only"
         )
     trajan = contour.trajan_root(args.trajan)
-    out = Path(args.out) if args.out else box.root / "artifacts" / _run_name()
+    out = Path(args.out) if args.out else box.root / "artifacts" / _run_name(box.root)
     result = contour.run_verify(
         box.project,
         root=trajan,
@@ -280,6 +280,7 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
         since=args.since,
         diff=Path(args.diff).resolve() if args.diff else None,
         reviewer=args.reviewer,
+        box_root=box.root,
     )
     if args.json:
         print(json.dumps(contour.result_json(result, box.project, box.name), indent=2))
@@ -382,9 +383,15 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
     return result.exit_code
 
 
-def _run_name() -> str:
-    """The run directory name: it becomes trajan's run id, so it carries the moment."""
-    return "verify-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+def _run_name(box_root: Path) -> str:
+    """The run directory name: it carries the moment, and never overwrites an earlier run."""
+    base = "verify-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    candidate = base
+    number = 2
+    while (box_root / "artifacts" / candidate).exists():
+        candidate = f"{base}-{number}"
+        number += 1
+    return candidate
 
 
 def _list(args: argparse.Namespace, root: Path) -> int:
