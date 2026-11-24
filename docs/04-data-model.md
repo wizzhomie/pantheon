@@ -28,7 +28,8 @@
 | `VerificationRun` | id прогона, план, проверки, находки, вердикт, дайджесты политики/контекста/модели | Trajan (trajan) | `artifacts/<task>/verify-<id>/` |
 | `Finding` | `F1`, статус (`confirmed`/`unverified`/`ambiguous`/`false-positive`), важность, доказательство, требование | Trajan | внутри `report.json` |
 | `Verdict` | `pass`/`pass_with_conditions`/`hold`/`inconclusive`, причины | Trajan | внутри `report.json` |
-| `Approval` | что одобрено, кто, когда, заметка | человек | событие реестра |
+| `Frame` | модель, политика путей и требования как один отпечаток; что отсутствует | код (читает) | `.pantheon/`, `.trajan/context.toml` |
+| `Approval` | отпечаток рамки, файлы, кто и зачем принял, базовый коммит | человек | `artifacts/frame/approval-<at>.json` + событие `frame.approved` |
 | `Budget` | потолок попытки/задачи/коробки, потрачено | Caesar | `box.toml` + события |
 | `Event` | `e-<дата>-<номер>`, тип, время, ссылки, действующее лицо | все (пишут), читает Август | `ledger/<дата>.jsonl` |
 | `OutboxEntry` | задача, вердикт, решения, открытые вопросы, стоимость | Augustus | `outbox/<дата>-<task>.md` |

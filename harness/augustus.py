@@ -20,7 +20,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour, executor
+from . import aurelius, caesar, contour, executor, frame
 from . import box as boxes
 
 SCHEMA_VERSION = 1
@@ -93,6 +93,9 @@ class Dispatch:
 
     commit: caesar.Commit | None = None
     """What became of the commit after the verdict: made, skipped with a reason, or failed."""
+
+    frame: frame.Standing | None = None
+    """The architecture basis this dispatch rested on: approved, changed, never, or empty."""
 
 
 def read_task(path: Path) -> Task:
@@ -695,6 +698,10 @@ def _commit_note(commit: caesar.Commit) -> str:
     return f"the commit failed: {commit.reason}"
 
 
+def _frame_line(standing: frame.Standing | None) -> str:
+    return "not read" if standing is None else standing.line()
+
+
 def _commit_line(commit: caesar.Commit | None) -> str:
     if commit is None:
         return "not made"
@@ -891,6 +898,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"kind       {result.task.kind or 'not declared'}",
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
         f"stages     {' -> '.join(result.stages) or 'none'}",
+        f"frame      {_frame_line(result.frame)}",
         f"arch       {_arch_line(result.arch)}",
         f"executor   {_executor_line(result.proposal)}",
         f"attempt    {_attempt_line(result.attempt)}",
@@ -943,6 +951,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
             "exit_code": result.verify.exit_code,
         },
         "commit": None if result.commit is None else caesar.commit_json(result.commit),
+        "frame": None if result.frame is None else result.frame.json(),
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
         "review_cap": result.review_cap,
@@ -1019,7 +1028,6 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
     record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
     outbox = box.root / "outbox" / f"{when:%Y-%m-%d}-{task.id}.md"
     outbox.parent.mkdir(parents=True, exist_ok=True)
-    outbox.write_text(_summary(result, when), encoding="utf-8")
     finished = Dispatch(
         task=result.task,
         state=result.state,
@@ -1028,6 +1036,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         verify=result.verify,
         arch=result.arch,
         commit=result.commit,
+        frame=frame.standing(box),
         outbox=outbox,
         directory=result.directory,
         notes=result.notes,
@@ -1036,6 +1045,9 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         resumed_from=result.resumed_from,
         review_cap=result.review_cap,
     )
+    # The summary is written from the finished record, not from the one handed in: the frame is
+    # read here, and a summary that omitted it would be the quietest gap of all.
+    outbox.write_text(_summary(finished, when), encoding="utf-8")
     record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
     _event(box.root, when, "outbox.written", task, str(outbox.relative_to(box.root)))
@@ -1054,6 +1066,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"resumed: {result.resumed_from or 'no — this dispatch started the task'}",
         "",
         "## what ran",
+        f"- frame: {_frame_line(result.frame)}",
         f"- architecture: {_arch_line(result.arch)}",
         f"- executor: {_executor_line(result.proposal)}",
         f"- write gate: {_attempt_line(result.attempt)}",
@@ -1088,6 +1101,10 @@ def _unknowns(result: Dispatch) -> list[str]:
     """
     unknown: list[str] = []
     task = result.task
+    if result.frame is not None:
+        gap = result.frame.gap()
+        if gap is not None:
+            unknown.append(gap)
     if result.arch is not None and result.arch.status != "ok":
         unknown.append(f"the architecture was not confirmed ({result.arch.status})")
     if result.verify is None:

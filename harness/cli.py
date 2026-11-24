@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import augustus, aurelius, caesar, container, contour, executor, reviewer
+from . import augustus, aurelius, caesar, container, contour, executor, frame, reviewer
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -107,6 +107,17 @@ def _parser() -> argparse.ArgumentParser:
     )
     arch.add_argument("--json", action="store_true", help="the answer as one JSON object")
     arch.set_defaults(handler=_arch)
+
+    approve = commands.add_parser(
+        "approve", help="accept the frame a project declares, as a record in the box"
+    )
+    approve.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    approve.add_argument(
+        "--by", default="owner", help="who accepts the frame: a name in the record"
+    )
+    approve.add_argument("--note", default="", help="why this frame was accepted")
+    approve.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    approve.set_defaults(handler=_approve)
 
     dispatch = commands.add_parser(
         "dispatch", help="Augustus: run a task through the contours its scope routes to"
@@ -275,6 +286,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             "max_seconds": agent.max_seconds,
             "max_cents": agent.max_cents,
         }
+        payload["frame"] = frame.standing(box).json()
         payload["tasks"] = [
             {
                 "id": task.id,
@@ -302,6 +314,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     lines.insert(-1, f"executor   {executor.describe(agent)}")
     reader = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
     lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
+    lines.insert(-1, f"frame      {frame.standing(box).line()}")
     print("\n".join(lines))
     if tasks:
         for task in tasks:
@@ -391,6 +404,31 @@ def _arch(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(aurelius.render_result(result, model)))
     return result.exit_code
+
+
+def _approve(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    current = frame.read_frame(box.project)
+    approval = frame.approve(box, by=args.by, note=args.note)
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "approved": approval.digest,
+                    "at": approval.at,
+                    "by": approval.by,
+                    "record": str(approval.path),
+                    "files": [
+                        {"path": item.path, "digest": item.digest} for item in approval.files
+                    ],
+                    "missing": list(current.missing),
+                },
+                indent=2,
+            )
+        )
+        return 0
+    print("\n".join(frame.render_approval(approval, current)))
+    return 0
 
 
 def _dispatch(args: argparse.Namespace, root: Path) -> int:
