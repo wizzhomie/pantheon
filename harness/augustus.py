@@ -243,6 +243,7 @@ def dispatch(
     commit_requested: bool = True,
     no_repeat: str | None = None,
     driven: bool = False,
+    previous: dict[str, object] | None = None,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -335,7 +336,12 @@ def dispatch(
                 context_pack.write(pack)
                 notes.append(f"context: {context_pack.line(pack)}")
                 proposal = executor.propose(
-                    config, task, box, when=stamp, context=context_pack.payload(pack)
+                    config,
+                    task,
+                    box,
+                    when=stamp,
+                    context=context_pack.payload(pack),
+                    previous=previous,
                 )
                 notes.extend(proposal.notes)
                 _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())

@@ -529,6 +529,57 @@ def retry(box: boxes.Box, campaign: Campaign, step: Step, state: State | None) -
     return Retry(False, "the verdict names no place inside the declared paths: a retry would guess")
 
 
+def previous_failure(state: State | None, step: Step) -> dict[str, object] | None:
+    """Why the last attempt was not accepted, as facts for the next one.
+
+    A retry that repeats the same words without the verdict that refused them is blind: it
+    can only change something at random. The lines come from the box's own record — the
+    verdict, the failed checks, the findings — so the executor is told what needs answering,
+    not what someone thinks of it.
+    """
+    if state is None:
+        return None
+    recorded = state.steps.get(step.id)
+    if recorded is None or recorded.state == "closed":
+        return None
+    record = _read_json(recorded.record)
+    if record is None:
+        return None
+    checks: list[str] = []
+    findings: list[str] = []
+    verify = record.get("verify")
+    report = _read_json(verify.get("report")) if isinstance(verify, dict) else None
+    if report is not None:
+        items = report.get("findings")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict) or item.get("status") == "false-positive":
+                    continue
+                title = str(item.get("title", ""))
+                if item.get("kind") == "check-failure":
+                    detail = str(item.get("detail", ""))
+                    checks.append(f"{title} ({detail})" if detail else title)
+                else:
+                    location = item.get("location")
+                    name = location.get("file") if isinstance(location, dict) else ""
+                    findings.append(f"{name}: {title}" if name else title)
+    reason = ""
+    executor = record.get("executor")
+    if isinstance(executor, dict) and executor.get("status") == "failed":
+        reason = str(executor.get("reason") or "")
+    if not reason:
+        notes = record.get("notes")
+        if isinstance(notes, list) and notes:
+            reason = str(notes[-1])
+    return {
+        "verdict": recorded.verdict or "none",
+        "attempts": recorded.attempts,
+        "reason": reason,
+        "checks": checks,
+        "findings": findings,
+    }
+
+
 def previous_patch(state: State | None, step: Step) -> Path | None:
     """The failed attempt's recorded change: what a retry reverts before it starts."""
     if state is None:

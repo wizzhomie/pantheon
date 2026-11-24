@@ -323,6 +323,7 @@ def _attempt(
         review=review,
         no_repeat=campaign.previous_change(state, chosen),
         driven=True,
+        previous=campaign.previous_failure(state, chosen),
     )
     updated = campaign.record_step(box, plan, chosen, result, reason=reason)
     record = updated.steps[chosen.id]

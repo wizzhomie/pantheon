@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.caesar import matches
+from harness.executor import previous_lines
 
 DEFAULT_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-chat"
@@ -57,7 +58,8 @@ SYSTEM = (
     "exactly one unified diff in git format (paths a/<file> and b/<file>, with @@ hunks) and "
     "nothing else — no explanation, no questions, no markdown fences. The diff must apply "
     "cleanly with `git apply` to the current tree. Touch only files under the declared paths. "
-    "If the task genuinely cannot be done with a diff, answer with one line: ERROR: <reason>."
+    "If the task genuinely cannot be done with a diff, answer with one line: ERROR: <reason>. "
+    "Every file you create or change ends with a newline."
 )
 
 
@@ -91,7 +93,12 @@ def main() -> int:
                 "model": model,
                 "messages": [
                     {"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": _prompt(task, project, _context_lines(request))},
+                    {
+                        "role": "user",
+                        "content": _prompt(
+                            task, project, _context_lines(request), request.get("previous")
+                        ),
+                    },
                 ],
                 "temperature": 0,
                 "max_tokens": _max_tokens(),
@@ -181,7 +188,12 @@ def _project_path(request: dict[str, object]) -> Path:
     return Path.cwd()
 
 
-def _prompt(task: dict[str, Any], project: Path, context: list[str] | None = None) -> str:
+def _prompt(
+    task: dict[str, Any],
+    project: Path,
+    context: list[str] | None = None,
+    previous: object = None,
+) -> str:
     paths = task.get("paths")
     patterns = [item for item in paths if isinstance(item, str)] if isinstance(paths, list) else []
     files = _files(project)
@@ -198,6 +210,9 @@ def _prompt(task: dict[str, Any], project: Path, context: list[str] | None = Non
         lines.append(f"forbidden: {', '.join(str(item) for item in forbidden)}")
     if context:
         lines += ["", *context]
+    prior = previous_lines(previous)
+    if prior:
+        lines += ["", "THE PREVIOUS ATTEMPT DID NOT PASS. Answer these facts:", *prior]
     lines += ["", "FILES IN THE PROJECT (relative to its root):", *files[:FILE_LIST_LIMIT], ""]
     lines += ["FILES IN THE DECLARED SCOPE:", *_contents(project, in_scope)]
     return "\n".join(lines)

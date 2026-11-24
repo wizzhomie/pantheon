@@ -21,6 +21,7 @@ import pytest
 from harness import augustus, contour, executor
 from harness import box as boxes
 from harness.cli import main
+from harness.executors import container as box_agent
 from harness.executors import deepseek
 
 PASSING = """\
@@ -487,3 +488,20 @@ def _box(tmp_path: Path) -> boxes.Box:
     project = tmp_path / "p"
     project.mkdir()
     return boxes.Box(root=tmp_path, name="b", project=project, created="now")
+
+
+def test_a_retry_prompt_carries_the_previous_failure(tmp_path: Path) -> None:
+    task = {"id": "t", "goal": "g", "kind": "bugfix", "paths": ["src/**"], "role": "executor"}
+    previous = {
+        "verdict": "hold",
+        "attempts": 1,
+        "reason": "1 check(s) failed on the declared change",
+        "checks": ["ruff failed (exit 1)"],
+        "findings": ["src/app.py: the value is wrong"],
+    }
+    prompt = deepseek._prompt(task, tmp_path, None, previous)
+    assert "THE PREVIOUS ATTEMPT DID NOT PASS" in prompt
+    assert "ruff failed (exit 1)" in prompt and "src/app.py" in prompt
+    built = box_agent._prompt(task, None, previous)
+    assert "Предыдущая попытка не прошла" in built and "ruff failed" in built
+    assert "Каждый файл заканчивается переводом строки" in built

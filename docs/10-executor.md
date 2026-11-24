@@ -41,9 +41,15 @@ max_cents = 5
   "box": {"name": "trajan", "root": "/home/ubuntu/pantheon/boxes/trajan"},
   "limits": {"max_seconds": 300, "max_cents": 5},
   "record": {"directory": "/home/ubuntu/pantheon/boxes/trajan/artifacts/t-1/proposal-1"},
-  "model": "deepseek-flash"
+  "model": "deepseek-flash",
+  "context": {"…": "пакет контекста, если коробка его собрала"},
+  "previous": null
 }
 ```
+
+`previous` — не `null` только у повтора: это факты прошлой попытки (вердикт, проваленные проверки,
+находки), собранные кодом из записи; исполнитель обязан на них ответить, а не повторить задачу
+ещё раз.
 
 Команда запускается в каталоге проекта и вправе проект **читать**.
 

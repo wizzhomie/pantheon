@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from harness import box as boxes
-from harness import campaign
+from harness import campaign, executor
 from harness.cli import main
 
 PASSING = """\
@@ -500,3 +500,42 @@ def test_a_step_that_already_ran_needs_the_retry_flag(
     assert "needs `--retry`" in err
 
 
+
+
+def test_the_previous_failure_is_told_as_facts(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan = campaign.read_campaign(write_campaign(box))
+    state = with_report(box, [INSIDE])
+    previous = campaign.previous_failure(state, plan.steps[0])
+    assert previous is not None
+    assert previous["verdict"] == "hold"
+    assert previous["findings"] == ["src/app.py: the value is wrong"]
+    assert previous["attempts"] == 1
+
+    lines = executor.previous_lines(previous)
+    assert any("hold" in line for line in lines)
+    assert any("src/app.py" in line for line in lines)
+
+
+def test_a_closed_step_has_no_previous_failure(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan = campaign.read_campaign(write_campaign(box))
+    state = with_report(box, [INSIDE])
+    closed = campaign.State(
+        path=state.path,
+        campaign="c-1",
+        steps={
+            "s1": campaign.StepState(
+                state="closed",
+                verdict="pass",
+                cents=0.1,
+                at="",
+                record=state.steps["s1"].record,
+                attempts=1,
+            )
+        },
+        cents=0.1,
+        at="",
+    )
+    assert campaign.previous_failure(closed, plan.steps[0]) is None
+    assert campaign.previous_failure(None, plan.steps[0]) is None

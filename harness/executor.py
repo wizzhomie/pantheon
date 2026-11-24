@@ -43,7 +43,18 @@ ANSWER_KEYS = frozenset(
     {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error"}
 )
 REQUEST_KEYS = frozenset(
-    {"schema_version", "task", "project", "box", "limits", "record", "attempt", "model", "context"}
+    {
+        "schema_version",
+        "task",
+        "project",
+        "box",
+        "limits",
+        "record",
+        "attempt",
+        "model",
+        "context",
+        "previous",
+    }
 )
 DEFAULT_SECONDS = 300
 PATCH_LIMIT = 5 * 1024 * 1024
@@ -294,6 +305,7 @@ def propose(
     box: boxes.Box,
     when: datetime | None = None,
     context: dict[str, object] | None = None,
+    previous: dict[str, object] | None = None,
 ) -> Proposal:
     """Ask the declared command for a change, and record the answer with its price."""
     if config.command is None:
@@ -303,7 +315,7 @@ def propose(
     directory = box.root / "artifacts" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
-    request = _request(task, box, directory, number, config, seconds, cents, context)
+    request = _request(task, box, directory, number, config, seconds, cents, context, previous)
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -415,6 +427,35 @@ def propose(
     )
 
 
+def previous_lines(previous: object) -> list[str]:
+    """The last attempt's refusal as lines for the prompt: a retry that cannot see why is blind.
+
+    The words are facts from the box's own record — the verdict, the failed checks, the findings —
+    never an instruction invented here. Both executors print them under their own heading.
+    """
+    if not isinstance(previous, dict):
+        return []
+    lines: list[str] = []
+    verdict = previous.get("verdict")
+    attempts = previous.get("attempts")
+    if isinstance(verdict, str) and verdict:
+        lines.append(f"- the previous attempt returned {verdict} (attempt {attempts})")
+    reason = previous.get("reason")
+    if isinstance(reason, str) and reason:
+        lines.append(f"- what the box said: {reason}")
+    checks = previous.get("checks")
+    if isinstance(checks, list):
+        for item in checks:
+            if isinstance(item, str) and item:
+                lines.append(f"- failed check: {item}")
+    findings = previous.get("findings")
+    if isinstance(findings, list):
+        for item in findings:
+            if isinstance(item, str) and item:
+                lines.append(f"- finding: {item}")
+    return lines
+
+
 def _request(
     task: TaskView,
     box: boxes.Box,
@@ -424,6 +465,7 @@ def _request(
     seconds: int,
     cents: float | None,
     context: dict[str, object] | None = None,
+    previous: dict[str, object] | None = None,
 ) -> dict[str, object]:
     """The task as the command receives it: declared facts, paths, the limits, and context."""
     return {
@@ -445,6 +487,7 @@ def _request(
         "record": {"directory": str(directory)},
         "model": config.model,
         "context": context,
+        "previous": previous,
     }
 
 

@@ -23,6 +23,7 @@ import sys
 from pathlib import Path
 
 from harness import container
+from harness.executor import previous_lines
 from harness.executors.deepseek import extract_diff
 
 DEFAULT_MODEL = "deepseek-flash"
@@ -70,7 +71,7 @@ def main() -> int:
         SERVICE,
         HERMES,
         "-z",
-        _prompt(task, _context_lines(request)),
+        _prompt(task, _context_lines(request), request.get("previous")),
         "-m",
         model,
         "--provider",
@@ -129,11 +130,18 @@ CONTEXT_HEAD = (
     "Контекст, собранный коробкой (пути записей — от корня коробки; "
     "в контейнере артефакты лежат в /work/artifacts):"
 )
+PREVIOUS_HEAD = (
+    "Предыдущая попытка не прошла. Ответь на эти факты, а не повторяй их:"
+)
 
 
-def _prompt(task: dict[str, object], context: list[str] | None = None) -> str:
+def _prompt(
+    task: dict[str, object],
+    context: list[str] | None = None,
+    previous: object = None,
+) -> str:
     if task.get("role") == "architect":
-        return _architect_prompt(task, context)
+        return _architect_prompt(task, context, previous)
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     lines = [
@@ -148,8 +156,12 @@ def _prompt(task: dict[str, object], context: list[str] | None = None) -> str:
         lines.insert(4, f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     if context:
         lines += ["", CONTEXT_HEAD, *context]
+    prior = previous_lines(previous)
+    if prior:
+        lines += ["", PREVIOUS_HEAD, *prior]
     lines += [
-        "Верни ОДИН унифицированный диф в формате git (пути a/<файл> и b/<файл>, заголовки @@), "
+        "Каждый файл заканчивается переводом строки. Верни ОДИН унифицированный диф в формате "
+        "git (пути a/<файл> и b/<файл>, заголовки @@), "
         "который применяется командой `git apply` от корня проекта. Только файлы из объёма. "
         "Никаких пояснений и markdown-заборов. Если задача невыполнима — одна строка: "
         "ERROR: <причина>.",
@@ -157,7 +169,9 @@ def _prompt(task: dict[str, object], context: list[str] | None = None) -> str:
     return "\n".join(lines)
 
 
-def _architect_prompt(task: dict[str, object], context: list[str] | None = None) -> str:
+def _architect_prompt(
+    task: dict[str, object], context: list[str] | None = None, previous: object = None
+) -> str:
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     prompt = ARCHITECT.format(
@@ -167,6 +181,10 @@ def _architect_prompt(task: dict[str, object], context: list[str] | None = None)
     )
     if context:
         block = CONTEXT_HEAD + "\n" + "\n".join(context) + "\n"
+        prompt = prompt.replace("Проект смонтирован", block + "Проект смонтирован")
+    prior = previous_lines(previous)
+    if prior:
+        block = PREVIOUS_HEAD + "\n" + "\n".join(prior) + "\n"
         prompt = prompt.replace("Проект смонтирован", block + "Проект смонтирован")
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
