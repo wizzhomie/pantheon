@@ -146,6 +146,39 @@ def _parser() -> argparse.ArgumentParser:
     campaign_parser.add_argument("--json", action="store_true", help="the answer as JSON")
     campaign_parser.set_defaults(handler=_campaign)
 
+    step = commands.add_parser(
+        "step", help="run one step of a campaign through the same gates, checks and commit"
+    )
+    step.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    step.add_argument("--campaign", required=True, help="campaign id or path to its file")
+    step.add_argument("--step", required=True, help="the step id inside that campaign")
+    step.add_argument(
+        "--reason",
+        default="",
+        help="why the plan changed since the last step; a silent plan change is refused",
+    )
+    step.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    step.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    step.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    step.add_argument(
+        "--review", action="store_true", help="have the box's agent read the step's change"
+    )
+    step.add_argument(
+        "--no-review",
+        action="store_true",
+        help="do not read the change, whatever profile/reviewer.toml says",
+    )
+    step.add_argument("--review-model", default=None, help="model that reads the change")
+    step.add_argument(
+        "--review-seconds", type=int, default=None, help="how long the reading may take"
+    )
+    step.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    step.set_defaults(handler=_step)
+
     dispatch = commands.add_parser(
         "dispatch", help="Augustus: run a task through the contours its scope routes to"
     )
@@ -480,6 +513,87 @@ def _campaign(args: argparse.Namespace, root: Path) -> int:
                 print()
             print("\n".join(campaign.render(item)))
     return 0 if all(not item.problems for item in reports) else 1
+
+
+def _step(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    table = augustus.read_routes(Path(routes) if routes else None)
+    plan = campaign.read_campaign(_campaign_path(box, args.campaign))
+    problems = campaign.problems(plan, box.project, table)
+    if problems:
+        raise boxes.HarnessError("the plan cannot start: " + "; ".join(problems))
+    chosen = plan.step(args.step)
+    if chosen is None:
+        raise boxes.HarnessError(
+            f"{plan.path}: no step {args.step!r}; the plan has "
+            + ", ".join(step.id for step in plan.steps)
+        )
+    state = campaign.read_state(box, plan)
+    waiting = campaign.blockers(plan, chosen, state)
+    if waiting:
+        raise boxes.HarnessError("; ".join(waiting))
+    if state is not None and state.plan and state.plan != plan.digest and not args.reason:
+        raise boxes.HarnessError(
+            "the plan changed since the last step, and the state still says the old one. Say why "
+            "with `--reason \"...\"`: splitting or narrowing a step is Augustus's, but acceptance "
+            "and the set of steps belong to the owner, and neither may happen silently"
+        )
+    # A step is work: the routing table decides which contours check it, not whether anything
+    # happens. Without this a docs step would close a clean verification of an untouched tree.
+    routes_for_step = {
+        **table,
+        chosen.kind: (
+            *[stage for stage in table[chosen.kind] if stage != "verify"],
+            "run",
+            "verify",
+        ),
+    }
+    trajan = contour.trajan_root(args.trajan)
+    result = augustus.dispatch(
+        box,
+        campaign.task_for(plan, chosen),
+        routes=routes_for_step,
+        trajan_root=trajan,
+        trajan_python=contour.trajan_python(trajan, args.python),
+        review=_reviewer(args, box),
+    )
+    updated = campaign.record_step(box, plan, chosen, result, reason=args.reason or "")
+    report = campaign.report(box, plan, routes=table)
+    if args.json:
+        payload = {
+            "dispatch": augustus.dispatch_json(result),
+            "step": {
+                "id": chosen.id,
+                "state": updated.steps[chosen.id].state,
+                "verdict": updated.steps[chosen.id].verdict,
+                "cents": updated.steps[chosen.id].cents,
+                "record": updated.steps[chosen.id].record,
+            },
+            "campaign": campaign.report_json(report),
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print("\n".join(augustus.render_dispatch(result)))
+        print()
+        print("\n".join(campaign.render(report)))
+    if updated.steps[chosen.id].state == "noop":
+        return 1
+    return result.exit_code
+
+
+def _campaign_path(box: boxes.Box, value: str) -> Path:
+    """The campaign by path or by id: a person types the id, a script may type the file."""
+    direct = Path(value).expanduser()
+    if direct.is_file():
+        return direct
+    found = box.project / campaign.CAMPAIGN_DIR / f"{value}.toml"
+    if found.is_file():
+        return found
+    known = ", ".join(path.stem for path in campaign.campaign_files(box.project)) or "none"
+    raise boxes.HarnessError(
+        f"no campaign {value!r}: {found} does not exist; the project declares {known}"
+    )
 
 
 def _dispatch(args: argparse.Namespace, root: Path) -> int:

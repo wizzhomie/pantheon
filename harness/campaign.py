@@ -34,8 +34,11 @@ STEP_KEYS = frozenset(
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
 BUDGET_KEYS = frozenset({"max_cents", "max_seconds"})
-STATE_KEYS = frozenset({"schema_version", "campaign", "at", "plan", "steps", "spend"})
-STEP_STATES = frozenset({"closed", "returned", "refused", "running"})
+STATE_KEYS = frozenset(
+    {"schema_version", "campaign", "at", "plan", "steps", "spend", "revisions"}
+)
+STEP_STATES = frozenset({"closed", "noop", "returned", "refused", "running"})
+"""``noop`` is a step that closed a verification without writing anything: not work, so not done."""
 VERDICTS = frozenset({"pass", "pass_with_conditions", "hold", "inconclusive", "retry"})
 
 
@@ -99,6 +102,8 @@ class State:
     steps: dict[str, StepState]
     cents: float
     at: str
+    plan: str = ""
+    revisions: tuple[dict[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,9 +249,96 @@ def read_state(box: boxes.Box, campaign: Campaign) -> State | None:
     if not isinstance(spend, dict):
         raise boxes.HarnessError(f"{path}: spend must be a table")
     cents = _number(spend, "cents")
+    plan = data.get("plan", {})
+    digest = ""
+    if isinstance(plan, dict):
+        digest = str(plan.get("digest", ""))
     return State(
-        path=path, campaign=campaign.id, steps=steps, cents=cents, at=str(data.get("at", ""))
+        path=path,
+        campaign=campaign.id,
+        steps=steps,
+        cents=cents,
+        at=str(data.get("at", "")),
+        plan=digest,
+        revisions=_read_revisions(path, data.get("revisions", [])),
     )
+
+
+def blockers(campaign: Campaign, step: Step, state: State | None) -> tuple[str, ...]:
+    """Why a step may not run yet: every dependency has to be closed with a strict pass."""
+    found: list[str] = []
+    for dependency in step.depends_on:
+        recorded = None if state is None else state.steps.get(dependency)
+        if recorded is None or recorded.state != "closed" or recorded.verdict != "pass":
+            found.append(
+                f"step {step.id} waits for {dependency}, which has no strict pass recorded"
+            )
+    return tuple(found)
+
+
+def task_for(campaign: Campaign, step: Step) -> augustus.Task:
+    """The step as the task Augustus dispatches: a plan step is work, not a second plan."""
+    budget: dict[str, int] = {}
+    if step.max_cents is not None:
+        budget["max_cents"] = step.max_cents
+    return augustus.Task(
+        path=campaign.path,
+        id=f"{campaign.id}-{step.id}",
+        goal=step.goal,
+        kind=step.kind,
+        paths=step.paths,
+        expected=step.expected or None,
+        change=None,
+        forbidden=(),
+        budget=budget,
+        mode="manual",
+        role=step.role,
+    )
+
+
+def record_step(
+    box: boxes.Box,
+    campaign: Campaign,
+    step: Step,
+    result: augustus.Dispatch,
+    *,
+    reason: str = "",
+    when: datetime | None = None,
+) -> State:
+    """Write what the box learned: the step's outcome, its bill, and any plan revision.
+
+    The plan's digest is recorded with every step. When a plan changes between two steps, the
+    state says so and keeps the reason a person gave; a plan that changes silently is exactly
+    the "we did something else" that a campaign exists to prevent.
+    """
+    stamp = _stamp(when)
+    previous = read_state(box, campaign)
+    steps = dict(previous.steps) if previous is not None else {}
+    steps[step.id] = StepState(
+        state=_result_state(result),
+        verdict=None if result.verify is None else result.verify.status,
+        cents=_spend(result),
+        at=stamp,
+        record=_record_path(result),
+    )
+    cents = (previous.cents if previous is not None else 0.0) + _spend(result)
+    revisions = list(previous.revisions) if previous is not None else []
+    if previous is not None and previous.plan and previous.plan != campaign.digest and reason:
+        revisions.append(
+            {"at": stamp, "from": previous.plan, "to": campaign.digest, "reason": reason}
+        )
+    state = State(
+        path=state_path(box, campaign),
+        campaign=campaign.id,
+        steps=steps,
+        cents=cents,
+        at=stamp,
+        plan=campaign.digest,
+        revisions=tuple(revisions),
+    )
+    _write_state(state)
+    _append_event(box, campaign, step, state.steps[step.id], stamp)
+    return state
 
 
 def verdict(campaign: Campaign, standing: frame.Standing, state: State | None) -> Verdict:
@@ -271,10 +363,13 @@ def verdict(campaign: Campaign, standing: frame.Standing, state: State | None) -
     missing = [step.id for step in campaign.steps if step.id not in state.steps]
     if missing:
         reasons.append("steps not started: " + ", ".join(missing))
+    unwritten = [step.id for step in recorded if state.steps[step.id].state == "noop"]
+    if unwritten:
+        reasons.append("steps that wrote nothing: " + ", ".join(unwritten))
     unconvinced = [
         f"{step.id} ({state.steps[step.id].verdict or state.steps[step.id].state})"
         for step in recorded
-        if not _is_closed(state, step)
+        if not _is_closed(state, step) and step.id not in unwritten
     ]
     if unconvinced:
         reasons.append("steps without a strict pass: " + ", ".join(unconvinced))
@@ -515,6 +610,101 @@ def _read_steps(path: Path, data: object) -> dict[str, StepState]:
     return found
 
 
+def _result_state(result: augustus.Dispatch) -> str:
+    """A step closes only if it changed something: a green check about no work is not the step.
+
+    The dispatch may legitimately close a verification-only task; a campaign step promises work,
+    so "nothing was written" is recorded as ``noop`` and the campaign does not count it.
+    """
+    if result.state == "refused":
+        return "refused"
+    if result.state == "closed":
+        applied = result.attempt is not None and result.attempt.applied
+        return "closed" if applied else "noop"
+    return "returned"
+
+
+def _spend(result: augustus.Dispatch) -> float:
+    """What this step cost: the reading and the executor are two bills, both counted."""
+    total = 0.0
+    review = result.verify.review if result.verify is not None else None
+    if review is not None and review.cost_cents is not None:
+        total += review.cost_cents
+    usage = result.proposal.usage if result.proposal is not None else None
+    if usage is not None and usage.cost_cents is not None:
+        total += usage.cost_cents
+    return round(total, 4)
+
+
+def _record_path(result: augustus.Dispatch) -> str:
+    records = sorted(result.directory.glob("dispatch-*.json"))
+    return str(records[-1]) if records else str(result.directory)
+
+
+def _write_state(state: State) -> None:
+    """Written whole and swapped in: a half-written state would be a record that lies."""
+    path = state.path
+    path.parent.mkdir(parents=True, exist_ok=True)
+    data = {
+        "schema_version": SCHEMA_VERSION,
+        "campaign": state.campaign,
+        "at": state.at,
+        "plan": {"digest": state.plan},
+        "steps": {
+            identifier: {
+                "state": item.state,
+                "verdict": item.verdict,
+                "cents": item.cents,
+                "at": item.at,
+                "record": item.record,
+            }
+            for identifier, item in state.steps.items()
+        },
+        "spend": {"cents": state.cents, "seconds": 0},
+        "revisions": list(state.revisions),
+    }
+    temporary = path.with_suffix(".tmp")
+    temporary.write_text(json.dumps(data, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
+
+
+def _append_event(
+    box: boxes.Box,
+    campaign: Campaign,
+    step: Step,
+    state: StepState,
+    when: str,
+) -> None:
+    ledger = box.root / "ledger"
+    ledger.mkdir(parents=True, exist_ok=True)
+    path = ledger / f"{when[:10]}.jsonl"
+    existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    event = {
+        "id": f"e-{when[:10]}-{len(existing) + 1}",
+        "type": f"step.{state.state}",
+        "at": when,
+        "task": f"{campaign.id}-{step.id}",
+        "actor": "augustus",
+        "reason": state.verdict or "",
+        "links": [state.record],
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+
+
+def _read_revisions(path: Path, data: object) -> tuple[dict[str, str], ...]:
+    if data is None:
+        return ()
+    if not isinstance(data, list):
+        raise boxes.HarnessError(f"{path}: revisions must be a list")
+    found: list[dict[str, str]] = []
+    for item in data:
+        if not isinstance(item, dict):
+            raise boxes.HarnessError(f"{path}: every revision must be a table")
+        found.append({str(key): str(value) for key, value in item.items()})
+    return tuple(found)
+
+
 def _is_closed(state: State, step: Step) -> bool:
     recorded = state.steps.get(step.id)
     return recorded is not None and recorded.state == "closed" and recorded.verdict == "pass"
@@ -601,6 +791,6 @@ def _text(value: object) -> str | None:
     return value.strip() if isinstance(value, str) and value.strip() else None
 
 
-def stamp(when: datetime | None = None) -> str:
+def _stamp(when: datetime | None = None) -> str:
     moment = when or datetime.now(UTC)
     return moment.replace(microsecond=0).isoformat().replace("+00:00", "Z")
