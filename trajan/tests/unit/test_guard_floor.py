@@ -12,7 +12,16 @@ from pathlib import Path
 
 import pytest
 
-from trajan.guards.floor import compare, is_test_file, main, scan_source, snapshot
+from trajan.guards.floor import (
+    AllowEntry,
+    compare,
+    is_test_file,
+    main,
+    read_allow,
+    render,
+    scan_source,
+    snapshot,
+)
 
 
 def test_is_test_file_recognises_the_usual_layouts() -> None:
@@ -180,3 +189,72 @@ def test_a_base_that_does_not_parse_is_not_a_quiet_pass(
     out = capsys.readouterr().out
     assert "unreadable  tests/test_x.py" in out
     assert "result: the suite got smaller" in out
+
+
+def test_a_listed_removal_is_reported_and_passes() -> None:
+    base = snapshot({"tests/test_x.py": "def test_a(): pass\ndef test_b(): pass\n"})
+    now = snapshot({"tests/test_x.py": "def test_a(): pass\n"})
+    allow = (AllowEntry("tests/test_x.py::test_b", "the legacy importer is gone"),)
+    report = compare(base, now, allow)
+    assert report.passed
+    assert report.allowed == (("tests/test_x.py::test_b", "the legacy importer is gone"),)
+    assert "allowed  tests/test_x.py::test_b" in "\n".join(render(report, "HEAD"))
+
+
+def test_an_unlisted_removal_still_fails_when_others_are_listed() -> None:
+    base = snapshot({"tests/test_x.py": "def test_a(): pass\ndef test_b(): pass\n"})
+    now = snapshot({})
+    allow = (AllowEntry("tests/test_x.py::test_b", "meant"),)
+    report = compare(base, now, allow)
+    assert not report.passed
+    assert report.removed == (("tests/test_x.py", "test_a"),)
+
+
+def test_an_entry_that_matches_nothing_is_a_stale_promise() -> None:
+    body = "def test_a(): pass\n"
+    allow = (AllowEntry("tests/test_x.py::test_a", "meant once"),)
+    current = snapshot({"tests/test_x.py": body})
+    report = compare(current, current, allow)
+    assert not report.passed
+    assert report.stale_allow == ("tests/test_x.py::test_a",)
+
+
+def test_a_moved_test_does_not_spend_an_allow_entry() -> None:
+    allow = (AllowEntry("tests/test_x.py::test_a", "meant once"),)
+    report = compare(
+        snapshot({"tests/test_x.py": "def test_a(): pass\n"}),
+        snapshot({"tests/test_y.py": "def test_a(): pass\n"}),
+        allow,
+    )
+    assert not report.passed and report.stale_allow == ("tests/test_x.py::test_a",)
+
+
+def test_a_malformed_allow_list_is_an_error_not_a_quiet_pass(tmp_path: Path) -> None:
+    path = tmp_path / "allow.toml"
+    path.write_text('[[removed]]\ntest = "tests/test_x.py::test_a"\n')
+    with pytest.raises(ValueError, match="needs a reason"):
+        read_allow(path)
+    path.write_text('[[removed]]\ntest = "tests/test_x.py"\nreason = "no name"\n')
+    with pytest.raises(ValueError, match="test_name"):
+        read_allow(path)
+    path.write_text('[removed]\ntest = "tests/test_x.py::test_a"\nreason = "x"\n')
+    with pytest.raises(ValueError, match="list of"):
+        read_allow(path)
+
+
+def test_an_absent_allow_list_means_nothing_was_meant(tmp_path: Path) -> None:
+    assert read_allow(tmp_path / "missing.toml") == ()
+
+
+def test_cli_reads_the_allow_list_next_to_the_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(tmp_path)
+    (root / ".trajan").mkdir()
+    (root / ".trajan" / "test-floor-allow.toml").write_text(
+        "[[removed]]\ntest = \"tests/test_x.py::test_a\"\nreason = \"the feature is gone\"\n"
+        "[[removed]]\ntest = \"tests/test_x.py::test_b\"\nreason = \"the feature is gone\"\n"
+    )
+    (root / "tests" / "test_x.py").unlink()
+    assert main(["--repo", str(root), "--base", "HEAD"]) == 0
+    assert "allowed  tests/test_x.py::test_a" in capsys.readouterr().out

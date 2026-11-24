@@ -1,0 +1,11 @@
+# Deliberate removals of tests: one [[removed]] per test, with the reason a reviewer can
+# check against the change. `python -m trajan.guards.floor` fails on a test that is gone and
+# not listed here, and fails just as loudly when an entry below no longer matches a removal —
+# a list that outlives its reasons is a rubber stamp that permits the next deletion it names.
+#
+# Skip markers cannot be listed here: the count is global, and an unexplained skip is the
+# thing this guard exists to catch.
+#
+# [[removed]]
+# test = "tests/unit/test_old.py::test_legacy_importer"
+# reason = "the importer was removed in ADR-014; the test pinned a behaviour we dropped"
