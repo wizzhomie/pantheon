@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import shlex
 import sys
@@ -119,6 +120,36 @@ def _parser() -> argparse.ArgumentParser:
     )
     dispatch.add_argument("--json", action="store_true", help="the answer as one JSON object")
     dispatch.set_defaults(handler=_dispatch)
+
+    resume = commands.add_parser(
+        "resume",
+        help="Augustus: continue a task that stopped before its verdict, from its artifacts",
+    )
+    resume.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    resume.add_argument("--task", required=True, help="the task id whose artifacts to continue")
+    resume.add_argument(
+        "--retry",
+        action="store_true",
+        help="ask the executor again instead of reusing the recorded change",
+    )
+    resume.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    resume.add_argument(
+        "--max-cents", type=float, default=None, help="raise the cent limit (whole cents)"
+    )
+    resume.add_argument("--max-seconds", type=int, default=None, help="raise the second limit")
+    resume.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    resume.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    resume.add_argument(
+        "--executor",
+        default=None,
+        help="override the box's executor command for this run (profile/executor.toml)",
+    )
+    resume.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    resume.set_defaults(handler=_resume)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -305,6 +336,44 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
         trajan_python=contour.trajan_python(trajan, args.python),
         tool=args.tool,
         executor_config=config,
+    )
+    if args.json:
+        print(json.dumps(augustus.dispatch_json(result), indent=2))
+    else:
+        print("\n".join(augustus.render_dispatch(result)))
+    return result.exit_code
+
+
+def _resume(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    if args.max_cents is None and args.max_seconds is None:
+        budget: dict[str, int] | None = None
+    else:
+        budget = {}
+        if args.max_cents is not None:
+            budget["max_cents"] = max(1, math.ceil(args.max_cents))
+        if args.max_seconds is not None:
+            budget["max_seconds"] = args.max_seconds
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    trajan = contour.trajan_root(args.trajan)
+    config = executor.read_config(box.root / executor.PROFILE_FILE)
+    if args.executor:
+        config = executor.ExecutorConfig(
+            path=config.path,
+            command=tuple(shlex.split(args.executor)),
+            model=config.model,
+            max_seconds=config.max_seconds,
+            max_cents=config.max_cents,
+        )
+    result = augustus.resume(
+        box,
+        args.task,
+        routes=augustus.read_routes(Path(routes) if routes else None),
+        trajan_root=trajan,
+        trajan_python=contour.trajan_python(trajan, args.python),
+        executor_config=config,
+        budget=budget,
+        retry=args.retry,
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))

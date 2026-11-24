@@ -279,9 +279,20 @@ def run_attempt(
     status = "refused" if problems else "applied"
     reason = _reason(problems)
     if not problems:
-        applied = _apply(project, directory / "change.diff", paths, prefix)
-        if applied is not None:
-            status, reason = "refused", applied
+        problem = _apply(project, directory / "change.diff", paths, prefix)
+        if problem is not None:
+            code, detail = problem
+            if code == "git" and _already_applied(project, directory / "change.diff", prefix):
+                # A crash between the write and its record leaves the change in the tree with
+                # nothing to show for it. Applying it again fails, applying it backwards
+                # succeeds: the tree already has it, so the gate's answer is "applied", with
+                # the reason said out loud instead of a second refusal nobody can act on.
+                reason = (
+                    "the tree already had this change: an earlier attempt applied it and did "
+                    "not record the result"
+                )
+            else:
+                status, reason = "refused", detail
     finished = datetime.now(UTC).replace(microsecond=0)
     attempt = Attempt(
         task=contract.task,
@@ -378,7 +389,9 @@ def _strip(path: str, prefix: str) -> str:
     return path[len(prefix):] if path.startswith(prefix) else path
 
 
-def _apply(project: Path, patch: Path, paths: tuple[str, ...], prefix: str) -> str | None:
+def _apply(
+    project: Path, patch: Path, paths: tuple[str, ...], prefix: str
+) -> tuple[str, str] | None:
     """Apply the patch where the project actually lives, or say why it did not.
 
     Two traps are handled here, both found on a real box rather than in a test:
@@ -390,6 +403,10 @@ def _apply(project: Path, patch: Path, paths: tuple[str, ...], prefix: str) -> s
       top level with ``--directory=<prefix>``;
     * a patch can succeed and change nothing (an empty diff, a hunk that was already
       applied). Success is therefore the tree changing, not the exit code.
+
+    The reason comes back with its kind: ``"git"`` means git refused to apply it, ``"noop"``
+    means git applied it and nothing changed. The two need different handling — a git refusal
+    may mean the change is already there, a no-op never does.
     """
     top = Path(_git(project, "rev-parse", "--show-toplevel") or project)
     before = _tree_signature(top, tuple(prefix + path for path in paths))
@@ -400,15 +417,41 @@ def _apply(project: Path, patch: Path, paths: tuple[str, ...], prefix: str) -> s
     done = subprocess.run(command, capture_output=True, text=True, check=False)
     if done.returncode != 0:
         detail = (done.stderr or done.stdout).strip().splitlines()
-        return "the project would not take the patch: " + (
-            "; ".join(detail[-3:]) or "git apply failed"
+        return (
+            "git",
+            "the project would not take the patch: "
+            + ("; ".join(detail[-3:]) or "git apply failed"),
         )
     if _tree_signature(top, tuple(prefix + path for path in paths)) == before:
         return (
+            "noop",
             "the patch changed nothing: git reported success, but the paths it names are the "
-            "same afterwards"
+            "same afterwards",
         )
     return None
+
+
+def _already_applied(project: Path, patch: Path, prefix: str) -> bool:
+    """Does the tree already contain this change? Asked by applying it backwards, dry-run."""
+    top = _git(project, "rev-parse", "--show-toplevel")
+    if top is None:
+        return False
+    command = ["git", "-C", top, "apply", "--reverse", "--check", "--whitespace=nowarn"]
+    if prefix:
+        command.append(f"--directory={prefix}")
+    command.append(str(patch))
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
+    return done.returncode == 0
+
+
+def head(project: Path) -> str | None:
+    """The commit the project is on, or ``None`` outside git: a tree needs a base to resume."""
+    return _head(project)
+
+
+def contains(project: Path, patch: Path) -> bool:
+    """Whether the tree still holds the change a recorded attempt applied."""
+    return _already_applied(project, patch, _prefix(project))
 
 
 def _tree_signature(base: Path, paths: tuple[str, ...]) -> str:
