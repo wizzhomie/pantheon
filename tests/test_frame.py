@@ -205,6 +205,19 @@ def test_approving_nothing_is_refused(tmp_path: Path, capsys: pytest.CaptureFixt
     assert not (box.root / "artifacts" / "frame").exists()
 
 
+def test_approving_a_package_that_does_not_parse_is_refused(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = make_project(tmp_path)
+    (project / ".pantheon" / "architecture.toml").write_text("[layer\nname = ", encoding="utf-8")
+    box = make_box(tmp_path, project)
+    assert run(box, "approve", box.name) == 2
+    error = capsys.readouterr().err
+    assert "does not read as a package" in error
+    assert "architecture.toml" in error
+    assert not (box.root / "artifacts" / "frame").exists()
+
+
 def test_status_names_the_frame(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

@@ -138,6 +138,34 @@ def test_a_changed_tree_runs_the_checks_again(
 
 
 @requires_trajan
+def test_a_project_inside_a_repository_digests_its_own_content(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A project in a subdirectory must digest its files, not a list of missing paths.
+
+    Found on the demo box: ``ls-files`` named paths relative to the project while the files
+    were read from the repository root, so every path digested as absent, an edited model left
+    the digest unchanged, and the verdict about the old tree was reused for the new one.
+    """
+    project = tmp_path / "repo" / "sub"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (project / ".trajan").mkdir()
+    (project / ".trajan" / "policy.toml").write_text(PASSING, encoding="utf-8")
+    git(project, "init", "-q")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    box = boxes.new_box(tmp_path / "boxes", project)
+    _, first = verify(box, capsys)
+    assert first["reused_from"] is None
+    (project / "src" / "app.py").write_text("value = 2\n", encoding="utf-8")
+    _, second = verify(box, capsys)
+    assert second["reused_from"] is None, "the tree changed: the old verdict is not the answer"
+    _, third = verify(box, capsys)
+    assert third["reused_from"] is not None, "the same tree twice is still reused"
+
+
+@requires_trajan
 def test_a_commit_does_not_invalidate_reuse(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

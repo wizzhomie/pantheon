@@ -16,12 +16,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import aurelius, caesar
 from . import box as boxes
-from . import caesar
 
 SCHEMA_VERSION = 1
 FRAME_FILES = (
@@ -141,6 +142,35 @@ def read_frame(project: Path) -> Frame:
     return Frame(project=project, files=tuple(files), digest=_digest(files), missing=tuple(missing))
 
 
+def package_issues(project: Path) -> tuple[str, ...]:
+    """What stops the frame from being a package: an existing file has to parse as its format.
+
+    Approving a model nothing can read would record a basis that cannot be checked, so the
+    approval is refused instead. A file that is simply absent is not an issue — ``missing``
+    says which ones are, and the owner can approve a frame without every part of it.
+    """
+    issues: list[str] = []
+    model = project / FRAME_FILES[0]
+    if model.is_file():
+        try:
+            aurelius.read_model(model)
+        except boxes.HarnessError as error:
+            issues.append(str(error))
+    kinds = project / FRAME_FILES[1]
+    if kinds.is_file():
+        try:
+            caesar.read_kinds(project)
+        except boxes.HarnessError as error:
+            issues.append(str(error))
+    context = project / FRAME_FILES[2]
+    if context.is_file():
+        try:
+            tomllib.loads(context.read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, tomllib.TOMLDecodeError) as error:
+            issues.append(f"{context} does not parse: {error}")
+    return tuple(issues)
+
+
 def approve(
     box: boxes.Box,
     *,
@@ -160,6 +190,12 @@ def approve(
         raise boxes.HarnessError(
             f"there is no frame to approve in {box.project}: none of "
             f"{', '.join(FRAME_FILES)} exists, so an approval would name nothing"
+        )
+    issues = package_issues(box.project)
+    if issues:
+        raise boxes.HarnessError(
+            "the frame does not read as a package, so there is nothing to approve yet: "
+            + "; ".join(issues)
         )
     directory = box.root / RECORDS
     directory.mkdir(parents=True, exist_ok=True)

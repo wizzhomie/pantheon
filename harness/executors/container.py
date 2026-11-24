@@ -109,7 +109,25 @@ def main() -> int:
     return 0
 
 
+ARCHITECT = """\
+Ты — архитектор коробки: вторая роль того же агента, советник, а не исполнитель.
+Твоя работа — документы и модель, а не код: бриф, аудит, ADR, модель слоёв, требования.
+Задача: {goal}
+Критерий: {expected}
+Объём (пути относительно корня проекта): {scope}
+Проект смонтирован только на чтение в /work/project. Ты не пишешь код и тесты и не пушишь:
+файлы вне объёма ворота всё равно откажут.
+Верни ОДИН унифицированный диф в формате git (пути a/<файл> и b/<файл>, заголовки @@), который
+применяется командой `git apply` от корня проекта и меняет только файлы из объёма. Никаких
+пояснений и markdown-заборов. Если для вывода не хватает данных проекта — одна строка:
+ERROR: <чего не хватает>.
+"""
+"""The architect's brief: the same agent, a different job — the frame, not the code."""
+
+
 def _prompt(task: dict[str, object]) -> str:
+    if task.get("role") == "architect":
+        return _architect_prompt(task)
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     lines = [
@@ -127,6 +145,24 @@ def _prompt(task: dict[str, object]) -> str:
     if isinstance(forbidden, list) and forbidden:
         lines.insert(4, f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     return "\n".join(lines)
+
+
+def _architect_prompt(task: dict[str, object]) -> str:
+    paths = task.get("paths")
+    scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
+    prompt = ARCHITECT.format(
+        goal=task.get("goal") or "цель не объявлена",
+        expected=task.get("expected") or "не объявлен",
+        scope=scope,
+    )
+    forbidden = task.get("forbidden")
+    if isinstance(forbidden, list) and forbidden:
+        prompt = prompt.replace(
+            "Проект смонтирован только на чтение",
+            f"Запрещено: {', '.join(str(item) for item in forbidden)}.\n"
+            "Проект смонтирован только на чтение",
+        )
+    return prompt
 
 
 def _usage(path: Path) -> dict[str, object] | None:

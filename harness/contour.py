@@ -464,10 +464,17 @@ def _tree_digest(project: Path) -> str:
     top = _git(project, "rev-parse", "--show-toplevel")
     if top is None:
         return _plain_digest(project)
-    # `git ls-files` names paths from the repository root even inside a subdirectory.
     base = Path(top.strip())
-    tracked = _git(project, "ls-files", "-z", "--", ".") or ""
-    untracked = _git(project, "ls-files", "--others", "--exclude-standard", "-z", "--", ".") or ""
+    # `ls-files` names paths relative to the directory it runs in, and the files are read from
+    # the repository root: `--full-name` is what makes a project in a subdirectory digest its
+    # own content instead of a list of missing files. Found on the demo box, where editing the
+    # model left the digest unchanged and an earlier verdict about a different tree was reused.
+    scope = "." if base == project.resolve() else str(project.resolve().relative_to(base))
+    tracked = _git(base, "ls-files", "-z", "--full-name", "--", scope) or ""
+    untracked = (
+        _git(base, "ls-files", "--others", "--exclude-standard", "-z", "--full-name", "--", scope)
+        or ""
+    )
     paths = sorted({item for item in (tracked + "\0" + untracked).split("\0") if item})
     parts = [
         f"{relative} {_file_digest(base / relative)}"

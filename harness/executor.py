@@ -93,6 +93,9 @@ class TaskView(Protocol):
     @property
     def budget(self) -> dict[str, int]: ...
 
+    @property
+    def role(self) -> str: ...
+
 
 class _Malformed(Exception):
     """The command answered, but not in the declared shape: a record, not a traceback."""
@@ -424,6 +427,7 @@ def _request(
             "id": task.id,
             "goal": task.goal,
             "kind": task.kind,
+            "role": task.role,
             "paths": list(task.paths),
             "expected": task.expected,
             "forbidden": list(task.forbidden),

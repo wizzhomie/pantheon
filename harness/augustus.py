@@ -36,10 +36,13 @@ TASK_KEYS = frozenset(
         "forbidden",
         "budget",
         "mode",
+        "role",
     }
 )
 MODES = ("manual", "auto")
 """How a step closes: a person after the verdict, or the campaign itself. Only manual runs."""
+ROLES = ("executor", "architect")
+"""Who is asked for the change: the builder, or the advisor that writes the frame and no code."""
 BUDGET_KEYS = frozenset({"max_seconds", "max_cents"})
 ROUTES_ENV = "PANTHEON_ROUTES"
 SNAPSHOT_FILE = "task.json"
@@ -70,6 +73,7 @@ class Task:
     forbidden: tuple[str, ...]
     budget: dict[str, int]
     mode: str = "manual"
+    role: str = "executor"
 
 
 @dataclass(frozen=True, slots=True)
@@ -129,6 +133,12 @@ def read_task(path: Path) -> Task:
     change = data.get("change")
     if change is not None and not isinstance(change, str):
         raise boxes.HarnessError(f"{path}: change must be a path to a patch file")
+    role = data.get("role", "executor")
+    if role not in ROLES:
+        raise boxes.HarnessError(
+            f"{path}: role {role!r} is not one of {', '.join(ROLES)}: the role decides who is "
+            "asked, and a made-up one would ask nobody"
+        )
     mode = data.get("mode", "manual")
     if mode not in MODES:
         raise boxes.HarnessError(
@@ -146,6 +156,7 @@ def read_task(path: Path) -> Task:
         forbidden=tuple(forbidden),
         budget={key: int(value) for key, value in budget.items()},
         mode=str(mode),
+        role=str(role),
     )
 
 
@@ -184,6 +195,16 @@ def refusal(task: Task, routes: dict[str, tuple[str, ...]]) -> str | None:
         return "the task declares no paths: nothing is in scope, so nothing may be done"
     if not route(task, routes):
         return f"no route for kind {task.kind!r}; known kinds: {', '.join(sorted(routes))}"
+    if task.role == "architect" and task.kind != "architecture":
+        return (
+            f"the architect writes the frame, not a {task.kind!r} change: an architect task is "
+            'kind = "architecture"'
+        )
+    if task.kind == "architecture" and task.role != "architect":
+        return (
+            "an architecture task belongs to the architect: declare role = \"architect\" so the "
+            "box asks for documents and a model, not for code"
+        )
     if task.mode == "auto":
         return (
             "the task asks for the automatic mode: it is declared, but nothing runs a campaign "
@@ -406,6 +427,8 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
     lines.append("paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")
     if task.mode != "manual":
         lines.append(f"mode = {_quote(task.mode)}")
+    if task.role != "executor":
+        lines.append(f"role = {_quote(task.role)}")
     if change is not None:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:
@@ -896,6 +919,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
     lines = [
         f"task       {result.task.id}  ({result.task.path})",
         f"kind       {result.task.kind or 'not declared'}",
+        f"role       {result.task.role}",
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
         f"stages     {' -> '.join(result.stages) or 'none'}",
         f"frame      {_frame_line(result.frame)}",
@@ -920,6 +944,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
     return {
         "task": result.task.id,
         "kind": result.task.kind,
+        "role": result.task.role,
         "paths": list(result.task.paths),
         "stages": list(result.stages),
         "arch": None
@@ -1057,7 +1082,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
 def _summary(result: Dispatch, when: datetime) -> str:
     task = result.task
     lines = [
-        f"# {task.id} — {task.kind} — {result.state}",
+        f"# {task.id} — {task.kind} — {task.role} — {result.state}",
         "",
         f"at: {when.isoformat().replace('+00:00', 'Z')}",
         f"goal: {task.goal or 'not declared'}",

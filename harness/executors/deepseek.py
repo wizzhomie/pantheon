@@ -184,6 +184,7 @@ def _prompt(task: dict[str, Any], project: Path) -> str:
     lines = [
         f"TASK {task.get('id')}: {task.get('goal') or 'no goal declared'}",
         f"kind: {task.get('kind') or 'not declared'}",
+        f"role: {task.get('role') or 'executor'}",
         f"paths the change may touch: {', '.join(patterns) or 'none declared'}",
         f"expected: {task.get('expected') or 'not declared'}",
     ]
