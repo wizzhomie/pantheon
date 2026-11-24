@@ -35,7 +35,7 @@ CAMPAIGN_KEYS = frozenset(
 DEFAULT_ATTEMPTS = 1
 """Without a declared ceiling there is no retry: one attempt is the safe default, not a habit."""
 STEP_KEYS = frozenset(
-    {"id", "goal", "kind", "role", "paths", "expected", "depends_on", "max_cents"}
+    {"id", "goal", "kind", "role", "paths", "expected", "depends_on", "max_cents", "max_read_chars"}
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
 BUDGET_KEYS = frozenset({"max_cents", "max_seconds"})
@@ -59,6 +59,7 @@ class Step:
     role: str
     depends_on: tuple[str, ...]
     max_cents: int | None
+    max_read_chars: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -338,6 +339,8 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
     budget: dict[str, int] = {}
     if step.max_cents is not None:
         budget["max_cents"] = step.max_cents
+    if step.max_read_chars is not None:
+        budget["max_read_chars"] = step.max_read_chars
     return augustus.Task(
         path=campaign.path,
         id=f"{campaign.id}-{step.id}",
@@ -849,6 +852,13 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         isinstance(max_cents, bool) or not isinstance(max_cents, int) or max_cents <= 0
     ):
         raise boxes.HarnessError(f"{where}: max_cents must be a positive whole number")
+    max_read_chars = entry.get("max_read_chars")
+    if max_read_chars is not None and (
+        isinstance(max_read_chars, bool)
+        or not isinstance(max_read_chars, int)
+        or max_read_chars <= 0
+    ):
+        raise boxes.HarnessError(f"{where}: max_read_chars must be a positive whole number")
     return Step(
         id=identifier,
         goal=_text(entry.get("goal")) or "",
@@ -858,6 +868,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         role=role,
         depends_on=tuple(item.strip() for item in depends),
         max_cents=max_cents,
+        max_read_chars=max_read_chars,
     )
 
 

@@ -44,7 +44,7 @@ MODES = ("manual", "auto")
 """How a step closes: a person after the verdict, or the campaign itself. Only manual runs."""
 ROLES = ("executor", "architect")
 """Who is asked for the change: the builder, or the advisor that writes the frame and no code."""
-BUDGET_KEYS = frozenset({"max_seconds", "max_cents"})
+BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
 ROUTES_ENV = "PANTHEON_ROUTES"
 SNAPSHOT_FILE = "task.json"
 """The task as dispatched, frozen beside its artifacts: a resume reads this, not the file."""
@@ -1003,6 +1003,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"frame      {_frame_line(result.frame)}",
         f"arch       {_arch_line(result.arch)}",
         f"executor   {_executor_line(result.proposal)}",
+        f"reading    {_reading_line(result.proposal)}",
         f"context    {_context_line(result.context)}",
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify)}",
@@ -1033,6 +1034,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "budget": dict(result.task.budget),
         "executor": None if result.proposal is None else executor.proposal_json(result.proposal),
         "context": None if result.context is None else result.context.json(),
+        "reading": None if result.proposal is None else result.proposal.reading,
         "repeated": result.repeated,
         "verify": None
         if result.verify is None
@@ -1296,6 +1298,26 @@ def _executor_line(result: executor.Proposal | None) -> str:
     return result.line
 
 
+def _reading_line(result: executor.Proposal | None) -> str:
+    """What the call read, or the fact that nobody counted: never a silent blank."""
+    if result is None:
+        return "not run"
+    reading = result.reading
+    if reading is None:
+        return "not reported — the executor did not say what it read"
+    files = reading.get("files")
+    chars = reading.get("chars")
+    tokens = reading.get("tokens_estimate")
+    text = f"{files} file(s), {chars} chars (~{tokens} tokens)"
+    declared = reading.get("declared_chars")
+    if declared is not None:
+        text += f", budget {declared} chars"
+    left = reading.get("left_out")
+    if isinstance(left, list) and left:
+        text += "; left out: " + "; ".join(str(item) for item in left)
+    return text
+
+
 def _cost_lines(result: Dispatch) -> list[str]:
     """What the dispatch spent, in the outbox: money, tokens, and the budget it was given.
 
@@ -1321,6 +1343,8 @@ def _cost_lines(result: Dispatch) -> list[str]:
                 f"{money} ({executor.tokens_line(usage)}, model {usage.model or 'not named'}, "
                 f"{usage.seconds:.1f} s)"
             )
+    if proposal is not None and proposal.reading is not None:
+        lines.append("reading: " + _reading_line(proposal))
     if review is not None:
         lines.append(f"review: {review.line()}")
     elif result.verify is not None and not result.verify.reviewed:
@@ -1339,6 +1363,8 @@ def _budget_bits(budget: dict[str, int]) -> list[str]:
         bits.append(f"{budget['max_cents']} cents")
     if "max_seconds" in budget:
         bits.append(f"{budget['max_seconds']} s")
+    if "max_read_chars" in budget:
+        bits.append(f"{budget['max_read_chars']} chars read")
     return bits
 
 

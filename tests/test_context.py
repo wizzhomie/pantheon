@@ -350,8 +350,8 @@ def test_both_executors_put_the_pack_in_the_prompt(tmp_path: Path) -> None:
     prompt = deepseek._prompt(
         {"id": "t-1", "goal": "g", "kind": "bugfix", "paths": ["src/**"]}, project, lines
     )
-    assert "CONTEXT (assembled by code):" in prompt
-    assert prompt.index("CONTEXT") < prompt.index("FILES IN THE PROJECT")
+    assert "CONTEXT (assembled by code):" in prompt.text
+    assert prompt.text.index("CONTEXT") < prompt.text.index("FILES IN THE PROJECT")
 
     builder = box_agent._prompt(
         {"role": "executor", "goal": "g", "paths": ["src/**"]}, lines

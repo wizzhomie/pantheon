@@ -40,8 +40,12 @@ EXAMPLE_FILE = Path("profile") / "executor.toml.example"
 CONFIG_KEYS = frozenset({"schema_version", "command", "model", "max_seconds", "max_cents"})
 USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "cost_cents"})
 ANSWER_KEYS = frozenset(
-    {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error"}
+    {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error", "reading"}
 )
+READING_KEYS = frozenset(
+    {"files", "chars", "tokens_estimate", "cap_chars", "declared_chars", "left_out"}
+)
+"""What one call read, as the executor reports it: a count, a size, and what was left out."""
 REQUEST_KEYS = frozenset(
     {
         "schema_version",
@@ -160,6 +164,7 @@ class Proposal:
     usage: Usage | None = None
     model: str | None = None
     notes: tuple[str, ...] = ()
+    reading: dict[str, object] | None = None
 
     @property
     def usable(self) -> bool:
@@ -181,6 +186,14 @@ class Proposal:
                 f"{self.status} — {usage.model or 'model not named'}, "
                 f"{tokens_line(usage)}, {money}, {usage.seconds:.1f} s"
             )
+        if self.reading is not None:
+            files = _int(self.reading.get("files"))
+            chars = _int(self.reading.get("chars"))
+            if files is not None and chars is not None:
+                text += f"; read {files} file(s), {chars} chars"
+                left = self.reading.get("left_out")
+                if isinstance(left, list) and left:
+                    text += f", {len(left)} gap(s) named"
         if self.reason:
             text += f"; {self.reason}"
         return text
@@ -196,7 +209,12 @@ class Proposal:
             "cost_cents": None if usage is None else usage.cost_cents,
             "seconds": None if usage is None else usage.seconds,
             "proposal": f"proposal-{self.number}",
+            "reading": self.reading,
         }
+
+
+def _int(value: object) -> int | None:
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
 
 
 def tokens_line(usage: Usage) -> str:
@@ -225,6 +243,7 @@ def proposal_json(proposal: Proposal) -> dict[str, object]:
         },
         "patch": None if proposal.patch is None else str(proposal.patch),
         "notes": list(proposal.notes),
+        "reading": proposal.reading,
     }
 
 
@@ -315,7 +334,10 @@ def propose(
     directory = box.root / "artifacts" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
-    request = _request(task, box, directory, number, config, seconds, cents, context, previous)
+    read_chars = task.budget.get("max_read_chars")
+    request = _request(
+        task, box, directory, number, config, seconds, cents, context, previous, read_chars
+    )
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -363,7 +385,7 @@ def propose(
     elapsed = time.monotonic() - started
     _write_call(directory, done.stdout, done.stderr)
     try:
-        patch, usage, answer_model, answer_notes = _read_answer(
+        patch, usage, answer_model, answer_notes, reading = _read_answer(
             done, directory, elapsed, config
         )
     except _Malformed as error:
@@ -423,7 +445,8 @@ def propose(
     if cents is None:
         notes.append("no cent limit is declared: the cost of this call is recorded, not bounded")
     return _record(
-        directory, task, number, "ok", "", patch, usage, answer_model, stamp, notes
+        directory, task, number, "ok", "", patch, usage, answer_model, stamp, notes,
+        reading=reading,
     )
 
 
@@ -466,6 +489,7 @@ def _request(
     cents: float | None,
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
+    read_chars: int | None = None,
 ) -> dict[str, object]:
     """The task as the command receives it: declared facts, paths, the limits, and context."""
     return {
@@ -483,11 +507,15 @@ def _request(
         },
         "project": {"path": str(box.project)},
         "box": {"name": box.name, "root": str(box.root)},
-        "limits": {"max_seconds": seconds, "max_cents": cents},
         "record": {"directory": str(directory)},
         "model": config.model,
         "context": context,
         "previous": previous,
+        "limits": {
+            "max_seconds": seconds,
+            "max_cents": cents,
+            "max_read_chars": read_chars,
+        },
     }
 
 
@@ -496,7 +524,7 @@ def _read_answer(
     directory: Path,
     elapsed: float,
     config: ExecutorConfig,
-) -> tuple[Path, Usage, str | None, tuple[str, ...]]:
+) -> tuple[Path, Usage, str | None, tuple[str, ...], dict[str, object] | None]:
     """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore."""
     text = done.stdout.strip()
     if not text:
@@ -527,7 +555,36 @@ def _read_answer(
     patch = _patch_file(data, directory)
     usage = _usage(data.get("usage"), elapsed, answer_model)
     notes = _notes(data.get("notes"))
-    return patch, usage, answer_model, notes
+    reading = _reading(data.get("reading"))
+    return patch, usage, answer_model, notes, reading
+
+
+def _reading(raw: object) -> dict[str, object] | None:
+    """What the call read, if the executor says: counts are checked, sizes stay honest."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise _Malformed("the executor's reading must be a table")
+    table: dict[str, object] = {str(key): value for key, value in raw.items()}
+    unknown = set(table) - READING_KEYS
+    if unknown:
+        raise _Malformed(
+            f"the executor's reading has unknown key(s) {', '.join(sorted(unknown))}"
+        )
+    for name in ("files", "chars", "tokens_estimate"):
+        value = _count(table.get(name), f"reading.{name}")
+        if value is None:
+            raise _Malformed(f"the executor's reading.{name} is required")
+        table[name] = value
+    for name in ("cap_chars", "declared_chars"):
+        raw_value = table.get(name)
+        if raw_value is not None:
+            table[name] = _count(raw_value, f"reading.{name}")
+    left = table.get("left_out", [])
+    if not isinstance(left, list) or not all(isinstance(item, str) for item in left):
+        raise _Malformed("the executor's reading.left_out must be a list of strings")
+    table["left_out"] = list(left)
+    return table
 
 
 def _patch_file(data: dict[str, object], directory: Path) -> Path:
@@ -624,6 +681,8 @@ def _record(
     model: str | None,
     when: datetime,
     notes: list[str],
+    *,
+    reading: dict[str, object] | None = None,
 ) -> Proposal:
     """Every outcome gets a record: a failed call is part of the task's history too."""
     digest = hashlib.sha256(patch.read_bytes()).hexdigest() if patch is not None else None
@@ -647,6 +706,7 @@ def _record(
         if digest is None
         else {"file": "change.diff", "digest": f"sha256:{digest}"},
         "notes": notes,
+        "reading": reading,
     }
     (directory / "proposal.json").write_text(
         json.dumps(payload, indent=2) + "\n", encoding="utf-8"
@@ -660,6 +720,7 @@ def _record(
         usage=usage,
         model=model,
         notes=tuple(notes),
+        reading=reading,
     )
 
 

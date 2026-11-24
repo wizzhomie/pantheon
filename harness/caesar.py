@@ -35,7 +35,7 @@ SCHEMA_VERSION = 1
 CONTRACT_KEYS = frozenset(
     {"schema_version", "task", "kind", "goal", "expected", "allowed_paths", "forbidden", "budget"}
 )
-BUDGET_KEYS = frozenset({"max_seconds", "max_cents"})
+BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
 FORBIDDEN = frozenset({"delete"})
 """The actions this gate can actually refuse; anything else is a config error, not a no-op."""
 

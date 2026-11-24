@@ -299,3 +299,16 @@ def test_state_of_another_campaign_is_an_error(
     write_state(box, {"s1": closed()}, campaign="c-2", folder="c-1")
     assert run(box, "campaign", box.name) == 2
     assert "not of 'c-1'" in capsys.readouterr().err
+
+
+def test_a_step_can_cap_what_it_reads(tmp_path: Path) -> None:
+    from harness import campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'expected = "a section in the docs"',
+        'expected = "a section in the docs"\nmax_read_chars = 4000',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    task = campaign.task_for(plan, plan.steps[0])
+    assert task.budget["max_read_chars"] == 4000

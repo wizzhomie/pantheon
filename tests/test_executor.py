@@ -506,8 +506,79 @@ def test_a_retry_prompt_carries_the_previous_failure(tmp_path: Path) -> None:
         "findings": ["src/app.py: the value is wrong"],
     }
     prompt = deepseek._prompt(task, tmp_path, None, previous)
-    assert "THE PREVIOUS ATTEMPT DID NOT PASS" in prompt
-    assert "ruff failed (exit 1)" in prompt and "src/app.py" in prompt
+    assert "THE PREVIOUS ATTEMPT DID NOT PASS" in prompt.text
+    assert "ruff failed (exit 1)" in prompt.text and "src/app.py" in prompt.text
     built = box_agent._prompt(task, None, previous)
     assert "Предыдущая попытка не прошла" in built and "ruff failed" in built
     assert "Каждый файл заканчивается переводом строки" in built
+
+
+READING_ANSWER = """\
+request = json.load(sys.stdin)
+print(json.dumps({
+    "patch": "--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n-value = 1\\n+value = 2\\n",
+    "model": "fake-model",
+    "usage": {"prompt_tokens": 123, "completion_tokens": 45, "cost_cents": 0.5},
+    "reading": {"files": 2, "chars": 40, "tokens_estimate": 10,
+                "cap_chars": 60000, "declared_chars": None, "left_out": []},
+}))
+"""
+
+
+def test_what_the_executor_read_is_recorded_and_printed(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _project, box, _script, task = probe(tmp_path, READING_ANSWER)
+    assert dispatch(box, task, "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["reading"] == {
+        "files": 2,
+        "chars": 40,
+        "tokens_estimate": 10,
+        "cap_chars": 60000,
+        "declared_chars": None,
+        "left_out": [],
+    }
+    proposal = json.loads(
+        (box.root / "artifacts" / "t-1" / "proposal-1" / "proposal.json").read_text()
+    )
+    assert proposal["reading"]["chars"] == 40
+
+
+def test_the_dispatch_output_names_what_was_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _project, box, _script, task = probe(tmp_path, READING_ANSWER)
+    assert dispatch(box, task) == 0
+    out = capsys.readouterr().out
+    assert "reading" in out
+    assert "2 file(s), 40 chars (~10 tokens)" in out
+
+
+def test_a_task_read_budget_reaches_the_executor(tmp_path: Path) -> None:
+    _project, box, _script, task = probe(tmp_path, ANSWER)
+    text = task.read_text() + "\nmax_read_chars = 400\n"
+    task.write_text(text, encoding="utf-8")
+    assert dispatch(box, task) == 0
+    request = json.loads(
+        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text()
+    )
+    assert request["limits"]["max_read_chars"] == 400
+
+
+def test_the_read_budget_leaves_files_out_and_names_them(tmp_path: Path) -> None:
+    project = tmp_path / "read"
+    (project / "src").mkdir(parents=True)
+    (project / "src" / "a.py").write_text("a" * 50 + "\n", encoding="utf-8")
+    (project / "src" / "b.py").write_text("b" * 50 + "\n", encoding="utf-8")
+    git(project, "init", "-q")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    prompt = deepseek._prompt({"id": "t", "paths": ["src/**"]}, project, None, None, 60)
+    assert prompt.reading["files"] == 1
+    assert prompt.reading["declared_chars"] == 60
+    left = prompt.reading["left_out"]
+    assert isinstance(left, list)
+    assert any("1 file(s) after the declared read budget of 60 chars" in str(x) for x in left)
+    assert "--- src/b.py ---" not in prompt.text
+    assert "--- src/a.py ---" in prompt.text

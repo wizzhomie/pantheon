@@ -39,13 +39,17 @@ max_cents = 5
            "expected": "…", "forbidden": [], "budget": {"max_cents": 5}},
   "project": {"path": "/home/ubuntu/pantheon/trajan"},
   "box": {"name": "trajan", "root": "/home/ubuntu/pantheon/boxes/trajan"},
-  "limits": {"max_seconds": 300, "max_cents": 5},
+  "limits": {"max_seconds": 300, "max_cents": 5, "max_read_chars": null},
   "record": {"directory": "/home/ubuntu/pantheon/boxes/trajan/artifacts/t-1/proposal-1"},
   "model": "deepseek-flash",
   "context": {"…": "пакет контекста, если коробка его собрала"},
   "previous": null
 }
 ```
+
+`limits.max_read_chars` — потолок чтения на задачу: если задача объявила `max_read_chars` в
+`[budget]`, команда обязана не читать больше, а всё, что не влезло, назвать в ответе. `null` —
+потолок не объявлен, действует собственный предел команды.
 
 `previous` — не `null` только у повтора: это факты прошлой попытки (вердикт, проваленные проверки,
 находки), собранные кодом из записи; исполнитель обязан на них ответить, а не повторить задачу
@@ -64,6 +68,7 @@ JSON-объект на stdout, ничего больше. Ключи:
 | `usage` | нет | `prompt_tokens`, `completion_tokens`, `cost_cents` — что потрачено |
 | `model` | нет | имя модели, как его назвал поставщик |
 | `notes` | нет | список строк, которые попадут в запись |
+| `reading` | нет | что команда прочитала: `files`, `chars`, `tokens_estimate`, `cap_chars`, `declared_chars`, `left_out` (список строк) |
 | `duration_ms` | нет | сколько заняло по мнению команды |
 | `error` | нет | «я не смог»; это записывается как отказ, а не как пустой патч |
 
@@ -81,6 +86,9 @@ JSON-объект на stdout, ничего больше. Ключи:
    записывается, но не применяется (`over-budget`).
 4. **Отдаёт патч Caesar.** Тот же контракт, те же ворота, тот же отказ по путям.
 5. **Зовёт Trajan** после применения — как и раньше.
+6. **Записывает чтение.** Если ответ назвал `reading`, запись и `pantheon dispatch` печатают, сколько
+   файлов и символов попало в запрос, оценку токенов и что осталось за потолком. Не назвала —
+   запись говорит «not reported», а не рисует ноль.
 
 Каждый вызов оставляет каталог `artifacts/<task>/proposal-<n>/`: `request.json`, `stdout.txt`,
 `stderr.txt`, `change.diff`, `proposal.json` (со статусом, ценой и токенами).
@@ -94,7 +102,9 @@ JSON-объект на stdout, ничего больше. Ключи:
 - **запись** `dispatch-*.json`, блок `executor`, и `proposal.json`;
 - **сводка** в `outbox/`, раздел `## cost`: деньги, токены, модель, время и бюджет задачи.
 
-Три правила записи:
+Чтение — отдельная строка `reading` в `dispatch-*.json`, в `proposal.json` и в выводе `pantheon
+dispatch`: файлы, символы, оценка токенов, объявленный потолок и всё, что осталось за ним. Три
+правила записи:
 
 - **Токены не выдумываются.** Не сообщила команда — в записи стоит «tokens not reported», а не 0.
 - **Деньги не выдумываются.** Нет цены — «cost not reported» (а не «бесплатно»).

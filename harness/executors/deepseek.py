@@ -31,6 +31,7 @@ import sys
 import time
 import urllib.error
 import urllib.request
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -84,6 +85,19 @@ def main() -> int:
         return _fail("the request carries no task")
     project = _project_path(request)
     model = str(request.get("model") or os.environ.get(MODEL_ENV) or DEFAULT_MODEL)
+    read_chars = _read_chars(request)
+    prompt = _prompt(
+        task, project, _context_lines(request), request.get("previous"), read_chars
+    )
+    if (
+        read_chars is not None
+        and prompt.reading.get("files") == 0
+        and prompt.reading.get("left_out")
+    ):
+        return _fail(
+            f"the declared read budget of {read_chars} chars fits none of the files in scope: "
+            "nothing was read, so the task was not sent; raise max_read_chars"
+        )
     started = time.monotonic()
     try:
         answer = _post(
@@ -93,12 +107,7 @@ def main() -> int:
                 "model": model,
                 "messages": [
                     {"role": "system", "content": SYSTEM},
-                    {
-                        "role": "user",
-                        "content": _prompt(
-                            task, project, _context_lines(request), request.get("previous")
-                        ),
-                    },
+                    {"role": "user", "content": prompt.text},
                 ],
                 "temperature": 0,
                 "max_tokens": _max_tokens(),
@@ -144,6 +153,7 @@ def main() -> int:
                 },
                 "duration_ms": int(elapsed * 1000),
                 "notes": notes,
+                "reading": prompt.reading,
             }
         )
     )
@@ -188,12 +198,21 @@ def _project_path(request: dict[str, object]) -> Path:
     return Path.cwd()
 
 
+@dataclass(frozen=True, slots=True)
+class Prompt:
+    """The words sent to the model, and what reading them cost before the call was made."""
+
+    text: str
+    reading: dict[str, object]
+
+
 def _prompt(
     task: dict[str, Any],
     project: Path,
     context: list[str] | None = None,
     previous: object = None,
-) -> str:
+    read_chars: int | None = None,
+) -> Prompt:
     paths = task.get("paths")
     patterns = [item for item in paths if isinstance(item, str)] if isinstance(paths, list) else []
     files = _files(project)
@@ -214,8 +233,80 @@ def _prompt(
     if prior:
         lines += ["", "THE PREVIOUS ATTEMPT DID NOT PASS. Answer these facts:", *prior]
     lines += ["", "FILES IN THE PROJECT (relative to its root):", *files[:FILE_LIST_LIMIT], ""]
-    lines += ["FILES IN THE DECLARED SCOPE:", *_contents(project, in_scope)]
-    return "\n".join(lines)
+    block, reading = _scope(project, in_scope, read_chars)
+    beyond = len(files) - FILE_LIST_LIMIT
+    if beyond > 0:
+        left = reading["left_out"]
+        assert isinstance(left, list)
+        left.append(f"{beyond} file name(s) beyond the {FILE_LIST_LIMIT}-name list")
+    lines += ["FILES IN THE DECLARED SCOPE:", *block]
+    return Prompt("\n".join(lines), reading)
+
+
+def _scope(
+    project: Path, names: list[str], declared: int | None
+) -> tuple[list[str], dict[str, object]]:
+    """Read the declared scope within the budget, and name every file the budget left out.
+
+    The budget is the task's if it declared one, never more than the module's own ceiling.
+    A file that does not fit is not half-read: the read stops and the rest is counted, so a
+    prompt that looks complete in the answer never hides a file the model did not see.
+    """
+    cap = CONTEXT_CHARS if declared is None else min(CONTEXT_CHARS, declared)
+    parts: list[str] = []
+    used = 0
+    read = 0
+    cut = 0
+    unreadable = 0
+    after_budget = 0
+    for index, name in enumerate(names):
+        try:
+            text = (project / name).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            unreadable += 1
+            continue
+        snippet = text[:FILE_CHARS]
+        if used + len(snippet) > cap:
+            after_budget = len(names) - index
+            break
+        if len(text) > FILE_CHARS:
+            snippet += "\n… (truncated)"
+            cut += 1
+        parts += [f"--- {name} ---", snippet, ""]
+        used += len(snippet)
+        read += 1
+    left_out: list[str] = []
+    if after_budget:
+        by = (
+            "the declared read budget"
+            if declared is not None
+            else "the prompt size limit"
+        )
+        left_out.append(f"{after_budget} file(s) after {by} of {cap} chars")
+    if cut:
+        left_out.append(f"{cut} file(s) cut to {FILE_CHARS} chars")
+    if unreadable:
+        left_out.append(f"{unreadable} file(s) that could not be read as text")
+    reading: dict[str, object] = {
+        "files": read,
+        "chars": used,
+        "tokens_estimate": used // 4,
+        "cap_chars": cap,
+        "declared_chars": declared,
+        "left_out": left_out,
+    }
+    return (parts or ["(nothing in the declared scope could be read)"]), reading
+
+
+def _read_chars(request: dict[str, object]) -> int | None:
+    """The task's read budget, if it declared one; the box sends it in ``limits``."""
+    limits = request.get("limits")
+    if not isinstance(limits, dict):
+        return None
+    value = limits.get("max_read_chars")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        return None
+    return value
 
 
 def _context_lines(request: dict[str, object]) -> list[str]:
@@ -245,23 +336,6 @@ def _files(project: Path) -> list[str]:
     return [line for line in done.stdout.splitlines() if line]
 
 
-def _contents(project: Path, names: list[str]) -> list[str]:
-    parts: list[str] = []
-    left = CONTEXT_CHARS
-    for name in names:
-        if left <= 0:
-            parts.append("… more files in scope were left out: the prompt has a size limit")
-            break
-        try:
-            text = (project / name).read_text(encoding="utf-8")
-        except (OSError, UnicodeDecodeError):
-            continue
-        snippet = text[:FILE_CHARS]
-        if len(text) > FILE_CHARS:
-            snippet += "\n… (truncated)"
-        parts += [f"--- {name} ---", snippet, ""]
-        left -= len(snippet)
-    return parts or ["(nothing in the declared scope could be read)"]
 
 
 def _post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
