@@ -491,7 +491,13 @@ def _box(tmp_path: Path) -> boxes.Box:
 
 
 def test_a_retry_prompt_carries_the_previous_failure(tmp_path: Path) -> None:
-    task = {"id": "t", "goal": "g", "kind": "bugfix", "paths": ["src/**"], "role": "executor"}
+    task: dict[str, object] = {
+        "id": "t",
+        "goal": "g",
+        "kind": "bugfix",
+        "paths": ["src/**"],
+        "role": "executor",
+    }
     previous = {
         "verdict": "hold",
         "attempts": 1,
