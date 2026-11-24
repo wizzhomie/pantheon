@@ -195,12 +195,18 @@ OUTSIDE: dict[str, object] = {
 
 
 def with_report(
-    box: boxes.Box, findings: list[dict[str, object]], verdict: str = "hold"
+    box: boxes.Box,
+    findings: list[dict[str, object]],
+    verdict: str = "hold",
+    run: dict[str, object] | None = None,
 ) -> campaign.State:
     directory = box.root / "artifacts" / "c-1-s1"
     report = directory / "verify-1" / "report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
-    report.write_text(json.dumps({"findings": findings}), encoding="utf-8")
+    payload: dict[str, object] = {"findings": findings}
+    if run is not None:
+        payload["run"] = run
+    report.write_text(json.dumps(payload), encoding="utf-8")
     record = directory / "dispatch-20261124T120000Z.json"
     record.write_text(
         json.dumps(
@@ -515,6 +521,54 @@ def test_the_previous_failure_is_told_as_facts(tmp_path: Path) -> None:
     lines = executor.previous_lines(previous)
     assert any("hold" in line for line in lines)
     assert any("src/app.py" in line for line in lines)
+
+
+def test_a_failed_check_carries_the_message_not_only_the_exit_code(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan = campaign.read_campaign(write_campaign(box))
+    finding: dict[str, object] = {
+        "id": "check-lint",
+        "title": "ruff failed",
+        "kind": "check-failure",
+        "status": "confirmed",
+        "detail": "exit 1, expected 0",
+        "evidence": ["lint", "checks/lint.stdout.txt"],
+    }
+    check: dict[str, object] = {
+        "check_id": "lint",
+        "status": "failed",
+        "output_tail": (
+            "invalid-syntax: Expected an indented block after function definition\n"
+            " --> tests/unit/test_m.py:8:27\n\nFound 1 error."
+        ),
+    }
+    state = with_report(box, [finding], run={"checks": [check]})
+    previous = campaign.previous_failure(state, plan.steps[0])
+    assert previous is not None
+    checks = previous["checks"]
+    assert isinstance(checks, list)
+    assert any("invalid-syntax" in str(item) for item in checks)
+    assert any("test_m.py:8:27" in str(item) for item in checks)
+
+    lines = executor.previous_lines(previous)
+    assert any("invalid-syntax" in line for line in lines)
+
+
+def test_a_failed_check_without_output_keeps_the_exit_code(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan = campaign.read_campaign(write_campaign(box))
+    finding: dict[str, object] = {
+        "id": "check-tests",
+        "title": "test suite failed",
+        "kind": "check-failure",
+        "status": "confirmed",
+        "detail": "exit 2, expected 0",
+        "evidence": ["tests", "checks/tests.stdout.txt"],
+    }
+    state = with_report(box, [finding])
+    previous = campaign.previous_failure(state, plan.steps[0])
+    assert previous is not None
+    assert previous["checks"] == ["test suite failed (exit 2, expected 0)"]
 
 
 def test_a_closed_step_has_no_previous_failure(tmp_path: Path) -> None:
