@@ -302,6 +302,7 @@ def test_the_attempt_ceiling_stops_the_run(
     assert advance(box) == 2
     out = capsys.readouterr().out
     assert "stop       attempts 2 of 2 used" in out
+    assert "last       " in out, "a stop names the box's own words for the last attempt"
     assert "verdict    incomplete — 0 of 1 steps closed" in out
     account = run_record(box)
     assert "attempts 2 of 2 used" in str(account["stop"])

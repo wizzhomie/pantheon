@@ -100,6 +100,10 @@ class TaskView(Protocol):
 class _Malformed(Exception):
     """The command answered, but not in the declared shape: a record, not a traceback."""
 
+    def __init__(self, message: str, usage: Usage | None = None) -> None:
+        super().__init__(message)
+        self.usage = usage
+
 
 @dataclass(frozen=True, slots=True)
 class ExecutorConfig:
@@ -358,7 +362,7 @@ def propose(
             "failed",
             str(error),
             None,
-            None,
+            error.usage,
             config.model,
             stamp,
             [],
@@ -467,18 +471,20 @@ def _read_answer(
     unknown = set(data) - ANSWER_KEYS
     if unknown:
         raise _Malformed(f"the executor's answer has unknown key(s) {', '.join(sorted(unknown))}")
-    if "error" in data:
-        raise _Malformed(f"the executor failed: {data['error']}")
-    if done.returncode != 0:
-        detail = (done.stderr.strip().splitlines() or ["no message"])[-1]
-        raise _Malformed(f"the executor exited {done.returncode}: {detail}")
     model = data.get("model")
     if model is not None and not isinstance(model, str):
         raise _Malformed("the executor's answer: model must be a string")
+    answer_model = model if isinstance(model, str) else config.model
+    if "error" in data:
+        usage = _usage(data.get("usage"), elapsed, answer_model)
+        raise _Malformed(f"the executor failed: {data['error']}", usage=usage)
+    if done.returncode != 0:
+        detail = (done.stderr.strip().splitlines() or ["no message"])[-1]
+        raise _Malformed(f"the executor exited {done.returncode}: {detail}")
     patch = _patch_file(data, directory)
-    usage = _usage(data.get("usage"), elapsed, model if isinstance(model, str) else config.model)
+    usage = _usage(data.get("usage"), elapsed, answer_model)
     notes = _notes(data.get("notes"))
-    return patch, usage, model if isinstance(model, str) else config.model, notes
+    return patch, usage, answer_model, notes
 
 
 def _patch_file(data: dict[str, object], directory: Path) -> Path:

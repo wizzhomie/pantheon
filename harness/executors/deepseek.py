@@ -108,7 +108,12 @@ def main() -> int:
     diff = extract_diff(text)
     if diff is None:
         problem = _error_line(text)
-        return _fail(problem or "the model answered without a unified diff", notes=[text[:400]])
+        return _fail(
+            problem or "the model answered without a unified diff",
+            notes=[text[:400]],
+            usage=_usage_payload(answer),
+            model=reported_model or model,
+        )
     usage = answer.get("usage")
     table: dict[str, Any] = usage if isinstance(usage, dict) else {}
     prompt_tokens = _int(table.get("prompt_tokens"))
@@ -327,12 +332,36 @@ def _cost(prompt_tokens: int | None, completion_tokens: int | None) -> float | N
     return round(dollars * 100, 4)
 
 
-def _fail(message: str, notes: list[str] | None = None) -> int:
+def _fail(
+    message: str,
+    notes: list[str] | None = None,
+    usage: dict[str, object] | None = None,
+    model: str | None = None,
+) -> int:
     payload: dict[str, object] = {"error": message}
     if notes:
         payload["notes"] = notes
+    if usage is not None:
+        payload["usage"] = usage
+    if model is not None:
+        payload["model"] = model
     print(json.dumps(payload))
     return 1
+
+
+def _usage_payload(answer: dict[str, object]) -> dict[str, object] | None:
+    """What the call cost, even when the answer was not a change: a call happened either way."""
+    usage = answer.get("usage")
+    if not isinstance(usage, dict):
+        return None
+    table: dict[str, object] = {str(key): value for key, value in usage.items()}
+    prompt_tokens = _int(table.get("prompt_tokens"))
+    completion_tokens = _int(table.get("completion_tokens"))
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "cost_cents": _cost(prompt_tokens, completion_tokens),
+    }
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through the shim

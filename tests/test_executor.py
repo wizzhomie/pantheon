@@ -269,11 +269,17 @@ def test_an_executor_that_reports_its_own_failure_is_recorded(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _project, box, _script, task = probe(
-        tmp_path, 'print(json.dumps({"error": "the task needs a human"}))\n'
+        tmp_path,
+        'print(json.dumps({"error": "the task needs a human", "model": "fake-model", '
+        '"usage": {"prompt_tokens": 10, "completion_tokens": 5, "cost_cents": 0.5}}))\n',
     )
     assert dispatch(box, task) == 1
     out = capsys.readouterr().out
     assert "the task needs a human" in out
+    record = box.root / "artifacts" / "t-1" / "proposal-1" / "proposal.json"
+    proposal = json.loads(record.read_text())
+    assert proposal["status"] == "failed"
+    assert proposal["usage"]["cost_cents"] == 0.5, "a failed call still costs money"
 
 
 @requires_trajan
@@ -445,9 +451,12 @@ def test_the_adapter_reports_an_answer_without_a_diff(
         }
 
     monkeypatch.setattr(deepseek, "_post", fake_post)
+    monkeypatch.setenv(deepseek.PRICE_IN_ENV, "0.27")
+    monkeypatch.setenv(deepseek.PRICE_OUT_ENV, "1.1")
     assert deepseek.main() == 1
     answer = json.loads(capsys.readouterr().out)
     assert "without a unified diff" in answer["error"]
+    assert answer["usage"]["cost_cents"] is not None, "a call without a diff is still billed"
 
 
 def test_a_bare_diff_and_an_error_line_are_understood() -> None:

@@ -205,6 +205,9 @@ def render(result: Run) -> list[str]:
         )
     if result.stop:
         lines.append(f"stop       {result.stop}")
+        last = result.attempts[-1].dispatch.notes if result.attempts else ()
+        if last:
+            lines.append(f"last       {last[-1]}")
     else:
         lines.append("stop       none: every step closed with a strict pass")
     verdict = result.report.verdict
