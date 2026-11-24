@@ -17,7 +17,17 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import augustus, aurelius, caesar, container, contour, executor, frame, reviewer
+from . import (
+    augustus,
+    aurelius,
+    caesar,
+    campaign,
+    container,
+    contour,
+    executor,
+    frame,
+    reviewer,
+)
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -118,6 +128,23 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--note", default="", help="why this frame was accepted")
     approve.add_argument("--json", action="store_true", help="the answer as one JSON object")
     approve.set_defaults(handler=_approve)
+
+    campaign_parser = commands.add_parser(
+        "campaign", help="a plan in the repository, and the verdict the code computes about it"
+    )
+    campaign_parser.add_argument(
+        "name", nargs="?", default=None, help="box name (default: the only one)"
+    )
+    campaign_parser.add_argument(
+        "--file", default=None, help="one campaign file (default: every .pantheon/campaigns/*.toml)"
+    )
+    campaign_parser.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    campaign_parser.add_argument("--json", action="store_true", help="the answer as JSON")
+    campaign_parser.set_defaults(handler=_campaign)
 
     dispatch = commands.add_parser(
         "dispatch", help="Augustus: run a task through the contours its scope routes to"
@@ -429,6 +456,30 @@ def _approve(args: argparse.Namespace, root: Path) -> int:
         return 0
     print("\n".join(frame.render_approval(approval, current)))
     return 0
+
+
+def _campaign(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    table = augustus.read_routes(Path(routes) if routes else None)
+    files = (Path(args.file),) if args.file else campaign.campaign_files(box.project)
+    if not files:
+        raise boxes.HarnessError(
+            f"no campaigns in {box.project / campaign.CAMPAIGN_DIR}: a plan is a file, so there "
+            "is nothing to check"
+        )
+    reports = [campaign.report(box, campaign.read_campaign(path), routes=table) for path in files]
+    if args.json:
+        payload: object = [campaign.report_json(item) for item in reports]
+        if len(reports) == 1:
+            payload = campaign.report_json(reports[0])
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        for index, item in enumerate(reports):
+            if index:
+                print()
+            print("\n".join(campaign.render(item)))
+    return 0 if all(not item.problems for item in reports) else 1
 
 
 def _dispatch(args: argparse.Namespace, root: Path) -> int:
