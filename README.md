@@ -11,16 +11,16 @@ afterthought here; it is the part that already works, and it is where the projec
 | Part | State |
 |---|---|
 | **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
-| **Box** — one project, one directory, one ledger | **works up to the agent**: `pantheon new` creates the box, `status` describes project, policy and requirements, `verify` runs trajan and keeps the report, `run` gates a patch by a contract, `dispatch` takes a task through its contours, and `up`/`down` start and stop the box's container — the image pinned by digest, the project mounted read-only, the state writable, 512 MB. The container runs a sleep, not an agent: `status` says "mount only" |
+| **Box** — one project, one directory, one ledger | **works up to the agent**: `pantheon new` creates the box, `status` describes project, policy and requirements, `verify` runs trajan and keeps the report, `run` gates a patch by a contract, `dispatch` takes a task through its contours, and `up`/`down` start and stop the box's container — the image pinned by digest, the project mounted read-only, the state writable, 512 MB. The container runs the agent (`gateway run` under the image's own supervisor), and `status` asks it how it is instead of assuming |
 | **Caesar** — execution gates: contracts, permissions, attempts | **works**: `pantheon run` reads `tasks/<id>.contract.toml` and applies a patch only when every path it touches is inside the declared scope; a delete the contract forbids is refused, `.git/` can never be authorised, and the attempt, its paths and the refusal land in the box either way |
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
 | **Augustus** — orchestration inside the box | **works with a declared executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, has the box's executor produce the change when the task carries none, forces every change through the write gate, calls the contours, and writes the record, the ledger events, one outbox summary and the task's state in `status` |
-| **Executor** — the command that produces the change | **works**: the box declares `profile/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the outbox. `bin/pantheon-executor` is the reference adapter for an OpenAI-compatible endpoint; a subscription CLI adapter is the next one. It runs on the host today, not inside the container |
+| **Executor** — the command that produces the change | **works**: the box declares `profile/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the outbox. `bin/pantheon-executor-container` asks the agent inside the box; `bin/pantheon-executor` is the host adapter for an OpenAI-compatible endpoint, kept as a fallback for a box without an agent. A subscription CLI adapter is the next one |
 
-The table is the honest status, not a roadmap promise: five rows are running code today. The box
-row is still the half that can be built before there is an agent inside — the container proves the
-mount and the lifecycle, not an agent, and `status` says "mount only". The change comes from the
-declared executor, which today runs on the host.
+The table is the honest status, not a roadmap promise: five rows are running code today, and the
+box's container now runs its own agent with a profile and a model. The change is still produced as
+a proposal and applied on the host through Caesar: the project is read-only inside the container,
+so the boundary is a mount, not an instruction.
 
 ## Using the box
 
