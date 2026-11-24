@@ -14,10 +14,11 @@ afterthought here; it is the part that already works, and it is where the projec
 | **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes project, policy and requirements, `pantheon verify` runs trajan and keeps the report, `pantheon run` gates a patch by a contract and writes the attempt and the refusal into the box ledger. No container, no agent yet — `pantheon up` refuses |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
-| **Augustus** — orchestration inside the box | designed, not built |
+| **Augustus** — orchestration inside the box | **works without its executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, forces a declared change through the write gate, calls the contours, and writes the record, the ledger events, one outbox summary and the task's state in `status`. The agent that would produce the change is not built, so a task carries its patch or says it has none |
 
-The table is the honest status, not a roadmap promise: the first two rows are running code today,
-and the box row is only the half of it that can be built before there is an agent to put inside.
+The table is the honest status, not a roadmap promise: four rows are running code today, and the
+box row is only the half of it that can be built before there is an agent to put inside — `up`
+refuses until then, and the MVP acceptance says so instead of counting it as done.
 
 ## Using the box
 
@@ -26,6 +27,7 @@ $ ./bin/pantheon new trajan          # a box next to the project, project mounte
 $ ./bin/pantheon status              # what the project promises, read, never executed
 $ ./bin/pantheon verify               # trajan runs the project's checks, report stays in the box
 $ ./bin/pantheon run <box> --contract tasks/T1.contract.toml --patch change.diff
+$ ./bin/pantheon dispatch <box> --task tasks/t-1.toml   # the whole path: arch, gate, verdict, outbox
 $ ./bin/pantheon up                  # refuses: stage 1.1 has no container to start
 ```
 

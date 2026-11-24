@@ -380,7 +380,7 @@ def render_status(report: BoxStatus) -> list[str]:
         f"context    {requirements}",
         f"arch       {_architecture(project)}",
         f"compose    {services}",
-        "augustus   not running: stage 1.1 builds the box, stage 1.5 starts the agent",
+        "augustus   the orchestrator is `pantheon dispatch`; no agent process: no container yet",
     ]
     for note in project.notes:
         lines.append(f"note       {note}")
@@ -426,7 +426,11 @@ def status_json(report: BoxStatus) -> dict[str, object]:
             "has_target": project.has_target,
             "notes": list(project.notes),
         },
-        "agent": {"running": False, "reason": "stage 1.1 has no container; stage 1.5 starts it"},
+        "agent": {
+            "running": False,
+            "reason": "the orchestrator runs as `pantheon dispatch`; the agent process needs "
+            "the container, which is not built",
+        },
     }
 
 

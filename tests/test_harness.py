@@ -146,7 +146,7 @@ def test_status_reads_policy_context_and_git(tmp_path: Path) -> None:
     assert "probe-default" in text and "tests, lint" in text
     assert "1 approved, 1 proposed" in text
     assert "baseline and target" in text
-    assert "not running" in text
+    assert "pantheon dispatch" in text
 
 
 def test_status_json_is_one_object_with_stable_keys(tmp_path: Path) -> None:
@@ -164,10 +164,9 @@ def test_status_json_is_one_object_with_stable_keys(tmp_path: Path) -> None:
         {"id": "R1", "status": "approved"},
         {"id": "R2", "status": "proposed"},
     ]
-    assert payload["agent"] == {
-        "running": False,
-        "reason": "stage 1.1 has no container; stage 1.5 starts it",
-    }
+    agent = payload["agent"]
+    assert isinstance(agent, dict) and agent["running"] is False
+    assert "pantheon dispatch" in str(agent["reason"])
     json.dumps(payload)
 
 

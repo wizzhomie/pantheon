@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour
+from . import augustus, aurelius, caesar, contour
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -27,7 +27,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
     try:
-        return _dispatch(args)
+        return _execute(args)
     except boxes.HarnessError as error:
         print(f"pantheon: {error}", file=sys.stderr)
         return EXIT_CANNOT
@@ -98,6 +98,22 @@ def _parser() -> argparse.ArgumentParser:
     arch.add_argument("--json", action="store_true", help="the answer as one JSON object")
     arch.set_defaults(handler=_arch)
 
+    dispatch = commands.add_parser(
+        "dispatch", help="Augustus: run a task through the contours its scope routes to"
+    )
+    dispatch.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    dispatch.add_argument("--task", required=True, help="tasks/<id>.toml: goal, scope, kind")
+    dispatch.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    dispatch.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    dispatch.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    dispatch.add_argument("--tool", default=None, help="boundary tool for the architecture stage")
+    dispatch.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    dispatch.set_defaults(handler=_dispatch)
+
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
 
@@ -108,7 +124,7 @@ def _parser() -> argparse.ArgumentParser:
     return parser
 
 
-def _dispatch(args: argparse.Namespace) -> int:
+def _execute(args: argparse.Namespace) -> int:
     handler: object = getattr(args, "handler", None)
     if not callable(handler):
         raise boxes.HarnessError("no command given")
@@ -133,10 +149,28 @@ def _new(args: argparse.Namespace, root: Path) -> int:
 def _status(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
     report = boxes.status(box)
+    tasks = augustus.recent_tasks(box.root)
     if args.json:
-        print(json.dumps(boxes.status_json(report), indent=2, ensure_ascii=False))
+        payload = boxes.status_json(report)
+        payload["tasks"] = [
+            {
+                "id": task.id,
+                "state": task.state,
+                "at": task.at,
+                "verify": task.verify,
+                "record": str(task.record),
+            }
+            for task in tasks
+        ]
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
     print("\n".join(boxes.render_status(report)))
+    if tasks:
+        for task in tasks:
+            verify = f"verify {task.verify}" if task.verify else "not verified"
+            print(f"task       {task.id}  {task.state}  {task.at}  {verify}")
+    else:
+        print("tasks      none dispatched yet")
     return 0
 
 
@@ -193,6 +227,26 @@ def _arch(args: argparse.Namespace, root: Path) -> int:
         print(json.dumps(aurelius.result_json(result, model), indent=2))
     else:
         print("\n".join(aurelius.render_result(result, model)))
+    return result.exit_code
+
+
+def _dispatch(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    task = augustus.read_task(Path(args.task))
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    trajan = contour.trajan_root(args.trajan)
+    result = augustus.dispatch(
+        box,
+        task,
+        routes=augustus.read_routes(Path(routes) if routes else None),
+        trajan_root=trajan,
+        trajan_python=contour.trajan_python(trajan, args.python),
+        tool=args.tool,
+    )
+    if args.json:
+        print(json.dumps(augustus.dispatch_json(result), indent=2))
+    else:
+        print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
 
 
