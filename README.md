@@ -11,7 +11,7 @@ afterthought here; it is the part that already works, and it is where the projec
 | Part | State |
 |---|---|
 | **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
-| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes project, policy and requirements, `pantheon verify` runs trajan and keeps the report, `pantheon run` gates a patch by a contract and writes the attempt and the refusal into the box ledger. No container, no agent yet — `pantheon up` refuses |
+| **Box** — one project, one directory, one ledger | **works up to the agent**: `pantheon new` creates the box, `status` describes project, policy and requirements, `verify` runs trajan and keeps the report, `run` gates a patch by a contract, `dispatch` takes a task through its contours, and `up`/`down` start and stop the box's container — the image pinned by digest, the project mounted read-only, the state writable, 512 MB. The container runs a sleep, not an agent: `status` says "mount only" |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
 | **Augustus** — orchestration inside the box | **works without its executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, forces a declared change through the write gate, calls the contours, and writes the record, the ledger events, one outbox summary and the task's state in `status`. The agent that would produce the change is not built, so a task carries its patch or says it has none |
@@ -28,7 +28,8 @@ $ ./bin/pantheon status              # what the project promises, read, never ex
 $ ./bin/pantheon verify               # trajan runs the project's checks, report stays in the box
 $ ./bin/pantheon run <box> --contract tasks/T1.contract.toml --patch change.diff
 $ ./bin/pantheon dispatch <box> --task tasks/t-1.toml   # the whole path: arch, gate, verdict, outbox
-$ ./bin/pantheon up                  # refuses: stage 1.1 has no container to start
+$ ./bin/pantheon up <box> --image <pinned-digest>   # starts the box's container (mount only)
+$ ./bin/pantheon down <box>          # stops it; the box's tasks and reports stay
 ```
 
 `run` is Caesar, the gate: the contract declares which paths the change may touch and what it

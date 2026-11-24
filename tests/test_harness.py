@@ -238,16 +238,17 @@ def test_the_cli_creates_and_describes_a_box(
     assert payload["project"]["requirements"][0] == {"id": "R1", "status": "approved"}
 
 
-def test_the_cli_refuses_to_start_what_does_not_exist_yet(
+def test_up_without_a_pinned_image_refuses_and_down_is_harmless(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path)
     boxes_root = tmp_path / "boxes"
     main(["--boxes", str(boxes_root), "new", str(project)])
     capsys.readouterr()
-    for command in ("up", "down"):
-        assert main(["--boxes", str(boxes_root), command, "probe"]) == 3
-        assert "not built" in capsys.readouterr().err
+    assert main(["--boxes", str(boxes_root), "up", "probe"]) == 2
+    assert "no image" in capsys.readouterr().err
+    assert main(["--boxes", str(boxes_root), "down", "probe"]) == 0
+    assert "nothing to stop" in capsys.readouterr().out
 
 
 def test_the_cli_answers_a_bad_request_with_two(

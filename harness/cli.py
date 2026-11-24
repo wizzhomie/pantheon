@@ -15,7 +15,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import augustus, aurelius, caesar, contour
+from . import augustus, aurelius, caesar, container, contour
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -117,10 +117,14 @@ def _parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
 
-    for name, verb in (("up", "start"), ("down", "stop")):
-        command = commands.add_parser(name, help=f"{verb} the box's agent (not built yet)")
-        command.add_argument("name", nargs="?", default=None, help="box name")
-        command.set_defaults(handler=_refuse)
+    up = commands.add_parser("up", help="start the box's container (mount only, no agent yet)")
+    up.add_argument("name", nargs="?", default=None, help="box name")
+    up.add_argument("--image", default=None, help="pin this image in box.toml, then start")
+    up.set_defaults(handler=_up)
+
+    down = commands.add_parser("down", help="stop the box's container, keeping the box's files")
+    down.add_argument("name", nargs="?", default=None, help="box name")
+    down.set_defaults(handler=_down)
     return parser
 
 
@@ -150,8 +154,15 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
     report = boxes.status(box)
     tasks = augustus.recent_tasks(box.root)
+    facts = container.state(box)
     if args.json:
         payload = boxes.status_json(report)
+        payload["container"] = {
+            "running": facts.running,
+            "name": facts.name,
+            "image": facts.image,
+            "detail": facts.detail,
+        }
         payload["tasks"] = [
             {
                 "id": task.id,
@@ -164,7 +175,9 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         ]
         print(json.dumps(payload, indent=2, ensure_ascii=False))
         return 0
-    print("\n".join(boxes.render_status(report)))
+    lines = boxes.render_status(report)
+    lines.insert(-1, f"container  {facts.line}")
+    print("\n".join(lines))
     if tasks:
         for task in tasks:
             verify = f"verify {task.verify}" if task.verify else "not verified"
@@ -265,15 +278,21 @@ def _list(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
-def _refuse(args: argparse.Namespace, root: Path) -> int:
-    """``up``/``down`` before there is anything to start: refuse with the reason, not a fake."""
+def _up(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
-    print(
-        f"pantheon: {args.command} is not built for box {box.name}: stage 1.1 builds the "
-        "directory, stage 1.5 puts Augustus in it. Nothing was started or stopped.",
-        file=sys.stderr,
-    )
-    return EXIT_REFUSED
+    result = container.up(box, args.image)
+    print(f"box {box.name}: {result.line}")
+    if not result.running:
+        print("pantheon: the container did not come up; nothing is running", file=sys.stderr)
+        return EXIT_CANNOT
+    return 0
+
+
+def _down(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    result = container.down(box)
+    print(f"box {box.name}: {result.line}")
+    return 0
 
 
 if __name__ == "__main__":  # pragma: no cover

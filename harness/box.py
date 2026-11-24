@@ -183,16 +183,15 @@ def render_box(box: Box) -> str:
 
 
 def render_compose() -> str:
-    """A compose file with an empty service map: the box has no container until stage 1.5.
+    """A compose file with an empty service map: no image is pinned yet, so nothing runs.
 
-    Writing a half-configured service would be worse than writing none: a file that looks
-    runnable and runs nothing is the kind of placeholder this harness exists to avoid.
+    `pantheon up` rewrites this file from box.toml once an image is pinned. Writing a
+    half-configured service here would be worse than an empty map: a file that looks runnable
+    and runs nothing is the kind of placeholder this harness exists to avoid.
     """
     return (
-        "# The box's container. Stage 1.1 has no agent to put in one, so the service map is\n"
-        "# empty and `pantheon up` refuses instead of starting nothing (stage 1.5 fills this\n"
-        "# in with the pinned image from box.toml, the project mounted read-write, and the\n"
-        "# volumes for state/, artifacts/ and outbox/).\n"
+        "# The box's container. No image is pinned yet, so the service map is empty and\n"
+        "# `pantheon up` asks for one before it starts anything.\n"
         "services: {}\n"
         "\n"
         "volumes: {}\n"
@@ -380,7 +379,7 @@ def render_status(report: BoxStatus) -> list[str]:
         f"context    {requirements}",
         f"arch       {_architecture(project)}",
         f"compose    {services}",
-        "augustus   the orchestrator is `pantheon dispatch`; no agent process: no container yet",
+        "augustus   the orchestrator is `pantheon dispatch`",
     ]
     for note in project.notes:
         lines.append(f"note       {note}")
