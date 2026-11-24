@@ -91,7 +91,7 @@ def main() -> int:
                 "model": model,
                 "messages": [
                     {"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": _prompt(task, project)},
+                    {"role": "user", "content": _prompt(task, project, _context_lines(request))},
                 ],
                 "temperature": 0,
                 "max_tokens": _max_tokens(),
@@ -176,7 +176,7 @@ def _project_path(request: dict[str, object]) -> Path:
     return Path.cwd()
 
 
-def _prompt(task: dict[str, Any], project: Path) -> str:
+def _prompt(task: dict[str, Any], project: Path, context: list[str] | None = None) -> str:
     paths = task.get("paths")
     patterns = [item for item in paths if isinstance(item, str)] if isinstance(paths, list) else []
     files = _files(project)
@@ -191,9 +191,22 @@ def _prompt(task: dict[str, Any], project: Path) -> str:
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
         lines.append(f"forbidden: {', '.join(str(item) for item in forbidden)}")
+    if context:
+        lines += ["", *context]
     lines += ["", "FILES IN THE PROJECT (relative to its root):", *files[:FILE_LIST_LIMIT], ""]
     lines += ["FILES IN THE DECLARED SCOPE:", *_contents(project, in_scope)]
     return "\n".join(lines)
+
+
+def _context_lines(request: dict[str, object]) -> list[str]:
+    """The pack the box assembled, if any: the lines are data, not instructions to parse."""
+    context = request.get("context")
+    if not isinstance(context, dict):
+        return []
+    lines = context.get("lines")
+    if not isinstance(lines, list):
+        return []
+    return [str(item) for item in lines if isinstance(item, str)]
 
 
 def _files(project: Path) -> list[str]:

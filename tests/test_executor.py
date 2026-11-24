@@ -18,8 +18,8 @@ from typing import Any
 
 import pytest
 
+from harness import augustus, contour, executor
 from harness import box as boxes
-from harness import executor
 from harness.cli import main
 from harness.executors import deepseek
 
@@ -218,6 +218,35 @@ def test_a_declared_executor_supplies_the_patch_and_the_bill(
     assert "0.50 cents" in outbox
     assert "123 in / 45 out tokens" in outbox
     assert "budget declared in the task: 5 cents, 60 s" in outbox
+
+
+@requires_trajan
+def test_the_change_an_executor_proposed_is_the_change_a_reader_reads(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An executor's diff lives in the attempt, not in the task: the reader must get that file."""
+    _project, box, _script, task = probe(tmp_path, ANSWER)
+    seen: dict[str, Path | None] = {}
+    real = augustus._verify
+
+    def spy(
+        box_: boxes.Box,
+        directory: Path,
+        stamp: datetime,
+        root: Path,
+        python: Path,
+        review: contour.Reviewer | None = None,
+        change: Path | None = None,
+    ) -> contour.VerifyResult:
+        seen["change"] = change
+        return real(box_, directory, stamp, root, python, review=None, change=change)
+
+    monkeypatch.setattr(augustus, "_verify", spy)
+    assert dispatch(box, task) == 0
+    assert seen["change"] is not None, "a reader would have been told there is no change"
+    assert seen["change"].name == "change.diff"
+    assert seen["change"].parent.name == "1"
+    assert seen["change"].is_file()
 
 
 @requires_trajan

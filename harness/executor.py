@@ -43,7 +43,7 @@ ANSWER_KEYS = frozenset(
     {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error"}
 )
 REQUEST_KEYS = frozenset(
-    {"schema_version", "task", "project", "box", "limits", "record", "attempt", "model"}
+    {"schema_version", "task", "project", "box", "limits", "record", "attempt", "model", "context"}
 )
 DEFAULT_SECONDS = 300
 PATCH_LIMIT = 5 * 1024 * 1024
@@ -289,6 +289,7 @@ def propose(
     task: TaskView,
     box: boxes.Box,
     when: datetime | None = None,
+    context: dict[str, object] | None = None,
 ) -> Proposal:
     """Ask the declared command for a change, and record the answer with its price."""
     if config.command is None:
@@ -298,7 +299,7 @@ def propose(
     directory = box.root / "artifacts" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
-    request = _request(task, box, directory, number, config, seconds, cents)
+    request = _request(task, box, directory, number, config, seconds, cents, context)
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
     )
@@ -418,8 +419,9 @@ def _request(
     config: ExecutorConfig,
     seconds: int,
     cents: float | None,
+    context: dict[str, object] | None = None,
 ) -> dict[str, object]:
-    """The task as the command receives it: declared facts, paths, and the limits."""
+    """The task as the command receives it: declared facts, paths, the limits, and context."""
     return {
         "schema_version": SCHEMA_VERSION,
         "attempt": number,
@@ -438,6 +440,7 @@ def _request(
         "limits": {"max_seconds": seconds, "max_cents": cents},
         "record": {"directory": str(directory)},
         "model": config.model,
+        "context": context,
     }
 
 

@@ -20,8 +20,9 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour, executor, frame
+from . import aurelius, caesar, contour, executor, frame, records
 from . import box as boxes
+from . import context as context_pack
 
 SCHEMA_VERSION = 1
 TASK_KEYS = frozenset(
@@ -100,6 +101,9 @@ class Dispatch:
 
     frame: frame.Standing | None = None
     """The architecture basis this dispatch rested on: approved, changed, never, or empty."""
+
+    context: context_pack.Pack | None = None
+    """What the model was told about the box before it was asked for a change."""
 
 
 def read_task(path: Path) -> Task:
@@ -299,6 +303,7 @@ def dispatch(
             )
 
     proposal: executor.Proposal | None = None
+    pack: context_pack.Pack | None = None
     if "run" in stages:
         patch = task.change
         if patch is None:
@@ -309,7 +314,12 @@ def dispatch(
                     "was written, and the write gate had nothing to gate"
                 )
             else:
-                proposal = executor.propose(config, task, box, when=stamp)
+                pack = context_pack.build(box, task.id, task.paths, when=stamp)
+                context_pack.write(pack)
+                notes.append(f"context: {context_pack.line(pack)}")
+                proposal = executor.propose(
+                    config, task, box, when=stamp, context=context_pack.payload(pack)
+                )
                 notes.extend(proposal.notes)
                 _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
                 if not proposal.usable:
@@ -327,6 +337,7 @@ def dispatch(
                             exit_code=1,
                             proposal=proposal,
                             resumed_from=resumed_from,
+                            context=pack,
                         ),
                         stamp,
                     )
@@ -354,9 +365,13 @@ def dispatch(
                         exit_code=1,
                         proposal=proposal,
                         resumed_from=resumed_from,
+                        context=pack,
                     ),
                     stamp,
                 )
+            # The change the gate applied is the change a reader must read: a task that
+            # carried its patch and a task whose executor proposed one are the same fact here.
+            change = attempt.directory / "change.diff"
 
     if "verify" in stages:
         reader = review if change is not None else None
@@ -393,6 +408,7 @@ def dispatch(
             proposal=proposal,
             resumed_from=resumed_from,
             review_cap=None if review is None else review.max_cents,
+            context=pack,
         ),
         stamp,
     )
@@ -721,6 +737,12 @@ def _commit_note(commit: caesar.Commit) -> str:
     return f"the commit failed: {commit.reason}"
 
 
+def _context_line(pack: context_pack.Pack | None) -> str:
+    if pack is None:
+        return "not built — no model was asked"
+    return context_pack.line(pack)
+
+
 def _frame_line(standing: frame.Standing | None) -> str:
     return "not read" if standing is None else standing.line()
 
@@ -925,6 +947,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"frame      {_frame_line(result.frame)}",
         f"arch       {_arch_line(result.arch)}",
         f"executor   {_executor_line(result.proposal)}",
+        f"context    {_context_line(result.context)}",
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify)}",
         f"commit     {_commit_line(result.commit)}",
@@ -953,6 +976,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "attempt": None if result.attempt is None else caesar.attempt_json(result.attempt),
         "budget": dict(result.task.budget),
         "executor": None if result.proposal is None else executor.proposal_json(result.proposal),
+        "context": None if result.context is None else result.context.json(),
         "verify": None
         if result.verify is None
         else {
@@ -1069,6 +1093,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         proposal=result.proposal,
         resumed_from=result.resumed_from,
         review_cap=result.review_cap,
+        context=result.context,
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
     # read here, and a summary that omitted it would be the quietest gap of all.
@@ -1076,6 +1101,9 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
     record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
     _event(box.root, when, "outbox.written", task, str(outbox.relative_to(box.root)))
+    # The digest is written after the record, so the task that just ran is in it: a memory that
+    # is one run behind would make every dispatch leave a stale index behind it.
+    records.write(box)
     return finished
 
 
@@ -1094,6 +1122,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- frame: {_frame_line(result.frame)}",
         f"- architecture: {_arch_line(result.arch)}",
         f"- executor: {_executor_line(result.proposal)}",
+        f"- context: {_context_line(result.context)}",
         f"- write gate: {_attempt_line(result.attempt)}",
         f"- verification: {_verify_line(result.verify)}",
         f"- commit: {_commit_line(result.commit)}",

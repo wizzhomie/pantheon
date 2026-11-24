@@ -26,6 +26,7 @@ from . import (
     contour,
     executor,
     frame,
+    records,
     reviewer,
 )
 from . import box as boxes
@@ -128,6 +129,15 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--note", default="", help="why this frame was accepted")
     approve.add_argument("--json", action="store_true", help="the answer as one JSON object")
     approve.set_defaults(handler=_approve)
+
+    ledger_parser = commands.add_parser(
+        "records", help="digest the box's finished tasks into one bounded, addressable list"
+    )
+    ledger_parser.add_argument(
+        "name", nargs="?", default=None, help="box name (default: the only one)"
+    )
+    ledger_parser.add_argument("--json", action="store_true", help="the digest as JSON")
+    ledger_parser.set_defaults(handler=_records)
 
     campaign_parser = commands.add_parser(
         "campaign", help="a plan in the repository, and the verdict the code computes about it"
@@ -347,6 +357,13 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             "max_cents": agent.max_cents,
         }
         payload["frame"] = frame.standing(box).json()
+        fresh, stored = records.state(box)
+        payload["records"] = {
+            "count": fresh.count,
+            "total": fresh.total,
+            "digest": fresh.digest,
+            "stored": stored,
+        }
         payload["tasks"] = [
             {
                 "id": task.id,
@@ -375,6 +392,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     reader = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
     lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
     lines.insert(-1, f"frame      {frame.standing(box).line()}")
+    lines.insert(-1, f"records    {_records_line(box)}")
     print("\n".join(lines))
     if tasks:
         for task in tasks:
@@ -385,6 +403,27 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     else:
         print("tasks      none dispatched yet")
     return 0
+
+
+def _records(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    digest = records.write(box)
+    if args.json:
+        print(json.dumps(digest.json(), indent=2, ensure_ascii=False))
+    else:
+        print("\n".join(records.render(digest)))
+    return 0
+
+
+def _records_line(box: boxes.Box) -> str:
+    """One line for ``status``: how many records, and whether the stored digest is current."""
+    digest, stored = records.state(box)
+    noun = "task" if digest.count == 1 else "tasks"
+    if stored == "none":
+        return f"{digest.count} {noun}, digest not written yet (`pantheon records` writes it)"
+    if stored == "stale":
+        return f"{digest.count} {noun}, digest stale — the records changed since it was written"
+    return f"{digest.count} {noun}, digest fresh"
 
 
 def _verify(args: argparse.Namespace, root: Path) -> int:
@@ -613,7 +652,9 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
     result = augustus.dispatch(
         box,
         task,
-        routes=augustus.read_routes(Path(routes) if routes else None),
+        routes=_executor_routes(
+            augustus.read_routes(Path(routes) if routes else None), task, config
+        ),
         trajan_root=trajan,
         trajan_python=contour.trajan_python(trajan, args.python),
         tool=args.tool,
@@ -626,6 +667,18 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
+
+
+def _executor_routes(
+    table: dict[str, tuple[str, ...]], task: augustus.Task, config: executor.ExecutorConfig
+) -> dict[str, tuple[str, ...]]:
+    """A declared executor means the task is work: a checks-only route would close a tree
+    nobody touched. The write gate is not optional for a kind whose route forgot it."""
+    if not config.declared or task.change is not None or task.kind not in table:
+        return table
+    if "run" in table[task.kind]:
+        return table
+    return {**table, task.kind: ("run", *table[task.kind])}
 
 
 def _resume(args: argparse.Namespace, root: Path) -> int:

@@ -70,7 +70,7 @@ def main() -> int:
         SERVICE,
         HERMES,
         "-z",
-        _prompt(task),
+        _prompt(task, _context_lines(request)),
         "-m",
         model,
         "--provider",
@@ -125,9 +125,15 @@ ERROR: <чего не хватает>.
 """The architect's brief: the same agent, a different job — the frame, not the code."""
 
 
-def _prompt(task: dict[str, object]) -> str:
+CONTEXT_HEAD = (
+    "Контекст, собранный коробкой (пути записей — от корня коробки; "
+    "в контейнере артефакты лежат в /work/artifacts):"
+)
+
+
+def _prompt(task: dict[str, object], context: list[str] | None = None) -> str:
     if task.get("role") == "architect":
-        return _architect_prompt(task)
+        return _architect_prompt(task, context)
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     lines = [
@@ -136,18 +142,22 @@ def _prompt(task: dict[str, object]) -> str:
         f"Объём (пути относительно корня проекта): {scope}",
         f"Критерий: {task.get('expected') or 'не объявлен'}",
         "Проект смонтирован только на чтение в /work/project.",
+    ]
+    forbidden = task.get("forbidden")
+    if isinstance(forbidden, list) and forbidden:
+        lines.insert(4, f"Запрещено: {', '.join(str(item) for item in forbidden)}")
+    if context:
+        lines += ["", CONTEXT_HEAD, *context]
+    lines += [
         "Верни ОДИН унифицированный диф в формате git (пути a/<файл> и b/<файл>, заголовки @@), "
         "который применяется командой `git apply` от корня проекта. Только файлы из объёма. "
         "Никаких пояснений и markdown-заборов. Если задача невыполнима — одна строка: "
         "ERROR: <причина>.",
     ]
-    forbidden = task.get("forbidden")
-    if isinstance(forbidden, list) and forbidden:
-        lines.insert(4, f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     return "\n".join(lines)
 
 
-def _architect_prompt(task: dict[str, object]) -> str:
+def _architect_prompt(task: dict[str, object], context: list[str] | None = None) -> str:
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     prompt = ARCHITECT.format(
@@ -155,6 +165,9 @@ def _architect_prompt(task: dict[str, object]) -> str:
         expected=task.get("expected") or "не объявлен",
         scope=scope,
     )
+    if context:
+        block = CONTEXT_HEAD + "\n" + "\n".join(context) + "\n"
+        prompt = prompt.replace("Проект смонтирован", block + "Проект смонтирован")
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
         prompt = prompt.replace(
@@ -163,6 +176,17 @@ def _architect_prompt(task: dict[str, object]) -> str:
             "Проект смонтирован только на чтение",
         )
     return prompt
+
+
+def _context_lines(request: dict[str, object]) -> list[str]:
+    """The pack the box assembled, if any: the lines are data, not instructions to parse."""
+    context = request.get("context")
+    if not isinstance(context, dict):
+        return []
+    lines = context.get("lines")
+    if not isinstance(lines, list):
+        return []
+    return [str(item) for item in lines if isinstance(item, str)]
 
 
 def _usage(path: Path) -> dict[str, object] | None:

@@ -15,14 +15,16 @@ root_packages = ["harness"]
 
 [architecture]
 baseline = """\
-Nine modules in one package: a box, an orchestrator, five contours (Caesar, Trajan,
-Aurelius, the container, the executor) and a command line that glues them together.
+Fourteen modules in one package: a box, an orchestrator, a campaign above it, the box's
+memory (the frame, the records digest, the context pack, the reader's profile), five contours
+(Caesar, Trajan, Aurelius, the container, the executor), the reference executors and a command
+line that glues them together.
 """
 target = """\
-The command line on top; the reference executors next, as programs rather than contours; the
-orchestrator below them; the contours below it, each seeing only the box; the box at the
-bottom, importing nothing from the package. Adding a contour means adding a sibling, not
-editing the neighbours.
+The command line on top; the campaign above the orchestrator; the reference executors as
+programs the box declares; the orchestrator above the records; the records above the contours;
+the contours below, each seeing only the box; the box at the bottom, importing nothing from
+the package. Adding a contour means adding a sibling, not editing the neighbours.
 """
 
 [[layer]]
@@ -34,8 +36,16 @@ name = "reference executors: programs the box declares"
 modules = ["harness.executors"]
 
 [[layer]]
+name = "the campaign: a plan above the orchestrator"
+modules = ["harness.campaign"]
+
+[[layer]]
 name = "the orchestrator: one task through its contours"
 modules = ["harness.augustus"]
+
+[[layer]]
+name = "the records: what the box remembers, and what a task is told"
+modules = ["harness.frame", "harness.records", "harness.context", "harness.reviewer"]
 
 [[layer]]
 name = "the contours: a gate, verification, architecture, the container, the executor"
