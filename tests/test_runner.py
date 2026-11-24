@@ -399,3 +399,15 @@ def test_a_technical_executor_failure_is_retried_once(
     steps = state(box)["steps"]
     assert isinstance(steps, dict)
     assert steps["s1"]["attempts"] == 2 and steps["s1"]["verdict"] == "pass"
+
+def test_a_run_refuses_a_dirty_tree_and_names_what_is_uncommitted(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = prepared(tmp_path, second=False)
+    (project / "scratch.txt").write_text("a draft nobody committed\n", encoding="utf-8")
+    capsys.readouterr()
+    assert advance(box) == 2
+    out = capsys.readouterr().out
+    assert "uncommitted changes" in out and "scratch.txt" in out
+    assert not (box.root / "artifacts" / "campaign" / "c-auto").exists()
+    assert not (box.root / "counter").exists(), "nothing was asked and nothing paid"

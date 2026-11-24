@@ -14,6 +14,7 @@ constant here overrides what the owner declared.
 from __future__ import annotations
 
 import json
+import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -131,6 +132,20 @@ def run(
             plan=plan,
             attempts=(),
             stop="the plan cannot start: " + "; ".join(found),
+            report=campaign.report(box, plan, routes=table),
+            path=None,
+            exit_code=EXIT_STOPPED,
+        )
+    dirty = _dirty(box.project)
+    if dirty:
+        shown = ", ".join(dirty[:5]) + (f" and {len(dirty) - 5} more" if len(dirty) > 5 else "")
+        return Run(
+            plan=plan,
+            attempts=(),
+            stop=(
+                f"the project has uncommitted changes ({shown}): a run judges the tree, so it "
+                "would judge these too. Commit or revert them first"
+            ),
             report=campaign.report(box, plan, routes=table),
             path=None,
             exit_code=EXIT_STOPPED,
@@ -317,6 +332,35 @@ def _attempt(
         state=record,
         closed=campaign.closed(updated, chosen),
     )
+
+
+def _dirty(project: Path) -> tuple[str, ...]:
+    """What is not committed in the project: a run must judge the tree it is about to change.
+
+    A stopped campaign leaves its last draft in the tree on purpose, so the owner can read it.
+    An automatic run that started on such a tree would verify that draft together with its own
+    change and could report a verdict about work nobody asked for. Not being a git repository
+    is not a refusal: the checks are what judge the tree, and they will say their own word.
+    """
+    try:
+        done = subprocess.run(
+            ["git", "-C", str(project), "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+    except OSError:
+        return ()
+    if done.returncode != 0:
+        return ()
+    paths: list[str] = []
+    for line in done.stdout.splitlines():
+        path = line[3:].strip()
+        if " -> " in path:
+            path = path.split(" -> ")[-1]
+        if path:
+            paths.append(path)
+    return tuple(paths)
 
 
 def _nothing_ready(plan: campaign.Campaign, report: campaign.Report) -> str:
