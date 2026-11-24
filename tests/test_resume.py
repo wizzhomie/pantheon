@@ -288,7 +288,9 @@ def test_verification_is_refused_when_the_tree_no_longer_holds_the_change(
     capsys.readouterr()
     for record in records(box):
         record.unlink()
-    git(project, "checkout", "--", ".")
+    # The green change is a commit now, so dropping the working tree is not enough: the tree
+    # has to lose the commit too, or the change is still where the gate put it.
+    git(project, "reset", "-q", "--hard", "HEAD~1")
     assert resume(box) == 2
     error = capsys.readouterr().err
     assert "no longer in the tree" in error

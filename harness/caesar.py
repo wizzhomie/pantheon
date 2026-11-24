@@ -20,8 +20,10 @@ from __future__ import annotations
 import fnmatch
 import hashlib
 import json
+import os
 import re
 import subprocess
+import tempfile
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -45,6 +47,9 @@ KINDS_FILE = Path(".pantheon") / "kinds.toml"
 
 FRAME_PATHS = (".pantheon/**", ".trajan/context.toml")
 """The project's frame: the architecture model and the requirements it is checked against."""
+
+COMMIT_AUTHOR = ("Pantheon", "pantheon@harness.invalid")
+"""Who a committed change is attributed to: the harness, because the writer is not a person."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -104,6 +109,21 @@ class Attempt:
     @property
     def applied(self) -> bool:
         return self.status == "applied"
+
+
+@dataclass(frozen=True, slots=True)
+class Commit:
+    """Whether a reviewed change became the project's next commit, and if not, why not."""
+
+    status: str  # "made", "skipped" or "failed"
+    sha: str = ""
+    reason: str = ""
+    subject: str = ""
+    notes: tuple[str, ...] = ()
+
+    @property
+    def made(self) -> bool:
+        return self.status == "made"
 
 
 def read_contract(path: Path) -> Contract:
@@ -409,6 +429,139 @@ def run_attempt(
     return attempt
 
 
+def commit_change(
+    project: Path,
+    contract: Contract,
+    attempt: Attempt,
+    *,
+    verdict: str,
+    report: str,
+    box_root: Path,
+    when: datetime | None = None,
+) -> Commit:
+    """Make the reviewed change the project's next commit, and nothing else durable.
+
+    The commit is built from ``HEAD`` plus the recorded change in a temporary index, never by
+    staging whatever the working tree happens to hold: the verdict is about the change, so the
+    commit must be about the same change. A tree that carried unrelated edits keeps them as
+    edits; they are not allowed to enter a commit that says "this passed the checks".
+
+    Ambiguity is answered with a record, not with a write: a project that moved, a repository
+    that would not take the patch, or a change already in ``HEAD`` gives ``skipped`` or
+    ``failed`` with the reason written down, and the verdict itself still stands.
+    """
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    commit, message, base = _make_commit(
+        project, contract, attempt, verdict=verdict, report=report, when=stamp
+    )
+    _write_commit(box_root, contract, attempt, commit, verdict, report, stamp, message, base)
+    return commit
+
+
+def _make_commit(
+    project: Path,
+    contract: Contract,
+    attempt: Attempt,
+    *,
+    verdict: str,
+    report: str,
+    when: datetime,
+) -> tuple[Commit, str, str | None]:
+    """The git work, split out so every outcome is recorded by the caller exactly once."""
+    if attempt.status != "applied":
+        reason = "the attempt was refused: there is nothing to commit"
+        return Commit("skipped", reason=reason), "", None
+    top = _git(project, "rev-parse", "--show-toplevel")
+    if top is None:
+        return Commit("skipped", reason=f"{project} is not a git repository"), "", None
+    top_path = Path(top)
+    base = _head(top_path)
+    if base is None:
+        return Commit("skipped", reason="the project has no commit to build on"), "", None
+    patch = attempt.directory / "change.diff"
+    if not patch.is_file():
+        reason = f"the recorded change is gone from {attempt.directory}"
+        return Commit("failed", reason=reason), "", base
+    message = _message(contract, attempt, verdict, report)
+    tree = _tree_of_change(top_path, base, _prefix(project), patch)
+    if isinstance(tree, Commit):
+        return tree, message, base
+    made = _git_env(
+        top_path,
+        ["commit-tree", tree, "-p", base, "-F", "-"],
+        {**_clean_env(), **_author_env(when)},
+        message,
+    )
+    if made is None:
+        return Commit("failed", reason="git refused to create the commit"), message, base
+    current = _head(top_path)
+    if current != base:
+        where = current[:12] if current else "a detached state"
+        reason = (
+            f"the project moved to {where} while the verdict was being made: the change is "
+            "not committed"
+        )
+        return Commit("failed", reason=reason), message, base
+    moved = _run(
+        top_path,
+        ["update-ref", "-m", f"pantheon: {contract.task}", "HEAD", made, base],
+        _clean_env(),
+    )
+    if moved.returncode != 0:
+        reason = f"the branch moved while the change was being committed: {_tail(moved)}"
+        return Commit("failed", reason=reason), message, base
+    notes: tuple[str, ...] = ()
+    paths = [_prefix(project) + path for path in attempt.paths]
+    if paths and _run(top_path, ["reset", "-q", "--", *paths], _clean_env()).returncode != 0:
+        notes = (
+            "the index was not refreshed for the committed paths: `git status` may still show "
+            "them as changes",
+        )
+    return Commit("made", sha=made, subject=_subject(contract), notes=notes), message, base
+
+
+def _tree_of_change(top: Path, base: str, prefix: str, patch: Path) -> str | Commit:
+    """``HEAD`` plus the recorded change, staged in a temporary index.
+
+    The real index and the working tree are never read here, so a tree that carries unrelated
+    edits cannot put them into a commit that says "this passed the checks". The tree object is
+    all the commit needs; the index itself is thrown away with the temporary directory.
+    """
+    with tempfile.TemporaryDirectory(prefix="pantheon-commit-") as temporary:
+        env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
+        if _run(top, ["read-tree", base], env).returncode != 0:
+            return Commit("failed", reason=f"git could not read {base[:12]} into an index")
+        staged = ["apply", "--cached", "--whitespace=nowarn"]
+        reverse = ["apply", "--cached", "--reverse", "--check", "--whitespace=nowarn"]
+        for args in (staged, reverse):
+            if prefix:
+                args.append(f"--directory={prefix}")
+            args.append(str(patch))
+        done = _run(top, staged, env)
+        if done.returncode != 0:
+            if _run(top, reverse, env).returncode == 0:
+                return Commit(
+                    "skipped",
+                    reason=f"the change is already in {base[:12]}: there is nothing to commit",
+                )
+            return Commit("failed", reason=f"git would not stage the change: {_tail(done)}")
+        tree = _git_env(top, ["write-tree"], env)
+        if tree is None:
+            return Commit("failed", reason="git could not write a tree for the change")
+        return tree
+
+
+def commit_json(commit: Commit) -> dict[str, object]:
+    """The commit for a machine: what became durable, and what stopped it."""
+    return {
+        "status": commit.status,
+        "sha": commit.sha or None,
+        "subject": commit.subject,
+        "reason": commit.reason,
+        "notes": list(commit.notes),
+    }
+
+
 def render_attempt(attempt: Attempt, contract: Contract) -> list[str]:
     """The attempt as a person reads it: what was allowed, what it touched, what happened."""
     lines = [
@@ -437,6 +590,155 @@ def attempt_json(attempt: Attempt) -> dict[str, object]:
         "patch_digest": attempt.patch_digest,
         "directory": str(attempt.directory),
     }
+
+
+def _subject(contract: Contract) -> str:
+    """One line a person reads in the log: what the task was, not what the diff was."""
+    kind = contract.kind or "task"
+    goal = (contract.goal or contract.task).splitlines()[0].strip()
+    if len(goal) > 68:
+        goal = goal[:65].rstrip() + "..."
+    return f"{kind}: {goal}"
+
+
+def _message(contract: Contract, attempt: Attempt, verdict: str, report: str) -> str:
+    """The commit message: the task, the verdict, and where the evidence is.
+
+    The verdict is quoted, not implied: a commit that says only "done" cannot be told apart
+    from one whose checks failed. The report lives in the box, so it is named as the box path
+    a person would open, not silently dropped.
+    """
+    return "\n".join(
+        [
+            _subject(contract),
+            "",
+            f"Task: {contract.task}",
+            f"Verdict: {verdict}",
+            f"Report: {report}",
+            f"Change: sha256:{attempt.patch_digest}",
+            f"Attempt: {attempt.number}",
+            "",
+            "Caesar applied the change; the verdict was computed by the checks. The commit",
+            "records that verdict, it does not replace it.",
+            "",
+            f"Pantheon-Task: {contract.task}",
+            f"Pantheon-Verdict: {verdict}",
+            "",
+        ]
+    )
+
+
+def _author_env(when: datetime) -> dict[str, str]:
+    """git needs an author; the harness signs its commits so a person is not blamed for them."""
+    name, email = COMMIT_AUTHOR
+    stamp = when.isoformat()
+    return {
+        "GIT_AUTHOR_NAME": name,
+        "GIT_AUTHOR_EMAIL": email,
+        "GIT_COMMITTER_NAME": name,
+        "GIT_COMMITTER_EMAIL": email,
+        "GIT_AUTHOR_DATE": stamp,
+        "GIT_COMMITTER_DATE": stamp,
+    }
+
+
+def _clean_env() -> dict[str, str]:
+    """The real environment, minus a temporary index: these calls are about the real one."""
+    return {key: value for key, value in os.environ.items() if key != "GIT_INDEX_FILE"}
+
+
+def _run(
+    base: Path, args: list[str], env: dict[str, str], stdin: str | None = None
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(
+        ["git", "-C", str(base), *args],
+        capture_output=True,
+        text=True,
+        check=False,
+        env=env,
+        input=stdin,
+    )
+
+
+def _git_env(
+    base: Path, args: list[str], env: dict[str, str], stdin: str | None = None
+) -> str | None:
+    done = _run(base, args, env, stdin)
+    return done.stdout.strip() if done.returncode == 0 else None
+
+
+def _tail(done: subprocess.CompletedProcess[str]) -> str:
+    lines = (done.stderr or done.stdout).strip().splitlines()
+    return "; ".join(lines[-3:]) or "git refused without a reason"
+
+
+def _write_commit(
+    box_root: Path,
+    contract: Contract,
+    attempt: Attempt,
+    commit: Commit,
+    verdict: str,
+    report: str,
+    when: datetime,
+    message: str,
+    base: str | None,
+) -> None:
+    """Keep what happened to the commit beside the attempt, and say it in the ledger.
+
+    An attempt built by hand has no directory of its own: the ledger still gets the event, but
+    there is no place to keep the record, and inventing one would be worse than saying nothing.
+    """
+    directory = attempt.directory
+    if directory == Path():
+        _append_commit_event(box_root, contract, attempt, commit, when)
+        return
+    directory.mkdir(parents=True, exist_ok=True)
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "task": contract.task,
+        "attempt": attempt.number,
+        "status": commit.status,
+        "sha": commit.sha,
+        "base": base,
+        "verdict": verdict,
+        "report": report,
+        "subject": commit.subject,
+        "reason": commit.reason,
+        "notes": list(commit.notes),
+        "message": message,
+        "at": _stamp(when),
+    }
+    (directory / "commit.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    _append_commit_event(box_root, contract, attempt, commit, when)
+
+
+def _append_commit_event(
+    box_root: Path, contract: Contract, attempt: Attempt, commit: Commit, when: datetime
+) -> None:
+    ledger = box_root / "ledger"
+    ledger.mkdir(parents=True, exist_ok=True)
+    path = ledger / f"{when:%Y-%m-%d}.jsonl"
+    existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    event = {
+        "id": f"e-{when:%Y-%m-%d}-{len(existing) + 1}",
+        "type": f"commit.{commit.status}",
+        "at": _stamp(when),
+        "task": contract.task,
+        "attempt": attempt.number,
+        "actor": "caesar",
+        "reason": commit.reason or commit.sha,
+        "links": [_under(attempt.directory, box_root)],
+    }
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event) + "\n")
+
+
+def _under(path: Path, root: Path) -> str:
+    """The path as the box sees it, or as it is: evidence outside the box is still evidence."""
+    try:
+        return str(path.relative_to(root))
+    except ValueError:
+        return str(path)
 
 
 def _prefix(project: Path) -> str:
@@ -643,7 +945,7 @@ def _append_event(
         "attempt": attempt.number,
         "actor": "caesar",
         "reason": attempt.reason,
-        "links": [str(attempt.directory.relative_to(box_root))],
+        "links": [_under(attempt.directory, box_root)],
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event) + "\n")

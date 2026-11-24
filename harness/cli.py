@@ -136,6 +136,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="do not read the change, whatever profile/reviewer.toml says",
     )
+    dispatch.add_argument(
+        "--no-commit",
+        action="store_true",
+        help="leave a green change in the tree instead of committing it after the verdict",
+    )
     dispatch.add_argument("--review-model", default=None, help="model that reads the change")
     dispatch.add_argument(
         "--review-seconds", type=int, default=None, help="how long the reading may take"
@@ -180,6 +185,11 @@ def _parser() -> argparse.ArgumentParser:
         "--no-review",
         action="store_true",
         help="do not read the change, whatever profile/reviewer.toml says",
+    )
+    resume.add_argument(
+        "--no-commit",
+        action="store_true",
+        help="leave a green change in the tree instead of committing it after the verdict",
     )
     resume.add_argument("--review-model", default=None, help="model that reads the change")
     resume.add_argument(
@@ -406,6 +416,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
         tool=args.tool,
         executor_config=config,
         review=_reviewer(args, box),
+        commit_requested=not args.no_commit,
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))
@@ -445,6 +456,7 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
         budget=budget,
         retry=args.retry,
         review=_reviewer(args, box),
+        commit_requested=not args.no_commit,
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))

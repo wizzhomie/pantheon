@@ -25,8 +25,21 @@ from . import box as boxes
 
 SCHEMA_VERSION = 1
 TASK_KEYS = frozenset(
-    {"schema_version", "id", "goal", "kind", "paths", "expected", "change", "forbidden", "budget"}
+    {
+        "schema_version",
+        "id",
+        "goal",
+        "kind",
+        "paths",
+        "expected",
+        "change",
+        "forbidden",
+        "budget",
+        "mode",
+    }
 )
+MODES = ("manual", "auto")
+"""How a step closes: a person after the verdict, or the campaign itself. Only manual runs."""
 BUDGET_KEYS = frozenset({"max_seconds", "max_cents"})
 ROUTES_ENV = "PANTHEON_ROUTES"
 SNAPSHOT_FILE = "task.json"
@@ -56,6 +69,7 @@ class Task:
     change: Path | None
     forbidden: tuple[str, ...]
     budget: dict[str, int]
+    mode: str = "manual"
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +90,9 @@ class Dispatch:
     resumed_from: Path | None = None
     review_cap: float | None = None
     """The ceiling the box declared for one reading, when it declared one."""
+
+    commit: caesar.Commit | None = None
+    """What became of the commit after the verdict: made, skipped with a reason, or failed."""
 
 
 def read_task(path: Path) -> Task:
@@ -109,6 +126,12 @@ def read_task(path: Path) -> Task:
     change = data.get("change")
     if change is not None and not isinstance(change, str):
         raise boxes.HarnessError(f"{path}: change must be a path to a patch file")
+    mode = data.get("mode", "manual")
+    if mode not in MODES:
+        raise boxes.HarnessError(
+            f"{path}: mode {mode!r} is not one of {', '.join(MODES)}: an unknown mode would be "
+            "a rule nothing obeys"
+        )
     return Task(
         path=path,
         id=identifier,
@@ -119,6 +142,7 @@ def read_task(path: Path) -> Task:
         change=Path(change).expanduser() if isinstance(change, str) else None,
         forbidden=tuple(forbidden),
         budget={key: int(value) for key, value in budget.items()},
+        mode=str(mode),
     )
 
 
@@ -157,6 +181,11 @@ def refusal(task: Task, routes: dict[str, tuple[str, ...]]) -> str | None:
         return "the task declares no paths: nothing is in scope, so nothing may be done"
     if not route(task, routes):
         return f"no route for kind {task.kind!r}; known kinds: {', '.join(sorted(routes))}"
+    if task.mode == "auto":
+        return (
+            "the task asks for the automatic mode: it is declared, but nothing runs a campaign "
+            "yet, so a step cannot close itself; dispatch it as manual until the runner exists"
+        )
     return None
 
 
@@ -172,6 +201,7 @@ def dispatch(
     executor_config: executor.ExecutorConfig | None = None,
     resumed_from: Path | None = None,
     review: contour.Reviewer | None = None,
+    commit_requested: bool = True,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -317,6 +347,11 @@ def dispatch(
         notes.append("verification was not routed for this task: nothing was checked")
 
     state = _state(verify, arch)
+    made = _commit_after_verdict(
+        box, attempt, verify, state, contract_path, commit_requested, stamp
+    )
+    if made is not None:
+        notes.append(_commit_note(made))
     return _finish(
         box,
         task,
@@ -327,6 +362,7 @@ def dispatch(
             attempt=attempt,
             verify=verify,
             arch=arch,
+            commit=made,
             directory=directory,
             notes=notes,
             exit_code=0 if state == "closed" else 1,
@@ -365,6 +401,8 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
         if value is not None:
             lines.append(f"{key} = {_quote(value)}")
     lines.append("paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")
+    if task.mode != "manual":
+        lines.append(f"mode = {_quote(task.mode)}")
     if change is not None:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:
@@ -388,6 +426,7 @@ def resume(
     budget: dict[str, int] | None = None,
     retry: bool = False,
     review: contour.Reviewer | None = None,
+    commit_requested: bool = True,
 ) -> Dispatch:
     """Continue a dispatch that stopped before its verdict, from the artifacts it left.
 
@@ -468,6 +507,7 @@ def resume(
             executor_config=config,
             resumed_from=record[0] if record is not None else None,
             review=review,
+            commit_requested=commit_requested,
         )
 
     contract_path = _write_contract(box.root, task)
@@ -555,6 +595,11 @@ def resume(
     verify = _verify(box, directory, stamp, trajan_root, trajan_python, reader, patch)
     notes.extend(verify.reasons)
     state = _state(verify, None)
+    made = _commit_after_verdict(
+        box, attempt, verify, state, contract_path, commit_requested, stamp
+    )
+    if made is not None:
+        notes.append(_commit_note(made))
     return _finish(
         box,
         task,
@@ -564,6 +609,7 @@ def resume(
             stages=stages,
             attempt=attempt,
             verify=verify,
+            commit=made,
             directory=directory,
             notes=notes,
             exit_code=0 if state == "closed" else 1,
@@ -603,6 +649,58 @@ def _verify(
         reviewer_env=None if review is None else review.env,
         box_root=box.root,
     )
+
+
+def _commit_after_verdict(
+    box: boxes.Box,
+    attempt: caesar.Attempt | None,
+    verify: contour.VerifyResult | None,
+    state: str,
+    contract_path: Path,
+    requested: bool,
+    when: datetime,
+) -> caesar.Commit | None:
+    """Only a settled green verdict turns the change into a commit; nothing else does.
+
+    A task that changed nothing has nothing to commit, and a verdict that did not pass leaves
+    the change in the tree as a draft: the commit is what says "this is the project now", so
+    it is made one verdict later than the write, never instead of it. ``--no-commit`` is
+    recorded rather than obeyed silently, because "green but not in git" is a fact a person
+    reads later and must be able to find.
+    """
+    if attempt is None or not attempt.applied:
+        return None
+    if not requested:
+        return caesar.Commit(
+            "skipped", reason="not committed: this run asked for the tree alone (--no-commit)"
+        )
+    if state != "closed" or verify is None:
+        return None
+    return caesar.commit_change(
+        box.project,
+        caesar.read_contract(contract_path),
+        attempt,
+        verdict=verify.status,
+        report=_relative(verify.report, box.root),
+        box_root=box.root,
+        when=when,
+    )
+
+
+def _commit_note(commit: caesar.Commit) -> str:
+    if commit.made:
+        return f"the change is committed as {commit.sha[:12]}: {commit.subject}"
+    if commit.status == "skipped":
+        return f"no commit: {commit.reason}"
+    return f"the commit failed: {commit.reason}"
+
+
+def _commit_line(commit: caesar.Commit | None) -> str:
+    if commit is None:
+        return "not made"
+    if commit.made:
+        return f"{commit.sha[:12]}  {commit.subject}"
+    return f"not made — {commit.reason}"
 
 
 def _check_tree_still_holds(box: boxes.Box, attempt_path: Path) -> str | None:
@@ -797,6 +895,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"executor   {_executor_line(result.proposal)}",
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify)}",
+        f"commit     {_commit_line(result.commit)}",
         f"state      {result.state}",
     ]
     if result.resumed_from is not None:
@@ -843,6 +942,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
             },
             "exit_code": result.verify.exit_code,
         },
+        "commit": None if result.commit is None else caesar.commit_json(result.commit),
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
         "review_cap": result.review_cap,
@@ -927,6 +1027,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         attempt=result.attempt,
         verify=result.verify,
         arch=result.arch,
+        commit=result.commit,
         outbox=outbox,
         directory=result.directory,
         notes=result.notes,
@@ -957,6 +1058,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- executor: {_executor_line(result.proposal)}",
         f"- write gate: {_attempt_line(result.attempt)}",
         f"- verification: {_verify_line(result.verify)}",
+        f"- commit: {_commit_line(result.commit)}",
         "",
         "## what we did not check",
     ]
@@ -1030,6 +1132,10 @@ def _unknowns(result: Dispatch) -> list[str]:
             unknown.append(f"the verdict is {result.verify.status}, not pass")
     if result.attempt is not None and result.attempt.applied and "verify" not in result.stages:
         unknown.append("the change is in the tree and was never verified")
+    if result.commit is not None and not result.commit.made:
+        unknown.append(
+            f"the change is in the tree and not in git: {result.commit.reason}"
+        )
     usage = result.proposal.usage if result.proposal is not None else None
     if usage is not None and usage.cost_cents is None:
         unknown.append("the executor reported no cost: the budget could not be checked")
