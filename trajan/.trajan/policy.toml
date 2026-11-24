@@ -30,6 +30,10 @@ argv = ["python", "-m", "pytest", "-q"]
 timeout_s = 180
 requires = "pytest"
 purpose = "a red suite means the change breaks something the project already promised"
+# A docs or examples change cannot fail the suite; the plan says so instead of spending a
+# minute to find out. The guard below (`test-floor`) still runs on every change, because it
+# is the check that would notice a suite made green by deleting tests.
+when_paths = ["src/**", "tests/**", "pyproject.toml", "Makefile", "*.toml"]
 
 [[checks]]
 id = "lint"
@@ -46,6 +50,7 @@ argv = ["python", "-m", "mypy"]
 timeout_s = 180
 requires = "mypy"
 purpose = "the strict typing is part of the contract here, not a preference"
+when_paths = ["src/**", "tests/**", "pyproject.toml", "Makefile", "*.toml"]
 
 # The net under the suite: a green run that got there by deleting the failing tests is not
 # green. No `requires` on purpose — git and python are what trajan already runs on, and a

@@ -996,7 +996,8 @@ def _unknowns(result: Dispatch) -> list[str]:
         if result.verify.reused_from is not None:
             unknown.append(
                 "the checks did not run in this dispatch: the verdict is the one computed "
-                f"earlier for the same tree ({result.verify.reused_from})"
+                "earlier for the same tree, policy, checker and change "
+                f"({result.verify.reused_from})"
             )
         review = result.verify.review
         if review is None:
@@ -1009,12 +1010,16 @@ def _unknowns(result: Dispatch) -> list[str]:
                 "the reviewer was asked and failed: the change was not read "
                 f"({review.error or 'no reason recorded'})"
             )
-        elif review.cost_cents is None:
+        elif review.cost_cents is None and not review.cached:
             unknown.append(
                 "the reviewer did not report what it cost: the reading is not accounted for in "
                 "any budget"
             )
-        elif result.review_cap is not None and review.cost_cents > result.review_cap:
+        elif (
+            review.cost_cents is not None
+            and result.review_cap is not None
+            and review.cost_cents > result.review_cap
+        ):
             unknown.append(
                 f"the reading cost {review.cost_cents:.2f} cents, more than the "
                 f"{result.review_cap:g} the box declared: the call had already happened, so it "
@@ -1118,6 +1123,8 @@ def _verify_line(result: contour.VerifyResult | None) -> str:
     if result is None:
         return "not run"
     line = f"{result.status} ({result.checks} checks, report {result.report})"
+    if result.skipped:
+        line += f"; not selected: {', '.join(result.skipped)}"
     if result.reused_from is not None:
         line += f", reused from {result.reused_from}"
     if result.review is not None:

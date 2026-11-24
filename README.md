@@ -48,7 +48,9 @@ more than its budget. The protocol and the reference adapter are in [docs/10-exe
 without a profile the task must carry its patch, and the outbox says so.
 
 `verify` runs the checks by default and costs nothing; a change is read only when someone is
-asked to read it, because trajan refuses a change that nobody does. `--review` asks the box's own
+asked to read it, because trajan refuses a change that nobody does. When the change is read, the
+policy's `when_paths` decide which checks a change can even affect: a docs-only change is not
+made to wait for the suite, and the report names the checks the plan passed over. `--review` asks the box's own
 agent (`bin/pantheon-review`, the same container as the executor), `profile/reviewer.toml` declares
 that every dispatch reads its change, and `--reviewer MODULE:FACTORY` names your own reader. What the reading cost is kept next to the run, and `dispatch` reports it in the
 outbox next to the executor's bill. The exit code is trajan's own — 0 pass, 1 hold, 2 inconclusive —

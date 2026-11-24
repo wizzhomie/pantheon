@@ -77,6 +77,9 @@ class VerifyResult:
     review: Review | None = None
     """The reading of the change, when a reviewer ran: who read it, what it found, what it cost."""
 
+    skipped: tuple[str, ...] = ()
+    """Checks the plan did not select: a decision the report explains, not a gap."""
+
     @property
     def passed(self) -> bool:
         return self.status == "pass"
@@ -95,6 +98,8 @@ class Review:
     calls: int
     cost_cents: float | None
     error: str | None = None
+    cached: bool = False
+    """Served from the review cache: the same diff was read before, so this run paid nothing."""
 
     @property
     def read(self) -> bool:
@@ -105,6 +110,12 @@ class Review:
         """The review as one line for a person: who, how much found, what it cost."""
         if not self.read:
             return f"failed — {self.error or 'no reason recorded'}"
+        if self.cached:
+            return (
+                f"{self.model or 'not named'}: {self.confirmed} confirmed of {self.proposed} "
+                "proposed, served from the review cache — the same diff was read before, so "
+                "this run paid nothing"
+            )
         money = "cost not reported" if self.cost_cents is None else f"{self.cost_cents:.2f} cents"
         return (
             f"{self.model or 'not named'}: {self.confirmed} confirmed of {self.proposed} "
@@ -199,8 +210,8 @@ def run_verify(
     out.mkdir(parents=True, exist_ok=True)
     policy_path = policy or project / ".trajan" / "policy.toml"
     evidence = (
-        digest(project, policy_path, root)
-        if box_root is not None and diff is None and since is None and reviewer is None
+        digest(project, policy_path, root, change=diff, reviewed=reviewer is not None)
+        if box_root is not None and since is None
         else None
     )
     if evidence is not None and box_root is not None:
@@ -273,12 +284,27 @@ def run_directory(parent: Path, when: datetime) -> Path:
     return parent / candidate
 
 
-def digest(project: Path, policy: Path, root: Path) -> dict[str, str]:
-    """What a verdict depends on: the tree, the policy, and the version of the checker."""
+def digest(
+    project: Path,
+    policy: Path,
+    root: Path,
+    *,
+    change: Path | None = None,
+    reviewed: bool = False,
+) -> dict[str, str]:
+    """What a verdict depends on: the tree, the policy, the checker — and what was asked.
+
+    A change makes a run narrower: the plan may not select every check, and a reader may have
+    produced findings. So the change's own digest and whether someone read it are part of the
+    evidence: the same tree with a different diff, or the same diff read by someone versus
+    nobody, is a different question and gets its own answer.
+    """
     return {
         "tree": _tree_digest(project),
         "policy": _file_digest(policy),
         "trajan": _trajan_digest(root),
+        "change": "none" if change is None else _file_digest(change),
+        "review": "yes" if reviewed else "no",
     }
 
 
@@ -322,10 +348,26 @@ def _reuse(
     policy: Path,
     digest_map: dict[str, str],
 ) -> VerifyResult:
-    """Answer with the recorded verdict, and say in this run's own record where it came from."""
+    """Answer with the recorded verdict, and say in this run's own record where it came from.
+
+    The reading comes back with its bill: a reused review keeps the cents it cost when it ran,
+    because dropping them would make one dispatch look cheaper than the one that paid.
+    """
     record, data = found
     report = Path(str(data.get("report")))
     earlier = read_report(report)
+    stored = data.get("review")
+    if earlier.review is not None and isinstance(stored, dict):
+        cents = stored.get("cost_cents")
+        calls = stored.get("calls")
+        earlier = replace(
+            earlier,
+            review=replace(
+                earlier.review,
+                cost_cents=float(cents) if isinstance(cents, (int, float)) else None,
+                calls=int(calls) if isinstance(calls, int) else 0,
+            ),
+        )
     payload: dict[str, object] = {
         "schema_version": RECORD_SCHEMA,
         "project": str(project.resolve()),
@@ -364,9 +406,15 @@ def _remember(
         "review": None
         if result.review is None
         else {
+            "model": result.review.model,
             "status": result.review.status,
+            "proposed": result.review.proposed,
+            "confirmed": result.review.confirmed,
+            "prompt_tokens": result.review.prompt_tokens,
+            "completion_tokens": result.review.completion_tokens,
             "calls": result.review.calls,
             "cost_cents": result.review.cost_cents,
+            "error": result.review.error,
         },
     }
     (out / RECORD_FILE).write_text(
@@ -405,6 +453,12 @@ def _tree_digest(project: Path) -> str:
     verdict about the same bytes should survive one. Ignored files are not covered — a check
     that reads them can answer differently on the same digest, which is why reuse lives in a
     window and says where it came from.
+
+    Trajan's own bookkeeping inside the repository — its run history and its review cache —
+    is skipped on purpose. Those files are written by the checker while it runs, so counting
+    them would change the digest of the very tree that was just judged, and no verdict could
+    ever be reused. They cannot change an answer either: the cache is keyed by the request,
+    and a cached review of the same diff is the same review.
     """
     top = _git(project, "rev-parse", "--show-toplevel")
     if top is None:
@@ -414,8 +468,30 @@ def _tree_digest(project: Path) -> str:
     tracked = _git(project, "ls-files", "-z", "--", ".") or ""
     untracked = _git(project, "ls-files", "--others", "--exclude-standard", "-z", "--", ".") or ""
     paths = sorted({item for item in (tracked + "\0" + untracked).split("\0") if item})
-    parts = [f"{relative} {_file_digest(base / relative)}" for relative in paths]
+    parts = [
+        f"{relative} {_file_digest(base / relative)}"
+        for relative in paths
+        if not _is_checker_state(project, base, relative)
+    ]
     return _sha("\n".join(parts))
+
+
+CHECKER_STATE = (".trajan/runs", ".trajan/cache")
+"""Where trajan keeps its own records inside a project: not project content, noise in a digest."""
+
+PROFILE_FILE = ".trajan/profile.json"
+"""Derived from the tree by `trajan inspect`: a second copy of what is already digested."""
+
+
+def _is_checker_state(project: Path, base: Path, relative: str) -> bool:
+    """Whether a path is trajan's own file rather than part of what the checks read."""
+    try:
+        inside = (base / relative).relative_to(project.resolve()).as_posix()
+    except ValueError:
+        return False
+    if inside == PROFILE_FILE:
+        return True
+    return any(inside == state or inside.startswith(state + "/") for state in CHECKER_STATE)
 
 
 def _plain_digest(project: Path) -> str:
@@ -466,6 +542,12 @@ def read_report(path: Path, exit_code: int = 0) -> VerifyResult:
     )
     findings = data.get("findings", [])
     blocking = verdict.get("blocking_findings", [])
+    checks = run.get("checks", [])
+    skipped = tuple(
+        str(check.get("check_id"))
+        for check in checks
+        if isinstance(check, dict) and check.get("selected") is False
+    ) if isinstance(checks, list) else ()
     request = data.get("request")
     reviewed = isinstance(request, dict) and request.get("reviewer") is not None
     return VerifyResult(
@@ -476,10 +558,11 @@ def read_report(path: Path, exit_code: int = 0) -> VerifyResult:
         reasons=reasons,
         findings=len(findings) if isinstance(findings, list) else 0,
         blocking=len(blocking) if isinstance(blocking, list) else 0,
-        checks=len(run.get("checks", [])) if isinstance(run.get("checks"), list) else 0,
+        checks=len(checks) if isinstance(checks, list) else 0,
         exit_code=exit_code,
         reviewed=reviewed,
         review=_read_review(data.get("review")),
+        skipped=skipped,
     )
 
 
@@ -497,6 +580,7 @@ def _read_review(section: object) -> Review | None:
         calls=0,
         cost_cents=None,
         error=section.get("error") if isinstance(section.get("error"), str) else None,
+        cached=section.get("cached") is True,
     )
 
 
@@ -555,6 +639,8 @@ def render_result(result: VerifyResult, project: Path) -> list[str]:
     lines.append(
         f"checks     {result.checks}, findings {result.findings} ({result.blocking} blocking)"
     )
+    if result.skipped:
+        lines.append(f"skipped    {', '.join(result.skipped)} (no changed path they guard)")
     if result.reused_from is not None:
         lines.append(f"reused     {result.reused_from}")
     if result.review is not None:
@@ -574,6 +660,7 @@ def result_json(result: VerifyResult, project: Path, box: str) -> dict[str, obje
         "verdict": result.status,
         "reasons": list(result.reasons),
         "checks": result.checks,
+        "skipped": list(result.skipped),
         "findings": result.findings,
         "blocking": result.blocking,
         "report": str(result.report),
