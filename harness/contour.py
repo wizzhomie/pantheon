@@ -114,14 +114,24 @@ class Review:
 
 @dataclass(frozen=True, slots=True)
 class Reviewer:
-    """How trajan reaches the reader: a command, and the environment it needs to find the box."""
+    """How trajan reaches the reader: a command, the environment, and what the box allows.
+
+    ``max_cents`` is the ceiling the box declared for one reading, or ``None`` when nobody
+    declared one. It cannot stop a call that already happened, so it is spent as a judgement:
+    a reading above the ceiling is recorded and named as a gap.
+    """
 
     spec: str
     env: dict[str, str]
+    max_cents: float | None = None
 
 
 def box_reviewer(
-    box_root: Path, *, model: str | None = None, seconds: int | None = None
+    box_root: Path,
+    *,
+    model: str | None = None,
+    seconds: int | None = None,
+    max_cents: float | None = None,
 ) -> Reviewer:
     """The box's agent as a reviewer. Opt-in: a review is a paid call, never a default."""
     wait = seconds or REVIEW_DEFAULT_SECONDS
@@ -134,6 +144,7 @@ def box_reviewer(
             REVIEW_MODEL_ENV: model or REVIEW_DEFAULT_MODEL,
             REVIEW_SECONDS_ENV: str(wait),
         },
+        max_cents=max_cents,
     )
 
 

@@ -17,7 +17,7 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import augustus, aurelius, caesar, container, contour, executor
+from . import augustus, aurelius, caesar, container, contour, executor, reviewer
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -131,6 +131,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="have the box's agent read the change too (one more paid call per task)",
     )
+    dispatch.add_argument(
+        "--no-review",
+        action="store_true",
+        help="do not read the change, whatever profile/reviewer.toml says",
+    )
     dispatch.add_argument("--review-model", default=None, help="model that reads the change")
     dispatch.add_argument(
         "--review-seconds", type=int, default=None, help="how long the reading may take"
@@ -170,6 +175,11 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="have the box's agent read the change (costs money; the change must still be in "
         "the tree)",
+    )
+    resume.add_argument(
+        "--no-review",
+        action="store_true",
+        help="do not read the change, whatever profile/reviewer.toml says",
     )
     resume.add_argument("--review-model", default=None, help="model that reads the change")
     resume.add_argument(
@@ -211,11 +221,15 @@ def _new(args: argparse.Namespace, root: Path) -> int:
     example.parent.mkdir(parents=True, exist_ok=True)
     if not example.exists():
         example.write_text(executor.EXAMPLE, encoding="utf-8")
+    reader = box.root / reviewer.EXAMPLE_FILE
+    if not reader.exists():
+        reader.write_text(reviewer.EXAMPLE, encoding="utf-8")
     print(f"box {box.name} created at {box.root}")
     print(f"  project  {box.project}")
     print(f"  image    {box.image or 'not chosen yet (stage 1.5 pins the tag)'}")
     print(f"  executor {executor.describe(executor.read_config(box.root / executor.PROFILE_FILE))}")
     print(f"  example  {example}")
+    print(f"  reader   {reviewer.describe(reviewer.read_config(box.root / reviewer.PROFILE_FILE))}")
     print(f"next: pantheon status {box.name}")
     return 0
 
@@ -276,7 +290,8 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         ),
     )
     lines.insert(-1, f"executor   {executor.describe(agent)}")
-    lines.insert(-1, "reviewer   the box's agent, when asked: `pantheon verify --review`")
+    reader = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
+    lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
     print("\n".join(lines))
     if tasks:
         for task in tasks:
@@ -439,10 +454,23 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
 
 
 def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:
-    """The box's agent as the reader, when the run asked for one: never a default."""
-    if not getattr(args, "review", False):
+    """The box's agent as the reader, when the box declared one or the run asked for one.
+
+    The file says what usually happens; the flags say what happens now, and a flag always
+    wins: ``--review`` reads even a box that declared nothing, ``--no-review`` refuses for
+    one run without editing the file.
+    """
+    if getattr(args, "no_review", False):
         return None
-    return contour.box_reviewer(box.root, model=args.review_model, seconds=args.review_seconds)
+    config = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
+    if not getattr(args, "review", False) and not config.enabled:
+        return None
+    return contour.box_reviewer(
+        box.root,
+        model=args.review_model or config.model,
+        seconds=args.review_seconds,
+        max_cents=config.max_cents,
+    )
 
 
 def _list(args: argparse.Namespace, root: Path) -> int:

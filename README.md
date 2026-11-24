@@ -49,8 +49,8 @@ without a profile the task must carry its patch, and the outbox says so.
 
 `verify` runs the checks by default and costs nothing; a change is read only when someone is
 asked to read it, because trajan refuses a change that nobody does. `--review` asks the box's own
-agent (`bin/pantheon-review`, the same container as the executor), `--reviewer MODULE:FACTORY` names
-your own reader. What the reading cost is kept next to the run, and `dispatch` reports it in the
+agent (`bin/pantheon-review`, the same container as the executor), `profile/reviewer.toml` declares
+that every dispatch reads its change, and `--reviewer MODULE:FACTORY` names your own reader. What the reading cost is kept next to the run, and `dispatch` reports it in the
 outbox next to the executor's bill. The exit code is trajan's own — 0 pass, 1 hold, 2 inconclusive —
 and a test compares the two runs instead of trusting the wiring.
 

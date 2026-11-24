@@ -280,3 +280,79 @@ def test_a_failed_review_is_named(
     )
     payload = json.loads(capsys.readouterr().out)
     assert any("the reviewer was asked and failed" in item for item in payload["unknowns"])
+
+
+def declare_reader(box: boxes.Box, text: str = "schema_version = 1\nenabled = true\n") -> None:
+    path = box.root / "profile" / "reviewer.toml"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+
+
+@requires_trajan
+def test_a_box_that_declares_reading_reads_without_a_flag(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    declare_reader(box)
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    body = outbox(box, capsys)
+    assert "read by deepseek-flash" in body
+    assert "no reviewer read the change" not in body
+
+
+@requires_trajan
+def test_no_review_wins_over_the_declared_reader(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    declare_reader(box)
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    assert (
+        main(
+            [
+                "--boxes",
+                str(box.root.parent),
+                "dispatch",
+                box.name,
+                "--task",
+                str(task),
+                "--no-review",
+            ]
+        )
+        == 0
+    )
+    body = outbox(box, capsys)
+    assert "no reviewer read the change" in body
+    assert "read by" not in body
+
+
+@requires_trajan
+def test_a_reading_above_the_declared_ceiling_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The call already happened; pretending the ceiling held would be the quiet pass."""
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    declare_reader(box, 'schema_version = 1\nenabled = true\nmax_cents = 0.01\n')
+    bill = box.root / "state" / ".cache" / "review-usage.json"
+    bill.parent.mkdir(parents=True, exist_ok=True)
+    bill.write_text(
+        json.dumps({"input_tokens": 900, "output_tokens": 60, "estimated_cost_usd": 0.004}),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    assert (
+        main(
+            ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["review_cap"] == 0.01
+    assert any("more than the 0.01 the box declared" in item for item in payload["unknowns"])

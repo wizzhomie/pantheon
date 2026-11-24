@@ -74,6 +74,8 @@ class Dispatch:
     exit_code: int = 0
     proposal: executor.Proposal | None = None
     resumed_from: Path | None = None
+    review_cap: float | None = None
+    """The ceiling the box declared for one reading, when it declared one."""
 
 
 def read_task(path: Path) -> Task:
@@ -330,6 +332,7 @@ def dispatch(
             exit_code=0 if state == "closed" else 1,
             proposal=proposal,
             resumed_from=resumed_from,
+            review_cap=None if review is None else review.max_cents,
         ),
         stamp,
     )
@@ -566,6 +569,7 @@ def resume(
             exit_code=0 if state == "closed" else 1,
             proposal=proposal,
             resumed_from=source,
+            review_cap=None if review is None else review.max_cents,
         ),
         stamp,
     )
@@ -840,6 +844,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         },
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
+        "review_cap": result.review_cap,
         "unknowns": _unknowns(result),
         "notes": list(result.notes),
         "outbox": None if result.outbox is None else str(result.outbox),
@@ -927,6 +932,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         exit_code=result.exit_code,
         proposal=result.proposal,
         resumed_from=result.resumed_from,
+        review_cap=result.review_cap,
     )
     record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
@@ -1007,6 +1013,12 @@ def _unknowns(result: Dispatch) -> list[str]:
             unknown.append(
                 "the reviewer did not report what it cost: the reading is not accounted for in "
                 "any budget"
+            )
+        elif result.review_cap is not None and review.cost_cents > result.review_cap:
+            unknown.append(
+                f"the reading cost {review.cost_cents:.2f} cents, more than the "
+                f"{result.review_cap:g} the box declared: the call had already happened, so it "
+                "is recorded as a gap rather than refused"
             )
         if result.verify.status != "pass":
             unknown.append(f"the verdict is {result.verify.status}, not pass")
