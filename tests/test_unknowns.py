@@ -220,10 +220,64 @@ def test_a_reviewed_dispatch_names_the_reader_and_drops_the_gap(
     payload = json.loads(max(records, key=lambda item: item.name).read_text(encoding="utf-8"))
     assert payload["verify"]["reviewed"] is True
     assert payload["verify"]["review"]["status"] == "ok"
+    assert payload["verify"]["review"]["cached"] is False, "a paid reading is not a cached one"
     assert not any("no reviewer read the change" in item for item in payload["unknowns"])
     body = outbox(box, capsys)
     assert "read by deepseek-flash" in body
     assert "review: deepseek-flash" in body, "the reading has its own line in the cost section"
+
+
+@requires_trajan
+def test_a_reading_from_the_review_cache_is_free_not_unaccounted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Trajan answers the same diff from its own cache: no call, no bill, and no gap.
+
+    The first dispatch pays and its record says so. The second one cannot reuse the verdict —
+    the tree moved — so the checks run, and the reader is asked for the very diff that was read
+    before. Trajan serves that from its review cache: nothing was spent, and a box that calls
+    this "the reviewer did not report what it cost" accuses the reader of hiding a bill it
+    never ran up.
+    """
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    assert (
+        main(
+            ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--review"]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    (project / "notes.txt").write_text("unrelated to the change\n", encoding="utf-8")
+    assert (
+        main(
+            [
+                "--boxes",
+                str(box.root.parent),
+                "dispatch",
+                box.name,
+                "--task",
+                str(task),
+                "--review",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    review = payload["verify"]["review"]
+    assert review["cached"] is True
+    assert review["cost_cents"] is None
+    assert not any("did not report what it cost" in item for item in payload["unknowns"])
+    record = json.loads(
+        (Path(payload["verify"]["report"]).parent / "box-verify.json").read_text(encoding="utf-8")
+    )
+    assert record["review"]["cached"] is True, "the record keeps why there is no bill"
+    body = outbox(box, capsys)
+    assert "paid nothing" in body
+    assert "did not report what it cost" not in body
 
 
 @requires_trajan

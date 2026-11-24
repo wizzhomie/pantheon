@@ -838,6 +838,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
                 "completion_tokens": result.verify.review.completion_tokens,
                 "calls": result.verify.review.calls,
                 "cost_cents": result.verify.review.cost_cents,
+                "cached": result.verify.review.cached,
                 "error": result.verify.review.error,
             },
             "exit_code": result.verify.exit_code,

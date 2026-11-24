@@ -414,6 +414,7 @@ def _remember(
             "completion_tokens": result.review.completion_tokens,
             "calls": result.review.calls,
             "cost_cents": result.review.cost_cents,
+            "cached": result.review.cached,
             "error": result.review.error,
         },
     }
@@ -677,6 +678,7 @@ def result_json(result: VerifyResult, project: Path, box: str) -> dict[str, obje
             "completion_tokens": result.review.completion_tokens,
             "calls": result.review.calls,
             "cost_cents": result.review.cost_cents,
+            "cached": result.review.cached,
             "error": result.review.error,
         },
         "exit_code": result.exit_code,
