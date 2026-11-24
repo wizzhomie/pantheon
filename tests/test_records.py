@@ -210,3 +210,47 @@ def test_status_names_the_digest_state_without_writing(
     records.write(box)
     assert run(box, "status", "probe") == 0
     assert "records    1 task, digest fresh" in capsys.readouterr().out
+
+
+def test_a_record_has_an_address_and_the_digest_prints_it(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-1", "20261124T120000Z")
+    digest = records.build(box)
+    entry = digest.entries[0]
+    assert entry.address == "t-1/20261124T120000Z"
+    assert entry.json()["address"] == entry.address
+    text = "\n".join(records.render(digest))
+    assert "t-1/20261124T120000Z -> " + entry.record in text
+    assert entry.address in entry.pack_line("touches docs/note.md")
+
+
+def test_an_address_is_looked_up_in_the_digest(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-1", "20261124T120000Z")
+    digest = records.build(box)
+    assert records.parse_address("t-1/20261124T120000Z") == ("t-1", "20261124T120000Z")
+    found = records.lookup(digest, "t-1/20261124T120000Z")
+    assert found is not None and found.task == "t-1"
+    assert records.lookup(digest, "t-1/20261124T130000Z") is None
+    for bad in (
+        "t-1",
+        "t-1/2026",
+        "t-1/20261124T120000",
+        "/20261124T120000Z",
+        "t 1/20261124T120000Z",
+        "../20261124T120000Z",
+        "t-1/../../../x",
+    ):
+        assert records.parse_address(bad) is None, bad
+
+
+def test_an_address_older_than_the_digest_cap_is_not_addressable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-1", "20261124T120000Z")
+    digest = records.build(box)
+    monkeypatch.setattr(records, "MAX_ENTRIES", 0)
+    capped = records.build(box)
+    assert capped.count == 0 and capped.omitted == 1
+    assert records.lookup(capped, digest.entries[0].address) is None

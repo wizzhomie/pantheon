@@ -105,6 +105,10 @@ def test_a_task_is_read_strictly(tmp_path: Path) -> None:
         augustus.read_task(write_task(tmp_path, TASK + "\n[budget]\nmax_hours = 1\n"))
     with pytest.raises(boxes.HarnessError, match="not a path"):
         augustus.read_task(write_task(tmp_path, TASK.replace('id = "t-1"', 'id = "../x"')))
+    task = augustus.read_task(write_task(tmp_path, TASK + 'records = ["t-old/20261124T120000Z"]\n'))
+    assert task.records == ("t-old/20261124T120000Z",)
+    with pytest.raises(boxes.HarnessError, match="not a record address"):
+        augustus.read_task(write_task(tmp_path, TASK + 'records = ["t-old"]\n'))
 
 
 def test_the_routing_table_is_data_and_a_kind_without_a_route_is_a_refusal(

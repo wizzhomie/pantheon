@@ -132,7 +132,8 @@ def _parser() -> argparse.ArgumentParser:
     approve.set_defaults(handler=_approve)
 
     ledger_parser = commands.add_parser(
-        "records", help="digest the box's finished tasks into one bounded, addressable list"
+        "records",
+        help="digest the box's finished tasks into one bounded list of <task>/<stamp> addresses",
     )
     ledger_parser.add_argument(
         "name", nargs="?", default=None, help="box name (default: the only one)"

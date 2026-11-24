@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import tomllib
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -46,6 +47,7 @@ class Entry:
     """One task as the digest keeps it: the verdict, the paths, and where the record is."""
 
     task: str
+    address: str
     when: str
     state: str
     verdict: str
@@ -74,11 +76,12 @@ class Entry:
 
     def pack_line(self, reason: str) -> str:
         """The same record as the context pack shows it: why it is here, and where it lives."""
-        return f"- {self.line()} | {reason} | {self.record}"
+        return f"- {self.line()} | {reason} | {self.address} -> {self.record}"
 
     def json(self) -> dict[str, object]:
         return {
             "task": self.task,
+            "address": self.address,
             "when": self.when,
             "state": self.state,
             "verdict": self.verdict,
@@ -232,12 +235,29 @@ def render(digest: Digest) -> list[str]:
     if not digest.entries and not digest.skipped:
         lines.append("nothing has run in this box yet: there is no record to digest")
     for entry in digest.entries:
-        lines.append(f"- {entry.line()}  {entry.record}")
+        lines.append(f"- {entry.line()}  {entry.address} -> {entry.record}")
     return lines
 
 
 def short(digest: str) -> str:
     return digest.removeprefix("sha256:")[:12]
+
+
+ADDRESS_TASK = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
+ADDRESS_STAMP = re.compile(r"^\d{8}T\d{6}Z$")
+
+
+def parse_address(text: str) -> tuple[str, str] | None:
+    """Split ``<task>/<stamp>`` into its parts; anything else is not an address."""
+    task, _, stamp = text.rpartition("/")
+    if not task or not ADDRESS_TASK.match(task) or not ADDRESS_STAMP.match(stamp):
+        return None
+    return task, stamp
+
+
+def lookup(digest: Digest, address: str) -> Entry | None:
+    """The entry an address names, or ``None``: the digest is the index, not the filesystem."""
+    return next((entry for entry in digest.entries if entry.address == address), None)
 
 
 def _newest(directory: Path) -> Path | None:
@@ -261,6 +281,7 @@ def _entry(box: boxes.Box, task: str, record: Path) -> Entry:
         pointer = str(record)
     return Entry(
         task=task,
+        address=f"{task}/{stamp}",
         when=when,
         state=str(data.get("state") or "unknown"),
         verdict=str(_nested(data, "verify", "status") or ""),

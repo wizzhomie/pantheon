@@ -38,6 +38,7 @@ TASK_KEYS = frozenset(
         "budget",
         "mode",
         "role",
+        "records",
     }
 )
 MODES = ("manual", "auto")
@@ -75,6 +76,8 @@ class Task:
     budget: dict[str, int]
     mode: str = "manual"
     role: str = "executor"
+    records: tuple[str, ...] = ()
+    """Digest addresses the task names itself: history its paths would not have found."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +110,29 @@ class Dispatch:
 
     repeated: str | None = None
     """The digest of a change already tried, when the retry proposed exactly it again."""
+
+
+def record_addresses(raw: object, where: str) -> tuple[str, ...]:
+    """The record addresses a task or step names, checked by shape; the box resolves them.
+
+    The shape is checked here because a typo should cost nothing — the address is resolved
+    against the digest before the model is called, and an address the digest does not have is
+    a refusal, not a quiet gap in the pack.
+    """
+    if not isinstance(raw, list):
+        raise boxes.HarnessError(
+            f"{where}: records must be a list of addresses written as <task>/<stamp>, "
+            "as `pantheon records` prints them"
+        )
+    addresses: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or records.parse_address(item) is None:
+            raise boxes.HarnessError(
+                f"{where}: {item!r} is not a record address; write it as <task>/<stamp>, "
+                "as `pantheon records` prints them"
+            )
+        addresses.append(item)
+    return tuple(addresses)
 
 
 def read_task(path: Path) -> Task:
@@ -164,6 +190,7 @@ def read_task(path: Path) -> Task:
         budget={key: int(value) for key, value in budget.items()},
         mode=str(mode),
         role=str(role),
+        records=record_addresses(data.get("records", []), str(path)),
     )
 
 
@@ -332,7 +359,9 @@ def dispatch(
                     "was written, and the write gate had nothing to gate"
                 )
             else:
-                pack = context_pack.build(box, task.id, task.paths, when=stamp)
+                pack = context_pack.build(
+                    box, task.id, task.paths, when=stamp, named=task.records
+                )
                 context_pack.write(pack)
                 notes.append(f"context: {context_pack.line(pack)}")
                 proposal = executor.propose(
@@ -497,6 +526,8 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:
         lines.append("forbidden = [" + ", ".join(_quote(item) for item in task.forbidden) + "]")
+    if task.records:
+        lines.append("records = [" + ", ".join(_quote(item) for item in task.records) + "]")
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
     (directory / SNAPSHOT_FILE).write_text("\n".join(lines) + "\n", encoding="utf-8")

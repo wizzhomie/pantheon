@@ -30,6 +30,8 @@ MAX_SELECTED = 6
 LIMIT_CHARS = 4000
 """The pack's size cap in characters: roughly a thousand tokens, not a second task."""
 STAMP = "%Y%m%dT%H%M%SZ"
+NAMED_REASON = "named by the task"
+"""The reason a record the task named itself carries, as opposed to one its paths found."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,8 @@ class Pack:
     lines: tuple[str, ...]
     limit: int
     omitted: dict[str, int]
+    named: tuple[str, ...] = ()
+    """The addresses the task named itself, in the order it named them."""
 
     @property
     def records_digest(self) -> str:
@@ -68,9 +72,11 @@ class Pack:
             "records": {
                 "digest": self.digest.digest,
                 "total": self.digest.total,
+                "named": list(self.named),
                 "selected": [
                     {
                         "task": item.entry.task,
+                        "address": item.entry.address,
                         "when": item.entry.when,
                         "state": item.entry.state,
                         "verdict": item.entry.verdict,
@@ -96,19 +102,44 @@ class Pack:
 
 
 def build(
-    box: boxes.Box, task: str, paths: tuple[str, ...], when: datetime | None = None
+    box: boxes.Box,
+    task: str,
+    paths: tuple[str, ...],
+    when: datetime | None = None,
+    named: tuple[str, ...] = (),
 ) -> Pack:
     """Assemble the pack for a task: the frame it rests on and the records near its paths.
 
     The task is named by its id and its declared patterns, not passed as an object: selecting
     records needs nothing else, so the pack cannot drift with the orchestrator's task type.
+
+    ``named`` is the task speaking for itself: addresses from ``pantheon records`` that the
+    task wants in front of the model even when its paths do not point at them. An address the
+    digest does not have is a refusal, not a quiet omission — a task that asked for history
+    and did not get it would be exactly the quiet pass the box exists to prevent.
     """
     identifier = task
     patterns = paths
     moment = (when or datetime.now(UTC)).replace(microsecond=0)
     digest = records.build(box)
     standing = frames.standing(box)
-    selected: list[Selection] = []
+    named_selected: list[Selection] = []
+    for address in dict.fromkeys(named):
+        entry = records.lookup(digest, address)
+        if entry is None:
+            raise boxes.HarnessError(
+                f"{task}: the task names a record the digest does not have: {address!r}; "
+                "`pantheon records` lists the addresses it has (an address older than the "
+                "digest cap is not addressable)"
+            )
+        named_selected.append(Selection(entry, NAMED_REASON))
+    if len(named_selected) > MAX_SELECTED:
+        raise boxes.HarnessError(
+            f"{task}: {len(named_selected)} records are named, and the pack carries at most "
+            f"{MAX_SELECTED}: name the ones that decide the work"
+        )
+    taken = {selection.entry.address for selection in named_selected}
+    picked: list[Selection] = []
     omitted = {
         "own": 0,
         "no_overlap": 0,
@@ -118,6 +149,8 @@ def build(
         "unreadable": len(digest.skipped),
     }
     for entry in digest.entries:
+        if entry.address in taken:
+            continue
         if entry.task == identifier:
             omitted["own"] += 1
             continue
@@ -125,10 +158,12 @@ def build(
         if reason is None:
             omitted["no_overlap"] += 1
             continue
-        selected.append(Selection(entry, reason))
-    if len(selected) > MAX_SELECTED:
-        omitted["over_limit"] = len(selected) - MAX_SELECTED
-        selected = selected[:MAX_SELECTED]
+        picked.append(Selection(entry, reason))
+    room = MAX_SELECTED - len(named_selected)
+    if len(picked) > room:
+        omitted["over_limit"] = len(picked) - room
+        picked = picked[:room]
+    selected = named_selected + picked
     lines, dropped = _lines(standing, digest, selected)
     omitted["over_budget"] = dropped
     leftovers = _left_out(omitted)
@@ -144,6 +179,7 @@ def build(
         lines=tuple(lines),
         limit=LIMIT_CHARS,
         omitted=omitted,
+        named=tuple(selection.entry.address for selection in named_selected),
     )
 
 
@@ -163,6 +199,7 @@ def payload(pack: Pack) -> dict[str, object]:
         "task": pack.task,
         "path": str(pack.path),
         "records_digest": pack.records_digest,
+        "named": list(pack.named),
         "selected": [item.entry.task for item in pack.selected],
         "omitted": dict(pack.omitted),
         "lines": list(pack.lines),
@@ -177,10 +214,15 @@ def line(pack: Pack) -> str:
             "no past record touches the declared paths "
             f"({pack.digest.total} in all, digest {records.short(pack.records_digest)})"
         )
-    return (
-        f"{len(pack.selected)} past records by paths "
-        f"(digest {records.short(pack.records_digest)}), {left} left out"
-    )
+    named = len(pack.named)
+    by_paths = len(pack.selected) - named
+    if named and by_paths:
+        head = f"{named} named record(s) + {by_paths} past records by paths"
+    elif named:
+        head = f"{named} named record(s)"
+    else:
+        head = f"{by_paths} past records by paths"
+    return f"{head} (digest {records.short(pack.records_digest)}), {left} left out"
 
 
 def render(pack: Pack) -> list[str]:
@@ -190,7 +232,7 @@ def render(pack: Pack) -> list[str]:
         f"pack       {pack.path}",
     ]
     for selection in pack.selected:
-        lines.append(f"- {selection.entry.task}  {selection.reason}")
+        lines.append(f"- {selection.entry.task}  {selection.reason}  {selection.entry.address}")
     return lines
 
 
@@ -202,10 +244,17 @@ def _lines(
         f"frame: {standing.line()}",
     ]
     if selected:
+        named = sum(1 for item in selected if item.reason == NAMED_REASON)
+        by_paths = len(selected) - named
+        chosen: list[str] = []
+        if named:
+            chosen.append(f"{named} named by the task")
+        if by_paths:
+            chosen.append(f"{by_paths} by the declared paths")
         head.append(
-            f"records: {len(selected)} of {digest.total} selected by the declared paths "
-            f"(digest {records.short(digest.digest)}); each line ends with its record file — "
-            "open one only if it decides the work"
+            f"records: {len(selected)} of {digest.total} selected ({', '.join(chosen)}; "
+            f"digest {records.short(digest.digest)}); each line ends with its address and "
+            "record file — open one only if it decides the work"
         )
     else:
         head.append(

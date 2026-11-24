@@ -312,3 +312,20 @@ def test_a_step_can_cap_what_it_reads(tmp_path: Path) -> None:
     plan = campaign.read_campaign(write_campaign(project, text))
     task = campaign.task_for(plan, plan.steps[0])
     assert task.budget["max_read_chars"] == 4000
+
+
+def test_a_step_can_name_the_records_it_wants(tmp_path: Path) -> None:
+    from harness import campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'expected = "a section in the docs"',
+        'expected = "a section in the docs"\nrecords = ["t-old/20261124T120000Z"]',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    task = campaign.task_for(plan, plan.steps[0])
+    assert task.records == ("t-old/20261124T120000Z",)
+    with pytest.raises(boxes.HarnessError, match="not a record address"):
+        campaign.read_campaign(
+            write_campaign(project, text.replace("t-old/20261124T120000Z", "t-old"))
+        )

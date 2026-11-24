@@ -35,7 +35,18 @@ CAMPAIGN_KEYS = frozenset(
 DEFAULT_ATTEMPTS = 1
 """Without a declared ceiling there is no retry: one attempt is the safe default, not a habit."""
 STEP_KEYS = frozenset(
-    {"id", "goal", "kind", "role", "paths", "expected", "depends_on", "max_cents", "max_read_chars"}
+    {
+        "id",
+        "goal",
+        "kind",
+        "role",
+        "paths",
+        "expected",
+        "depends_on",
+        "max_cents",
+        "max_read_chars",
+        "records",
+    }
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
 BUDGET_KEYS = frozenset({"max_cents", "max_seconds"})
@@ -60,6 +71,8 @@ class Step:
     depends_on: tuple[str, ...]
     max_cents: int | None
     max_read_chars: int | None = None
+    records: tuple[str, ...] = ()
+    """Digest addresses this step wants in front of the model, beyond what its paths find."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -353,6 +366,7 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
         budget=budget,
         mode=campaign.mode,
         role=step.role,
+        records=step.records,
     )
 
 
@@ -869,6 +883,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         depends_on=tuple(item.strip() for item in depends),
         max_cents=max_cents,
         max_read_chars=max_read_chars,
+        records=augustus.record_addresses(entry.get("records", []), where),
     )
 
 

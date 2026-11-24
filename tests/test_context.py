@@ -364,3 +364,120 @@ def test_both_executors_put_the_pack_in_the_prompt(tmp_path: Path) -> None:
     )
     assert "Контекст, собранный коробкой" in architect
     assert "Ты — архитектор коробки" in architect
+
+
+def test_a_named_record_is_selected_even_when_its_paths_do_not_overlap(
+    tmp_path: Path,
+) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-docs", paths=("docs/**",), changed=("docs/note.md",))
+    pack = context.build(box, "t-1", ("src/**",), named=("t-docs/20261124T120000Z",))
+    assert [item.entry.task for item in pack.selected] == ["t-docs"]
+    assert pack.selected[0].reason == context.NAMED_REASON
+    assert pack.named == ("t-docs/20261124T120000Z",)
+    text = "\n".join(pack.lines)
+    assert "t-docs/20261124T120000Z -> " in text
+    assert "named by the task" in text
+    assert "1 named record(s)" in context.line(pack)
+    assert pack.omitted["no_overlap"] == 0
+    assert context.payload(pack)["named"] == ["t-docs/20261124T120000Z"]
+
+
+def test_a_named_address_the_digest_does_not_have_is_a_refusal(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-docs", paths=("docs/**",), changed=("docs/note.md",))
+    with pytest.raises(boxes.HarnessError, match="t-docs/20260101T000000Z"):
+        context.build(box, "t-1", ("src/**",), named=("t-docs/20260101T000000Z",))
+
+
+def test_the_task_may_name_its_own_earlier_record(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-1")
+    pack = context.build(box, "t-1", ("src/**",), named=("t-1/20261124T120000Z",))
+    assert [item.entry.task for item in pack.selected] == ["t-1"]
+    assert pack.named == ("t-1/20261124T120000Z",)
+
+
+def test_named_records_share_the_selection_cap_and_are_not_doubled(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(context, "MAX_SELECTED", 1)
+    box = make_box(tmp_path)
+    write_record(box, "t-a", "20261124T100000Z")
+    write_record(box, "t-b", "20261124T110000Z")
+    pack = context.build(box, "t-1", ("src/**",), named=("t-a/20261124T100000Z",))
+    assert [item.entry.task for item in pack.selected] == ["t-a"]
+    assert pack.omitted["over_limit"] == 1
+    with pytest.raises(boxes.HarnessError, match="at most 1"):
+        context.build(
+            box,
+            "t-1",
+            ("src/**",),
+            named=("t-a/20261124T100000Z", "t-b/20261124T110000Z"),
+        )
+
+
+def test_a_named_record_is_not_selected_twice_by_its_paths(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-old")
+    pack = context.build(box, "t-1", ("src/**",), named=("t-old/20261124T120000Z",))
+    assert [item.reason for item in pack.selected] == [context.NAMED_REASON]
+    assert "1 named record(s)" in context.line(pack)
+    assert "2 past records" not in context.line(pack)
+
+
+@requires_trajan
+def test_a_bad_address_stops_the_dispatch_before_the_model_is_asked(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "prior")
+    write_profile(box, fake_executor(tmp_path, SEES_THE_PACK))
+    task = tmp_path / "t-1.toml"
+    task.write_text(
+        TASK.replace("[budget]", 'records = ["prior/20260101T000000Z"]\n\n[budget]'),
+        encoding="utf-8",
+    )
+    assert run(box, "dispatch", "probe", "--task", str(task)) == 2
+    assert "prior/20260101T000000Z" in capsys.readouterr().err
+    assert not (box.root / "artifacts" / "t-1" / "proposal-1").exists()
+
+
+@requires_trajan
+def test_a_named_record_reaches_the_model_and_the_record_keeps_it(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box = make_box(tmp_path)
+    write_record(box, "t-docs", paths=("docs/**",), changed=("docs/note.md",))
+    asks_for_the_named = f"""\
+import json, sys
+request = json.load(sys.stdin)
+lines = (request.get("context") or {{}}).get("lines") or []
+if not any("named by the task" in line for line in lines):
+    print("the request carries no named record", file=sys.stderr)
+    sys.exit(2)
+print(json.dumps({{
+    "patch": {json.dumps(DIFF)},
+    "model": "fake-model",
+    "usage": {{"prompt_tokens": 10, "completion_tokens": 5, "cost_cents": 0.1}},
+}}))
+"""
+    write_profile(box, fake_executor(tmp_path, asks_for_the_named))
+    task = tmp_path / "t-1.toml"
+    task.write_text(
+        TASK.replace("[budget]", 'records = ["t-docs/20261124T120000Z"]\n\n[budget]'),
+        encoding="utf-8",
+    )
+    assert run(box, "dispatch", "probe", "--task", str(task), "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["state"] == "closed"
+    assert payload["context"]["records"]["named"] == ["t-docs/20261124T120000Z"]
+    assert payload["context"]["records"]["selected"][0]["reason"] == "named by the task"
+    request = json.loads(
+        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert any(
+        "t-docs/20261124T120000Z" in line for line in request["context"]["lines"]
+    ), "the named address is in the request the model sees"
