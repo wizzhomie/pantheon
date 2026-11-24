@@ -13,6 +13,7 @@ for a minute. Two things keep that honest:
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -98,10 +99,24 @@ def reviewed(
     )
 
 
-requires_trajan = pytest.mark.skipif(
-    not (Path(contour.REPO_ROOT) / "trajan" / "src" / "trajan" / "__init__.py").is_file(),
-    reason="trajan is not next to the harness",
-)
+def _trajan_runnable() -> bool:
+    """Whether trajan can actually start here: the checkout alone is not enough (pydantic)."""
+    try:
+        root = contour.trajan_root()
+    except boxes.HarnessError:
+        return False
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(root / "src")
+    done = subprocess.run(
+        [str(contour.trajan_python(root)), "-m", "trajan", "--help"],
+        capture_output=True,
+        check=False,
+        env=env,
+    )
+    return done.returncode == 0
+
+
+requires_trajan = pytest.mark.skipif(not _trajan_runnable(), reason="trajan cannot run here")
 
 
 @requires_trajan
