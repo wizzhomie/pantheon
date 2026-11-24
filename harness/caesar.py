@@ -40,6 +40,12 @@ FORBIDDEN = frozenset({"delete"})
 ALWAYS_REFUSED = (".git/",)
 """Paths no contract can authorise: rewriting history is not a change, it is a different box."""
 
+KINDS_FILE = Path(".pantheon") / "kinds.toml"
+"""The project's table of what each kind of task may write, versioned with the project."""
+
+FRAME_PATHS = (".pantheon/**", ".trajan/context.toml")
+"""The project's frame: the architecture model and the requirements it is checked against."""
+
 
 @dataclass(frozen=True, slots=True)
 class Contract:
@@ -53,6 +59,24 @@ class Contract:
     allowed_paths: tuple[str, ...]
     forbidden: tuple[str, ...]
     budget: dict[str, int]
+
+
+@dataclass(frozen=True, slots=True)
+class Kind:
+    """What one kind of task may write: its own paths, and the paths it never touches."""
+
+    name: str
+    allow: tuple[str, ...] = ()
+    forbid: tuple[str, ...] = ()
+
+
+DEFAULT_KINDS: dict[str, Kind] = {
+    "architecture": Kind("architecture", allow=(*FRAME_PATHS, "docs/**")),
+}
+"""The frame belongs to architecture; every other kind may write what its contract allows,
+except the frame itself. A project can replace any entry with its own ``kinds.toml``."""
+
+ANY_KIND = Kind("*", forbid=FRAME_PATHS)
 
 
 @dataclass(frozen=True, slots=True)
@@ -134,6 +158,62 @@ def read_contract(path: Path) -> Contract:
     )
 
 
+def read_kinds(project: Path) -> dict[str, Kind]:
+    """The project's kind policy, with the built-in default wherever nothing is declared.
+
+    A malformed policy stops the gate instead of being ignored: a rule nobody can read is not a
+    rule, and quietly falling back to "anything goes" would hide exactly the boundary it draws.
+    """
+    declared = dict(DEFAULT_KINDS)
+    path = project / KINDS_FILE
+    if not path.is_file():
+        return declared
+    try:
+        data = tomllib.loads(path.read_text(encoding="utf-8"))
+    except (OSError, tomllib.TOMLDecodeError) as error:
+        raise boxes.HarnessError(f"the kind policy {path} does not parse: {error}") from error
+    unknown = set(data) - {"schema_version", "kind"}
+    if unknown:
+        raise boxes.HarnessError(
+            f"the kind policy {path} has keys nobody reads: {', '.join(sorted(unknown))}"
+        )
+    version = data.get("schema_version")
+    if version != 1:
+        raise boxes.HarnessError(
+            f"the kind policy {path} declares schema_version {version!r}, but this gate reads 1"
+        )
+    entries = data.get("kind", [])
+    if not isinstance(entries, list):
+        raise boxes.HarnessError(f"the kind policy {path}: `kind` must be a list of tables")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            raise boxes.HarnessError(f"the kind policy {path}: every `kind` entry must be a table")
+        extra = set(entry) - {"name", "allow", "forbid"}
+        if extra:
+            raise boxes.HarnessError(
+                f"the kind policy {path} has keys nobody reads: {', '.join(sorted(extra))}"
+            )
+        name = entry.get("name")
+        if not isinstance(name, str) or not name:
+            raise boxes.HarnessError(f"the kind policy {path}: a kind entry has no name")
+        declared[name] = Kind(
+            name=name,
+            allow=_patterns(entry.get("allow"), path),
+            forbid=_patterns(entry.get("forbid"), path),
+        )
+    return declared
+
+
+def _patterns(value: object, path: Path) -> tuple[str, ...]:
+    if value is None:
+        return ()
+    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+        raise boxes.HarnessError(
+            f"the kind policy {path}: paths must be a list of non-empty strings"
+        )
+    return tuple(value)
+
+
 def matches(pattern: str, path: str) -> bool:
     """Does ``path`` fall under ``pattern``? ``**`` crosses directories, ``*`` does not.
 
@@ -209,7 +289,12 @@ def _clean(raw: str) -> str:
     return inner.removeprefix("a/").removeprefix("b/")
 
 
-def violations(contract: Contract, paths: tuple[str, ...], diff: str) -> tuple[Violation, ...]:
+def violations(
+    contract: Contract,
+    paths: tuple[str, ...],
+    diff: str,
+    kinds: dict[str, Kind] | None = None,
+) -> tuple[Violation, ...]:
     """Every reason to refuse, not the first one: a refusal explains all of them at once."""
     found: list[Violation] = []
     if contract.kind is None:
@@ -230,6 +315,22 @@ def violations(contract: Contract, paths: tuple[str, ...], diff: str) -> tuple[V
             found.append(
                 Violation("outside-scope", f"{path}: not under any allowed path of the contract")
             )
+        if kinds is not None and contract.kind is not None:
+            kind = kinds.get(contract.kind, ANY_KIND)
+            if kind.allow and not any(matches(pattern, path) for pattern in kind.allow):
+                found.append(
+                    Violation(
+                        "outside-kind",
+                        f"{path}: the kind {contract.kind!r} does not own this path",
+                    )
+                )
+            if any(matches(pattern, path) for pattern in kind.forbid):
+                found.append(
+                    Violation(
+                        "kind-forbidden",
+                        f"{path}: the kind {contract.kind!r} never writes this path",
+                    )
+                )
     return tuple(found)
 
 
@@ -267,7 +368,7 @@ def run_attempt(
     change = _normalize(diff, prefix)
     paths = touched_paths(change)
     digest = hashlib.sha256(change.encode("utf-8")).hexdigest()
-    problems = violations(contract, paths, change)
+    problems = violations(contract, paths, change, read_kinds(project))
     number = _next_number(box_root, contract.task)
     directory = box_root / "artifacts" / contract.task / str(number)
     directory.mkdir(parents=True, exist_ok=True)
