@@ -13,7 +13,7 @@ afterthought here; it is the part that already works, and it is where the projec
 | **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
 | **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes project, policy and requirements, `pantheon verify` runs trajan and keeps the report, `pantheon run` gates a patch by a contract and writes the attempt and the refusal into the box ledger. No container, no agent yet — `pantheon up` refuses |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
-| **Aurelius** — architecture model and deterministic drift check | designed, not built |
+| **Aurelius** — architecture model and deterministic drift check | **mechanism works, check not run yet**: `.pantheon/architecture.toml` compiles into an `import-linter` config and `pantheon arch` runs it, but the boundary tool is not installed here, so the answer today is `unchecked` — never a silent pass |
 | **Augustus** — orchestration inside the box | designed, not built |
 
 The table is the honest status, not a roadmap promise: the first two rows are running code today,

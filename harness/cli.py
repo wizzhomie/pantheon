@@ -15,8 +15,8 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
+from . import aurelius, caesar, contour
 from . import box as boxes
-from . import caesar, contour
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
 EXIT_REFUSED = 3
@@ -82,6 +82,21 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--patch", required=True, help="the unified diff the attempt proposes")
     run.add_argument("--json", action="store_true", help="the attempt as one JSON object")
     run.set_defaults(handler=_run)
+
+    arch = commands.add_parser(
+        "arch", help="Aurelius: check the project against its declared architecture"
+    )
+    arch.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    arch.add_argument(
+        "--model",
+        default=None,
+        help=f"architecture model (default: <project>/{aurelius.MODEL_FILE})",
+    )
+    arch.add_argument(
+        "--tool", default=None, help="the boundary tool (default: lint-imports, or $PANTHEON_LINT)"
+    )
+    arch.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    arch.set_defaults(handler=_arch)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -167,6 +182,18 @@ def _run(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(caesar.render_attempt(attempt, contract)))
     return 0 if attempt.applied else 1
+
+
+def _arch(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    model_path = Path(args.model) if args.model else box.project / aurelius.MODEL_FILE
+    model = aurelius.read_model(model_path)
+    result = aurelius.check(box.root, box.project, model, tool=args.tool)
+    if args.json:
+        print(json.dumps(aurelius.result_json(result, model), indent=2))
+    else:
+        print("\n".join(aurelius.render_result(result, model)))
+    return result.exit_code
 
 
 def _run_name() -> str:
