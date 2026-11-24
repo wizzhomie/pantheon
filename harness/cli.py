@@ -168,6 +168,11 @@ def _parser() -> argparse.ArgumentParser:
         help="why the plan changed since the last step; a silent plan change is refused",
     )
     step.add_argument(
+        "--retry",
+        action="store_true",
+        help="run a step that already ran again, when the retry rule allows it",
+    )
+    step.add_argument(
         "--routes",
         default=None,
         help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
@@ -578,6 +583,26 @@ def _step(args: argparse.Namespace, root: Path) -> int:
             "with `--reason \"...\"`: splitting or narrowing a step is Augustus's, but acceptance "
             "and the set of steps belong to the owner, and neither may happen silently"
         )
+    recorded = None if state is None else state.steps.get(chosen.id)
+    if recorded is not None and recorded.state != "closed":
+        decision = campaign.retry(box, plan, chosen, state)
+        if not args.retry:
+            why = "" if decision is None else " " + decision.reason
+            raise boxes.HarnessError(
+                f"step {chosen.id} already ran ({recorded.state}, "
+                f"{recorded.verdict or 'no verdict'}) and is not closed. Another attempt needs "
+                f"`--retry`, and the retry rule has to allow it.{why}"
+            )
+        if decision is None or not decision.allowed:
+            reason = "the step did not run" if decision is None else decision.reason
+            raise boxes.HarnessError(f"the retry is refused: {reason}")
+        assert state is not None, "a recorded step implies a state to read it from"
+        draft = campaign.revert_draft(box, plan, chosen, state)
+        if draft is not None:
+            raise boxes.HarnessError(
+                f"the draft of the failed attempt could not be reverted ({draft}): a retry "
+                "starts from the accepted tree, so commit or remove the draft first"
+            )
     # A step is work: the routing table decides which contours check it, not whether anything
     # happens. Without this a docs step would close a clean verification of an untouched tree.
     routes_for_step = {
@@ -596,6 +621,7 @@ def _step(args: argparse.Namespace, root: Path) -> int:
         trajan_root=trajan,
         trajan_python=contour.trajan_python(trajan, args.python),
         review=_reviewer(args, box),
+        no_repeat=campaign.previous_change(state, chosen),
     )
     updated = campaign.record_step(box, plan, chosen, result, reason=args.reason or "")
     report = campaign.report(box, plan, routes=table)

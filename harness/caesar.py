@@ -387,7 +387,7 @@ def run_attempt(
     prefix = _prefix(project)
     change = _normalize(diff, prefix)
     paths = touched_paths(change)
-    digest = hashlib.sha256(change.encode("utf-8")).hexdigest()
+    digest = patch_digest(project, diff)
     problems = violations(contract, paths, change, read_kinds(project))
     number = _next_number(box_root, contract.task)
     directory = box_root / "artifacts" / contract.task / str(number)
@@ -741,6 +741,17 @@ def _under(path: Path, root: Path) -> str:
         return str(path)
 
 
+def patch_digest(project: Path, diff: str) -> str:
+    """The digest of a change in the project's own coordinates.
+
+    Two diffs that say the same thing about the project give one digest, whether they arrived
+    from a model, from a file, or from the project sitting inside a larger repository. The
+    attempt records this digest; a retry compares a new proposal against it before applying.
+    """
+    change = _normalize(diff, _prefix(project))
+    return hashlib.sha256(change.encode("utf-8")).hexdigest()
+
+
 def _prefix(project: Path) -> str:
     """Where the project sits in its repository: ``""`` at the root, ``trajan/`` below it."""
     value = _git(project, "rev-parse", "--show-prefix")
@@ -832,6 +843,26 @@ def _apply(
             "same afterwards",
         )
     return None
+
+
+def revert(project: Path, patch: Path) -> tuple[bool, str]:
+    """Undo the draft a failed attempt left in the tree, using the attempt's own change.
+
+    Applying the recorded change backwards touches only the lines that attempt wrote: anything
+    else in the tree stays. A tree that moved since fails here, with git's own words, instead
+    of failing later in the commit with a message about the wrong thing.
+    """
+    prefix = _prefix(project)
+    top = Path(_git(project, "rev-parse", "--show-toplevel") or project)
+    command = ["git", "-C", str(top), "apply", "--reverse", "--whitespace=nowarn"]
+    if prefix:
+        command.append(f"--directory={prefix}")
+    command.append(str(patch))
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout).strip().splitlines()
+        return False, "; ".join(detail[-3:]) or "git apply --reverse failed"
+    return True, ""
 
 
 def _already_applied(project: Path, patch: Path, prefix: str) -> bool:

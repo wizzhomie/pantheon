@@ -105,6 +105,9 @@ class Dispatch:
     context: context_pack.Pack | None = None
     """What the model was told about the box before it was asked for a change."""
 
+    repeated: str | None = None
+    """The digest of a change already tried, when the retry proposed exactly it again."""
+
 
 def read_task(path: Path) -> Task:
     """Load a task file; unknown keys are an error, a missing scope is a refusal later."""
@@ -230,6 +233,7 @@ def dispatch(
     resumed_from: Path | None = None,
     review: contour.Reviewer | None = None,
     commit_requested: bool = True,
+    no_repeat: str | None = None,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -240,6 +244,10 @@ def dispatch(
     ``review`` is the reader for the change, when the run asked for one. Without it the
     verification is checks-only and the record says the change was not read — the honest
     answer, not an assumed one.
+
+    ``no_repeat`` is the digest of the change the previous attempt tried: a retry that proposes
+    exactly it again is recorded and not applied, because paying twice for the same answer is
+    how a retry turns into a loop.
     """
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "artifacts" / task.id
@@ -341,6 +349,31 @@ def dispatch(
                         ),
                         stamp,
                     )
+                if no_repeat is not None and proposal.patch is not None:
+                    digest = _proposal_digest(box.project, proposal.patch)
+                    if digest == no_repeat:
+                        notes.append(
+                            "the executor proposed the change that was already tried: it was "
+                            "not applied, because the same answer cannot become a different verdict"
+                        )
+                        return _finish(
+                            box,
+                            task,
+                            Dispatch(
+                                task=task,
+                                state="returned",
+                                stages=stages,
+                                arch=arch,
+                                directory=directory,
+                                notes=notes,
+                                exit_code=1,
+                                proposal=proposal,
+                                resumed_from=resumed_from,
+                                context=pack,
+                                repeated=digest,
+                            ),
+                            stamp,
+                        )
                 patch = proposal.patch
         if patch is not None:
             contract = caesar.read_contract(contract_path)
@@ -737,6 +770,14 @@ def _commit_note(commit: caesar.Commit) -> str:
     return f"the commit failed: {commit.reason}"
 
 
+def _proposal_digest(project: Path, patch: Path) -> str:
+    """The proposed change in project coordinates, or an empty string if it cannot be read."""
+    try:
+        return caesar.patch_digest(project, patch.read_text(encoding="utf-8"))
+    except OSError:
+        return ""
+
+
 def _context_line(pack: context_pack.Pack | None) -> str:
     if pack is None:
         return "not built — no model was asked"
@@ -977,6 +1018,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "budget": dict(result.task.budget),
         "executor": None if result.proposal is None else executor.proposal_json(result.proposal),
         "context": None if result.context is None else result.context.json(),
+        "repeated": result.repeated,
         "verify": None
         if result.verify is None
         else {
@@ -1094,6 +1136,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         resumed_from=result.resumed_from,
         review_cap=result.review_cap,
         context=result.context,
+        repeated=result.repeated,
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
     # read here, and a summary that omitted it would be the quietest gap of all.
