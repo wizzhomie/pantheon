@@ -194,8 +194,15 @@ def route(task: Task, routes: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     return routes.get(task.kind, ())
 
 
-def refusal(task: Task, routes: dict[str, tuple[str, ...]]) -> str | None:
-    """Why this task may not start, or ``None``. Scope and kind are not optional."""
+def refusal(
+    task: Task, routes: dict[str, tuple[str, ...]], *, driven: bool = False
+) -> str | None:
+    """Why this task may not start, or ``None``. Scope and kind are not optional.
+
+    ``driven`` marks the one honest way an automatic task exists: a campaign runner asked for
+    it. A standalone task that asks for the automatic mode is refused, because nothing would
+    run it a second time — the declaration would be a promise nobody keeps.
+    """
     if not task.kind:
         return "the task declares no kind: a change without a type does not start"
     if not task.paths:
@@ -212,10 +219,11 @@ def refusal(task: Task, routes: dict[str, tuple[str, ...]]) -> str | None:
             "an architecture task belongs to the architect: declare role = \"architect\" so the "
             "box asks for documents and a model, not for code"
         )
-    if task.mode == "auto":
+    if task.mode == "auto" and not driven:
         return (
-            "the task asks for the automatic mode: it is declared, but nothing runs a campaign "
-            "yet, so a step cannot close itself; dispatch it as manual until the runner exists"
+            "the task asks for the automatic mode, and automation belongs to a campaign: "
+            "`pantheon advance` runs one, while a single dispatch would only look automatic. "
+            "Dispatch it as manual, or run its campaign"
         )
     return None
 
@@ -234,6 +242,7 @@ def dispatch(
     review: contour.Reviewer | None = None,
     commit_requested: bool = True,
     no_repeat: str | None = None,
+    driven: bool = False,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -252,7 +261,7 @@ def dispatch(
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "artifacts" / task.id
     directory.mkdir(parents=True, exist_ok=True)
-    blocked = refusal(task, routes)
+    blocked = refusal(task, routes, driven=driven)
     if blocked is not None:
         _event(box.root, stamp, "task.refused", task, blocked)
         return Dispatch(

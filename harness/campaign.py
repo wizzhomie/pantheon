@@ -241,11 +241,6 @@ def problems(
             )
         for path in step.paths:
             found.extend(_outside_kind(step, path, kinds))
-    if campaign.mode == "auto":
-        found.append(
-            "campaign mode auto: nothing runs a campaign yet, so no step can close itself; "
-            "declare mode manual until the runner exists"
-        )
     found.extend(_dependency_problems(campaign))
     for item in campaign.acceptance:
         if campaign.step(item.step) is None:
@@ -310,6 +305,31 @@ def blockers(campaign: Campaign, step: Step, state: State | None) -> tuple[str, 
                 f"step {step.id} waits for {dependency}, which has no strict pass recorded"
             )
     return tuple(found)
+
+
+def closed(state: State | None, step: Step) -> bool:
+    """Whether the record closes the step: only a strict pass closes one, conditions do not."""
+    return state is not None and _is_closed(state, step)
+
+
+def next_step(campaign: Campaign, state: State | None) -> Step | None:
+    """The first step the plan says may run now: not closed, and what it waits for holds.
+
+    The order is the plan's own — a step's position in the file is the order the owner chose —
+    and a step that waits for a dependency still without a strict pass is skipped, not run
+    out of turn.
+    """
+    for step in campaign.steps:
+        if closed(state, step):
+            continue
+        if not blockers(campaign, step, state):
+            return step
+    return None
+
+
+def attempts_allowed(campaign: Campaign) -> int:
+    """The most attempts a run may spend: every step may use the ceiling the plan declares."""
+    return len(campaign.steps) * campaign.attempts
 
 
 def task_for(campaign: Campaign, step: Step) -> augustus.Task:
@@ -477,6 +497,14 @@ def retry(box: boxes.Box, campaign: Campaign, step: Step, state: State | None) -
         )
     verdict = recorded.verdict
     if verdict is None:
+        executor = record.get("executor")
+        if isinstance(executor, dict) and executor.get("status") == "failed":
+            broken = str(executor.get("reason") or "the executor produced no change")
+            return Retry(
+                True,
+                f"the executor failed ({broken}): no change was proposed, so a technical retry "
+                "is allowed",
+            )
         return Retry(
             False,
             "the last attempt produced no verdict: the gate refused the change, and another "
@@ -961,6 +989,11 @@ def _event(
     }
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event) + "\n")
+
+
+def note(box: boxes.Box, campaign: Campaign, kind: str, reason: str) -> None:
+    """One ledger line for an event above the step: a run that finished, or one that stopped."""
+    _event(box, kind, campaign.id, reason, str(campaign.path))
 
 
 def _read_revisions(path: Path, data: object) -> tuple[dict[str, str], ...]:

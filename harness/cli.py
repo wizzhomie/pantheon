@@ -28,6 +28,7 @@ from . import (
     frame,
     records,
     reviewer,
+    runner,
 )
 from . import box as boxes
 
@@ -193,6 +194,39 @@ def _parser() -> argparse.ArgumentParser:
     )
     step.add_argument("--json", action="store_true", help="the answer as one JSON object")
     step.set_defaults(handler=_step)
+
+    advance = commands.add_parser(
+        "advance",
+        help="run an auto campaign by its own rule: ready steps, retries, a stop with its reason",
+    )
+    advance.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    advance.add_argument("--campaign", required=True, help="campaign id or path to its file")
+    advance.add_argument(
+        "--reason",
+        default="",
+        help="why the plan changed since the last step; a silent plan change is refused",
+    )
+    advance.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    advance.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    advance.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    advance.add_argument(
+        "--review", action="store_true", help="have the box's agent read each step's change"
+    )
+    advance.add_argument(
+        "--no-review",
+        action="store_true",
+        help="do not read the changes, whatever profile/reviewer.toml says",
+    )
+    advance.add_argument("--review-model", default=None, help="model that reads the change")
+    advance.add_argument(
+        "--review-seconds", type=int, default=None, help="how long one reading may take"
+    )
+    advance.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    advance.set_defaults(handler=_advance)
 
     dispatch = commands.add_parser(
         "dispatch", help="Augustus: run a task through the contours its scope routes to"
@@ -564,86 +598,64 @@ def _step(args: argparse.Namespace, root: Path) -> int:
     routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
     table = augustus.read_routes(Path(routes) if routes else None)
     plan = campaign.read_campaign(_campaign_path(box, args.campaign))
-    problems = campaign.problems(plan, box.project, table)
-    if problems:
-        raise boxes.HarnessError("the plan cannot start: " + "; ".join(problems))
-    chosen = plan.step(args.step)
-    if chosen is None:
-        raise boxes.HarnessError(
-            f"{plan.path}: no step {args.step!r}; the plan has "
-            + ", ".join(step.id for step in plan.steps)
-        )
-    state = campaign.read_state(box, plan)
-    waiting = campaign.blockers(plan, chosen, state)
-    if waiting:
-        raise boxes.HarnessError("; ".join(waiting))
-    if state is not None and state.plan and state.plan != plan.digest and not args.reason:
-        raise boxes.HarnessError(
-            "the plan changed since the last step, and the state still says the old one. Say why "
-            "with `--reason \"...\"`: splitting or narrowing a step is Augustus's, but acceptance "
-            "and the set of steps belong to the owner, and neither may happen silently"
-        )
-    recorded = None if state is None else state.steps.get(chosen.id)
-    if recorded is not None and recorded.state != "closed":
-        decision = campaign.retry(box, plan, chosen, state)
-        if not args.retry:
-            why = "" if decision is None else " " + decision.reason
-            raise boxes.HarnessError(
-                f"step {chosen.id} already ran ({recorded.state}, "
-                f"{recorded.verdict or 'no verdict'}) and is not closed. Another attempt needs "
-                f"`--retry`, and the retry rule has to allow it.{why}"
-            )
-        if decision is None or not decision.allowed:
-            reason = "the step did not run" if decision is None else decision.reason
-            raise boxes.HarnessError(f"the retry is refused: {reason}")
-        assert state is not None, "a recorded step implies a state to read it from"
-        draft = campaign.revert_draft(box, plan, chosen, state)
-        if draft is not None:
-            raise boxes.HarnessError(
-                f"the draft of the failed attempt could not be reverted ({draft}): a retry "
-                "starts from the accepted tree, so commit or remove the draft first"
-            )
-    # A step is work: the routing table decides which contours check it, not whether anything
-    # happens. Without this a docs step would close a clean verification of an untouched tree.
-    routes_for_step = {
-        **table,
-        chosen.kind: (
-            *[stage for stage in table[chosen.kind] if stage != "verify"],
-            "run",
-            "verify",
-        ),
-    }
     trajan = contour.trajan_root(args.trajan)
-    result = augustus.dispatch(
+    result = runner.step(
         box,
-        campaign.task_for(plan, chosen),
-        routes=routes_for_step,
+        plan,
+        args.step,
+        table=table,
         trajan_root=trajan,
         trajan_python=contour.trajan_python(trajan, args.python),
         review=_reviewer(args, box),
-        no_repeat=campaign.previous_change(state, chosen),
+        reason=args.reason,
+        retry=args.retry,
     )
-    updated = campaign.record_step(box, plan, chosen, result, reason=args.reason or "")
     report = campaign.report(box, plan, routes=table)
     if args.json:
         payload = {
-            "dispatch": augustus.dispatch_json(result),
+            "dispatch": augustus.dispatch_json(result.dispatch),
             "step": {
-                "id": chosen.id,
-                "state": updated.steps[chosen.id].state,
-                "verdict": updated.steps[chosen.id].verdict,
-                "cents": updated.steps[chosen.id].cents,
-                "record": updated.steps[chosen.id].record,
+                "id": result.step.id,
+                "state": result.state.state,
+                "verdict": result.state.verdict,
+                "cents": result.state.cents,
+                "record": result.state.record,
             },
             "campaign": campaign.report_json(report),
         }
         print(json.dumps(payload, indent=2, ensure_ascii=False))
     else:
-        print("\n".join(augustus.render_dispatch(result)))
+        print("\n".join(augustus.render_dispatch(result.dispatch)))
         print()
         print("\n".join(campaign.render(report)))
-    if updated.steps[chosen.id].state == "noop":
+    if result.state.state == "noop":
         return 1
+    return result.dispatch.exit_code
+
+
+def _advance(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    table = augustus.read_routes(Path(routes) if routes else None)
+    plan = campaign.read_campaign(_campaign_path(box, args.campaign))
+    trajan = contour.trajan_root(args.trajan)
+    result = runner.run(
+        box,
+        plan,
+        table=table,
+        trajan_root=trajan,
+        trajan_python=contour.trajan_python(trajan, args.python),
+        review=_reviewer(args, box),
+        reason=args.reason,
+    )
+    if args.json:
+        payload = {
+            "run": runner.run_json(result),
+            "campaign": campaign.report_json(result.report),
+        }
+        print(json.dumps(payload, indent=2, ensure_ascii=False))
+    else:
+        print("\n".join(runner.render(result)))
     return result.exit_code
 
 

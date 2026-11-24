@@ -2,7 +2,7 @@
 
 D19 puts the mode and the attempt ceiling in the campaign file; D20 makes a retry follow a
 named reason inside the declared paths, never a mood. These tests hold the parse-time rules,
-the blocked auto mode while no runner exists, the decision matrix over real report shapes, and
+the decision matrix over real report shapes, and
 two end-to-end runs: a retry that changes the answer and closes, and a retry that answers the
 same change and is stopped before it is applied a second time.
 """
@@ -250,14 +250,15 @@ def test_the_plan_declares_mode_and_attempts_and_refuses_nonsense(tmp_path: Path
             campaign.read_campaign(write_campaign(box, broken))
 
 
-def test_auto_mode_is_blocked_until_a_runner_exists(
+def test_an_auto_campaign_is_a_valid_plan(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     box = make_box(tmp_path)
     write_campaign(box, CAMPAIGN.replace('mode = "manual"', 'mode = "auto"'))
-    assert run(box, "campaign", "probe") == 1
+    assert run(box, "campaign", "probe") == 0
     out = capsys.readouterr().out
-    assert "mode auto" in out and "runner" in out
+    assert "mode       auto, 2 attempts per step" in out
+    assert "problem" not in out
 
 
 def test_a_retry_is_allowed_for_a_finding_inside_the_declared_paths(tmp_path: Path) -> None:
@@ -402,6 +403,17 @@ def test_a_verdict_without_a_place_or_a_verdict_at_all_stops_the_retry(tmp_path:
     decision = campaign.retry(box, plan, plan.steps[0], no_verdict)
     assert decision is not None and not decision.allowed and "no verdict" in decision.reason
 
+    # A failed executor is not a refused change: nothing was applied and nothing was judged, so
+    # one technical retry is allowed — the same answer cannot repeat because there was none.
+    record_path = Path(str(state.steps["s1"].record))
+    record = json.loads(record_path.read_text(encoding="utf-8"))
+    assert isinstance(record, dict)
+    record["verify"] = None
+    record["executor"] = {"status": "failed", "reason": "the model answered without a diff"}
+    record_path.write_text(json.dumps(record), encoding="utf-8")
+    decision = campaign.retry(box, plan, plan.steps[0], no_verdict)
+    assert decision is not None and decision.allowed and "executor failed" in decision.reason
+
 
 @requires_trajan
 def test_a_retry_that_changes_the_answer_runs_again_and_closes(
@@ -488,10 +500,3 @@ def test_a_step_that_already_ran_needs_the_retry_flag(
     assert "needs `--retry`" in err
 
 
-def test_an_auto_campaign_refuses_to_run_a_step(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    box = make_box(tmp_path)
-    write_campaign(box, CAMPAIGN.replace('mode = "manual"', 'mode = "auto"'))
-    assert step(box) == 2
-    assert "mode auto" in capsys.readouterr().err
