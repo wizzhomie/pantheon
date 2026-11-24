@@ -31,8 +31,8 @@ from . import box as boxes
 SCHEMA_VERSION = 1
 MODEL_FILE = ".pantheon/architecture.toml"
 MODEL_KEYS = frozenset({"schema_version", "project", "architecture", "layer", "forbidden"})
-PROJECT_KEYS = frozenset({"root_packages"})
-LAYER_KEYS = frozenset({"name", "modules"})
+PROJECT_KEYS = frozenset({"root_packages", "exclude_type_checking_imports"})
+LAYER_KEYS = frozenset({"name", "modules", "independent"})
 FORBIDDEN_KEYS = frozenset({"name", "source", "target", "reason"})
 TOOL_ENV = "PANTHEON_LINT"
 DEFAULT_TOOL = "lint-imports"
@@ -41,10 +41,16 @@ SUMMARY = re.compile(r"Contracts: (?P<kept>\d+) kept, (?P<broken>\d+) broken")
 
 @dataclass(frozen=True, slots=True)
 class Layer:
-    """One layer of the model, highest first: a layer may import the ones below it."""
+    """One layer of the model, highest first: a layer may import the ones below it.
+
+    Modules inside one layer are peers. By default they may import each other; with
+    ``independent = true`` they may not, which is how "these are alternatives, not a stack"
+    is written down.
+    """
 
     name: str
     modules: tuple[str, ...]
+    independent: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,6 +74,7 @@ class Model:
     baseline: str | None
     target: str | None
     digest: str
+    exclude_type_checking: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -132,6 +139,9 @@ def read_model(path: Path) -> Model:
         raise boxes.HarnessError(
             f"{path}: no [[layer]] and no [[forbidden]]: a model that says nothing cannot be broken"
         )
+    exclude = project.get("exclude_type_checking_imports", False)
+    if not isinstance(exclude, bool):
+        raise boxes.HarnessError(f"{path}: exclude_type_checking_imports must be true or false")
     architecture = data.get("architecture", {})
     if not isinstance(architecture, dict):
         raise boxes.HarnessError(f"{path}: architecture must be a table")
@@ -143,22 +153,36 @@ def read_model(path: Path) -> Model:
         baseline=_text(architecture.get("baseline")),
         target=_text(architecture.get("target")),
         digest=hashlib.sha256(raw).hexdigest(),
+        exclude_type_checking=exclude,
     )
 
 
 def compile_config(model: Model) -> str:
-    """The model as ``import-linter`` reads it: one contract per layer and per forbiddance."""
+    """The model as ``import-linter`` reads it: one layers contract, one contract per rule.
+
+    All layers go into a *single* layers contract. A contract with one layer forbids nothing —
+    it "keeps" trivially — so compiling each ``[[layer]]`` separately would produce a check
+    that always passes, which is worse than no check. Peers written on one layer line are
+    joined with " : " so that they may import each other; a layer may import the ones below.
+    """
     lines = ["[importlinter]", "root_packages ="]
     lines.extend(f"    {root}" for root in model.root_packages)
-    for index, layer in enumerate(model.layers, start=1):
+    if model.exclude_type_checking:
+        # A type-only import under `if TYPE_CHECKING:` is not a dependency at run time; a
+        # model that counted it would forbid the annotations that make the layers visible.
+        lines.append("exclude_type_checking_imports = true")
+    if model.layers:
         lines += [
             "",
-            f"[importlinter:contract:layer-{index}]",
-            f"name = {layer.name}",
+            "[importlinter:contract:layers]",
+            "name = declared layers",
             "type = layers",
             "layers =",
         ]
-        lines.extend(f"    {module}" for module in layer.modules)
+        lines.extend(
+            "    " + (" | " if layer.independent else " : ").join(layer.modules)
+            for layer in model.layers
+        )
     for index, rule in enumerate(model.forbidden, start=1):
         lines += [
             "",
@@ -303,7 +327,12 @@ def _read_layer(path: Path, entry: object, index: int) -> Layer:
         raise boxes.HarnessError(
             f"{path}: [[layer]] #{index + 1} needs modules: the importable names it contains"
         )
-    return Layer(name.strip(), tuple(item.strip() for item in modules))
+    independent = entry.get("independent", False)
+    if not isinstance(independent, bool):
+        raise boxes.HarnessError(
+            f"{path}: [[layer]] #{index + 1}: independent must be true or false"
+        )
+    return Layer(name.strip(), tuple(item.strip() for item in modules), independent)
 
 
 def _read_forbidden(path: Path, entry: object, index: int) -> Forbidden:
@@ -344,9 +373,10 @@ def _module_list(value: object) -> list[str] | None:
 
 
 def _find_tool(chosen: str | None) -> Path | None:
+    """The tool to run, resolved absolutely: it runs with the project as its working directory."""
     candidate = chosen or os.environ.get(TOOL_ENV) or DEFAULT_TOOL
     found = shutil.which(candidate)
-    return Path(found) if found else None
+    return Path(found).resolve() if found else None
 
 
 def _version(executable: Path) -> str:

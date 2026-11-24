@@ -93,16 +93,11 @@ def test_the_model_compiles_into_the_tools_own_config(tmp_path: Path) -> None:
         "root_packages =\n"
         "    pkg\n"
         "\n"
-        "[importlinter:contract:layer-1]\n"
-        "name = app\n"
+        "[importlinter:contract:layers]\n"
+        "name = declared layers\n"
         "type = layers\n"
         "layers =\n"
         "    pkg.app\n"
-        "\n"
-        "[importlinter:contract:layer-2]\n"
-        "name = domain\n"
-        "type = layers\n"
-        "layers =\n"
         "    pkg.domain\n"
         "\n"
         "[importlinter:contract:forbidden-1]\n"
@@ -220,3 +215,50 @@ def test_the_cli_runs_the_check_and_maps_the_exit_code(
     monkeypatch.setenv("FAKE_BROKEN", "1")
     assert main(["--boxes", str(boxes_root), "arch", "probe"]) == 1
     assert "result     broken" in capsys.readouterr().out
+
+
+def test_all_layers_are_one_contract_not_one_contract_per_layer(tmp_path: Path) -> None:
+    """A one-layer contract forbids nothing: compiling each layer separately always passes."""
+    project = make_project(tmp_path)
+    text = aurelius.compile_config(aurelius.read_model(project / aurelius.MODEL_FILE))
+    assert text.count("type = layers") == 1
+    assert "    pkg.app\n    pkg.domain\n" in text
+
+
+def test_type_only_imports_can_be_excluded_and_are_not_by_default(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    path = project / aurelius.MODEL_FILE
+    assert "exclude_type_checking_imports" not in aurelius.compile_config(
+        aurelius.read_model(path)
+    )
+    path.write_text(
+        MODEL.replace(
+            'root_packages = ["pkg"]',
+            'root_packages = ["pkg"]\nexclude_type_checking_imports = true',
+        ),
+        encoding="utf-8",
+    )
+    model = aurelius.read_model(path)
+    assert model.exclude_type_checking
+    assert "exclude_type_checking_imports = true" in aurelius.compile_config(model)
+
+
+def test_independent_peers_are_written_with_a_bar(tmp_path: Path) -> None:
+    """`independent = true` says "these are alternatives": the tool gets `|`, not `:`."""
+    project = make_project(tmp_path)
+    path = project / aurelius.MODEL_FILE
+    path.write_text(
+        MODEL.replace(
+            'modules = ["pkg.app"]',
+            'modules = ["pkg.alpha", "pkg.beta"]\nindependent = true',
+        ),
+        encoding="utf-8",
+    )
+    text = aurelius.compile_config(aurelius.read_model(path))
+    assert "    pkg.alpha | pkg.beta\n" in text
+    path.write_text(
+        MODEL.replace('modules = ["pkg.app"]', 'modules = ["pkg.alpha", "pkg.beta"]'),
+        encoding="utf-8",
+    )
+    text = aurelius.compile_config(aurelius.read_model(path))
+    assert "    pkg.alpha : pkg.beta\n" in text

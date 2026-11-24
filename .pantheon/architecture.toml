@@ -1,0 +1,34 @@
+# The architecture of the harness itself: one package, one direction.
+#
+# The command line is the only thing that knows every contour; a contour knows the box and
+# nothing else; the box knows the filesystem and nothing above it. A contour that imported
+# another contour would make a box command depend on a neighbour's implementation.
+
+schema_version = 1
+
+[project]
+root_packages = ["harness"]
+
+[architecture]
+baseline = """\
+Five modules in one package: a box, three contours (Caesar, Trajan, Aurelius) and a command
+line that glues them together.
+"""
+target = """\
+The command line on top; the contours below it, each seeing only the box; the box at the
+bottom, importing nothing from the package. Adding a contour means adding a sibling, not
+editing the neighbours.
+"""
+
+[[layer]]
+name = "the command a person types"
+modules = ["harness.cli"]
+
+[[layer]]
+name = "the contours: gates, verification, architecture"
+modules = ["harness.caesar", "harness.contour", "harness.aurelius"]
+independent = true
+
+[[layer]]
+name = "the box: files, records, the project link"
+modules = ["harness.box"]

@@ -1,0 +1,76 @@
+# The architecture trajan intends, checked by `pantheon arch`.
+#
+# Layers are written highest first: a layer may import the ones below it, never the ones
+# above. Modules on one line, separated by " : ", are peers that may import each other.
+# A forbidden rule needs a reason, because a rule nobody explained is the first one everybody
+# ignores. This file is project context: it is reviewed with the code it constrains.
+
+schema_version = 1
+
+[project]
+root_packages = ["trajan"]
+exclude_type_checking_imports = true
+
+[architecture]
+baseline = """\
+One contour: deterministic checks, an anchored reviewer, a verdict computed from the run. The
+evidence and the numbers live in reports/; the code is one package with no internal contract.
+"""
+target = """\
+Four layers with a single direction: the command line on top, the experiments that call the
+contour, the contour itself (verify over review and judge), the free deterministic half, and
+pydantic contracts at the bottom with nothing above them. Checks never reach for a model;
+guards stay importable on their own.
+"""
+
+[[layer]]
+name = "command line"
+modules = ["trajan.cli"]
+
+[[layer]]
+name = "experiments that call the contour"
+modules = ["trajan.orchestrator : trajan.bench : trajan.evals : trajan.evolve"]
+
+[[layer]]
+name = "the contour: plan, run, verdict, report"
+modules = ["trajan.verify"]
+
+[[layer]]
+name = "the project's own configuration, which describes the runtime it configures"
+modules = ["trajan.project"]
+
+[[layer]]
+name = "the guarded loop around one agent call"
+modules = ["trajan.runtime"]
+
+[[layer]]
+name = "readers: the anchored reviewer and the rubric judge"
+modules = ["trajan.review : trajan.judge"]
+
+[[layer]]
+name = "project knowledge: what the repository declares about itself"
+modules = ["trajan.context"]
+
+[[layer]]
+name = "deterministic checks: the free, fast half"
+modules = ["trajan.checks"]
+
+[[layer]]
+name = "model clients, configuration and the contracts they speak"
+modules = ["trajan.llm : trajan.config : trajan.parsing"]
+
+[[layer]]
+name = "contracts: pydantic shapes, importing nothing from the package"
+modules = ["trajan.contracts"]
+
+[[forbidden]]
+name = "checks stay deterministic"
+source = ["trajan.checks"]
+target = ["trajan.llm", "trajan.review"]
+reason = "a check that calls a model is no longer free, fast, or repeatable, and the verdict would start depending on a reader"
+
+[[forbidden]]
+name = "guards import nothing from the contour"
+source = ["trajan.guards"]
+target = ["trajan.*"]
+reason = "a guard runs as an ordinary project check inside trajan's own policy; it must work when trajan is not installed or importable"
