@@ -31,6 +31,9 @@ BOX_DIRS = (
 )
 """Every box has these, empty on day one; ``status`` names the ones that are missing."""
 
+PROFILE_TEMPLATE = Path(__file__).with_name("profiles") / "augustus.md"
+"""The agent's starting profile: copied into the box, then edited there, not here."""
+
 NAME_PATTERN = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 """A box name becomes a directory and a compose project name: lowercase, hyphenated, short."""
 
@@ -221,6 +224,9 @@ def new_box(
     )
     for directory in BOX_DIRS:
         (root / directory).mkdir(parents=True)
+    (root / "profile" / "SOUL.md").write_text(
+        PROFILE_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8"
+    )
     box.file.write_text(render_box(box), encoding="utf-8")
     box.compose.write_text(render_compose(), encoding="utf-8")
     return box

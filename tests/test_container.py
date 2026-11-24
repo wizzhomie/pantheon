@@ -7,6 +7,7 @@ the mounts it declares, and the honest difference between "started" and "did not
 from __future__ import annotations
 
 import json
+import os
 import tomllib
 from pathlib import Path
 
@@ -43,8 +44,9 @@ def test_the_compose_file_declares_the_mounts_and_the_limit(tmp_path: Path) -> N
     assert f"{(box.root / 'state').as_posix()}:/opt/data" in text
     assert f"{(box.root / 'artifacts').as_posix()}:/work/artifacts:ro" in text
     assert "mem_limit: 512m" in text
-    assert 'entrypoint: ["sleep", "infinity"]' in text
-    assert "no agent" not in text or "agent is not configured" in text
+    assert 'command: ["gateway", "run"]' in text
+    assert f"HERMES_UID={os.getuid()}" in text and f"HERMES_GID={os.getgid()}" in text
+    assert "DEEPSEEK_API_KEY" not in text and "user:" not in text and "sleep" not in text
 
 
 def test_up_needs_an_image_and_says_where_to_pin_one(tmp_path: Path) -> None:
@@ -59,13 +61,19 @@ def test_up_pins_the_image_writes_compose_and_reports_running(
 ) -> None:
     box = make_box(tmp_path)
     monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setenv(
+        "FAKE_DOCKER_AGENT", "  Gateway:      ✓ running\n  Model:        deepseek-flash\n"
+    )
     result = container.up(box, IMAGE)
     assert result.running
+    assert result.agent is not None and result.agent.running
+    assert "gateway up" in result.line and "model deepseek-flash" in result.line
     assert tomllib.loads(box.file.read_text())["image"] == IMAGE
     assert IMAGE in box.compose.read_text()
     log = docker_log(tmp_path)
     assert any("compose" in line and "up -d" in line for line in log), log
     assert any("-p pantheon-probe" in line for line in log), log
+    assert any("config set model.provider deepseek" in line for line in log), log
 
 
 def test_up_that_does_not_produce_a_running_container_is_not_success(
@@ -96,6 +104,9 @@ def test_status_shows_the_container_line(tmp_path: Path, monkeypatch: pytest.Mon
                                         capsys: pytest.CaptureFixture[str]) -> None:
     box = make_box(tmp_path)
     monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setenv(
+        "FAKE_DOCKER_AGENT", "  Gateway:      ✓ running\n  Model:        deepseek-flash\n"
+    )
     container.up(box, IMAGE)
     capsys.readouterr()
     assert main(["--boxes", str(box.root.parent), "status", "probe", "--json"]) == 0
@@ -104,7 +115,7 @@ def test_status_shows_the_container_line(tmp_path: Path, monkeypatch: pytest.Mon
     assert payload["container"]["image"] == IMAGE
     assert main(["--boxes", str(box.root.parent), "status", "probe"]) == 0
     text = capsys.readouterr().out
-    assert "container  running" in text and "mount only" in text
+    assert "container  running" in text and "agent      gateway up" in text
 
 
 def test_without_docker_the_answer_is_a_reason_not_a_fake(
@@ -116,3 +127,48 @@ def test_without_docker_the_answer_is_a_reason_not_a_fake(
         container.up(box, IMAGE)
     facts = container.state(box)
     assert not facts.running and "cannot be inspected" in facts.detail
+
+
+def test_the_box_carries_its_agent_profile(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    soul = box.root / "profile" / "SOUL.md"
+    assert soul.is_file()
+    assert "Август" in soul.read_text()
+
+
+def test_up_seeds_the_agent_home_once(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", "  Gateway:      ✓ running\n")
+    box = make_box(tmp_path)
+    container.up(box, IMAGE)
+    assert (box.root / "state" / "SOUL.md").is_file()
+    state = box.root / "state" / "SOUL.md"
+    state.write_text("edited by the owner", encoding="utf-8")
+    container.up(box, IMAGE)
+    assert state.read_text() == "edited by the owner"
+
+
+def test_a_container_without_an_answering_agent_is_not_called_working(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setattr(container, "STARTUP_SECONDS", 0)
+    box = make_box(tmp_path)
+    result = container.up(box, IMAGE)
+    assert result.running and result.agent is None
+    assert "did not answer" in result.line
+
+
+def test_the_agent_status_is_parsed_from_its_own_words(tmp_path: Path) -> None:
+    text = (
+        "  Model:        deepseek-flash\n"
+        "  Provider:     DeepSeek\n"
+        "  Gateway:      ✓ running\n"
+        "  Platforms:    api_server\n"
+    )
+    status = container.parse_status(text)
+    assert status is not None and status.running
+    assert status.model == "deepseek-flash" and status.platforms == "api_server"
+    assert "gateway up" in status.line
+    assert container.parse_status("nothing here") is None
+    assert not container.parse_status("  Gateway:      stopped\n").running  # type: ignore[union-attr]

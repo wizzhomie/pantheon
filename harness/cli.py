@@ -167,6 +167,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     report = boxes.status(box)
     tasks = augustus.recent_tasks(box.root)
     facts = container.state(box)
+    agent_status = container.agent_status(box) if facts.running else None
     agent = executor.read_config(box.root / executor.PROFILE_FILE)
     if args.json:
         payload = boxes.status_json(report)
@@ -175,6 +176,15 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             "name": facts.name,
             "image": facts.image,
             "detail": facts.detail,
+            "agent": None
+            if agent_status is None
+            else {
+                "running": agent_status.running,
+                "gateway": agent_status.gateway,
+                "model": agent_status.model,
+                "provider": agent_status.provider,
+                "platforms": agent_status.platforms,
+            },
         }
         payload["executor"] = {
             "declared": agent.declared,
@@ -197,6 +207,15 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         return 0
     lines = boxes.render_status(report)
     lines.insert(-1, f"container  {facts.line}")
+    lines.insert(
+        -1,
+        "agent      "
+        + (
+            agent_status.line
+            if agent_status is not None
+            else ("not running" if not facts.running else "no answer")
+        ),
+    )
     lines.insert(-1, f"executor   {executor.describe(agent)}")
     print("\n".join(lines))
     if tasks:

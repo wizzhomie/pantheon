@@ -29,6 +29,10 @@ if "ps" in args:
     )
     print(json.dumps(rows))
     sys.exit(0)
+if "exec" in args:
+    # `docker compose exec ... hermes status`: the test says what the agent would answer.
+    print(os.environ.get("FAKE_DOCKER_AGENT", ""))
+    sys.exit(0)
 if os.environ.get("FAKE_DOCKER_FAIL") == "1":
     print("compose failed on purpose", file=sys.stderr)
     sys.exit(1)
