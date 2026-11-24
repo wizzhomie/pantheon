@@ -11,7 +11,7 @@ afterthought here; it is the part that already works, and it is where the projec
 | Part | State |
 |---|---|
 | **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
-| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box and `pantheon status` describes the project, its policy and its requirements; the container, the ledger and the agent are not built — `pantheon up` refuses |
+| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes the project, its policy and its requirements, and `pantheon verify` runs trajan on the checks and keeps the report in the box. No container, no ledger, no agent yet — `pantheon up` refuses |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
 | **Aurelius** — architecture model and deterministic drift check | designed, not built |
 | **Augustus** — orchestration inside the box | designed, not built |
@@ -24,8 +24,14 @@ and the box row is only the half of it that can be built before there is an agen
 ```console
 $ ./bin/pantheon new trajan          # a box next to the project, project mounted by path
 $ ./bin/pantheon status              # what the project promises, read, never executed
+$ ./bin/pantheon verify               # trajan runs the project's checks, report stays in the box
 $ ./bin/pantheon up                  # refuses: stage 1.1 has no container to start
 ```
+
+`verify` runs the checks by default and costs nothing; a diff is reviewed only when a reviewer
+is named with `--reviewer`, because trajan refuses a change that nobody reads. The exit code is
+trajan's own — 0 pass, 1 hold, 2 inconclusive — and a test compares the two runs instead of
+trusting the wiring.
 
 The harness is standard library only and needs no install: `bin/pantheon` runs from the checkout on
 the system Python. Its tests are the other half of `make check`.

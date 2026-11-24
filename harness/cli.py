@@ -12,9 +12,11 @@ import json
 import os
 import sys
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import box as boxes
+from . import contour
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
 EXIT_REFUSED = 3
@@ -53,6 +55,24 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
     status.add_argument("--json", action="store_true", help="the same facts as one JSON object")
     status.set_defaults(handler=_status)
+
+    verify = commands.add_parser("verify", help="run trajan on the project's change")
+    verify.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    change = verify.add_mutually_exclusive_group()
+    change.add_argument(
+        "--since",
+        default=None,
+        help="review `git diff REV`; needs --reviewer, since a change needs a reader",
+    )
+    change.add_argument(
+        "--diff", default=None, help="a unified diff to review; needs --reviewer"
+    )
+    verify.add_argument("--out", default=None, help="run directory (default: box artifacts/)")
+    verify.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    verify.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    verify.add_argument("--reviewer", default=None, help="MODULE:FACTORY, passes --reviewer")
+    verify.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    verify.set_defaults(handler=_verify)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -94,6 +114,42 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         return 0
     print("\n".join(boxes.render_status(report)))
     return 0
+
+
+def _verify(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    policy = box.project / ".trajan" / "policy.toml"
+    if not policy.is_file():
+        raise boxes.HarnessError(
+            f"project {box.project} has no .trajan/policy.toml: there is nothing to verify against"
+        )
+    if (args.since or args.diff) and not args.reviewer:
+        raise boxes.HarnessError(
+            "a change needs a reader: pass --reviewer MODULE:FACTORY to have the diff reviewed, "
+            "or drop --since/--diff to run the checks only"
+        )
+    trajan = contour.trajan_root(args.trajan)
+    out = Path(args.out) if args.out else box.root / "artifacts" / _run_name()
+    result = contour.run_verify(
+        box.project,
+        root=trajan,
+        python=contour.trajan_python(trajan, args.python),
+        out=out,
+        since=args.since,
+        diff=Path(args.diff).resolve() if args.diff else None,
+        reviewer=args.reviewer,
+    )
+    if args.json:
+        print(json.dumps(contour.result_json(result, box.project, box.name), indent=2))
+    else:
+        print("\n".join(contour.render_result(result, box.project)))
+        print(f"box        {box.name}")
+    return result.exit_code
+
+
+def _run_name() -> str:
+    """The run directory name: it becomes trajan's run id, so it carries the moment."""
+    return "verify-" + datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _list(args: argparse.Namespace, root: Path) -> int:
