@@ -47,10 +47,12 @@ deadline, catches it writing to the project behind the gate, and does not apply 
 more than its budget. The protocol and the reference adapter are in [docs/10-executor.md](docs/10-executor.md);
 without a profile the task must carry its patch, and the outbox says so.
 
-`verify` runs the checks by default and costs nothing; a diff is reviewed only when a reviewer
-is named with `--reviewer`, because trajan refuses a change that nobody reads. The exit code is
-trajan's own — 0 pass, 1 hold, 2 inconclusive — and a test compares the two runs instead of
-trusting the wiring.
+`verify` runs the checks by default and costs nothing; a change is read only when someone is
+asked to read it, because trajan refuses a change that nobody does. `--review` asks the box's own
+agent (`bin/pantheon-review`, the same container as the executor), `--reviewer MODULE:FACTORY` names
+your own reader. What the reading cost is kept next to the run, and `dispatch` reports it in the
+outbox next to the executor's bill. The exit code is trajan's own — 0 pass, 1 hold, 2 inconclusive —
+and a test compares the two runs instead of trusting the wiring.
 
 The harness is standard library only and needs no install: `bin/pantheon` runs from the checkout on
 the system Python. Its tests are the other half of `make check`.

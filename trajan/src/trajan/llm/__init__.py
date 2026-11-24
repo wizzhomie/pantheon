@@ -11,6 +11,7 @@ from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
 from .base import FinishReason, LLMClient, LLMRequest, LLMResponse, Message, Role
+from .command import CommandClient
 from .errors import (
     CassetteMiss,
     JudgeError,
@@ -57,6 +58,7 @@ __all__ = [
     "AnthropicClient",
     "CassetteMiss",
     "CassetteMode",
+    "CommandClient",
     "FakeClient",
     "FinishReason",
     "JudgeError",

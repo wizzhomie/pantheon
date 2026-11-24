@@ -38,6 +38,24 @@ REUSABLE = frozenset({"pass", "pass_with_conditions"})
 # A hold is re-run: the usual reason to look again is that something was fixed, and the cheap
 # way to find out is to run the checks. Only a settled "this tree is shippable" is reused.
 
+REVIEW_SPEC = "trajan.llm.command:from_env"
+"""The reviewer trajan runs as a command: the box's agent, asked to read instead of write."""
+REVIEW_COMMAND = Path("bin") / "pantheon-review"
+REVIEW_DEFAULT_MODEL = "deepseek-flash"
+REVIEW_DEFAULT_SECONDS = 240
+REVIEW_TIMEOUT_SLACK = 60
+"""The command stops at ``REVIEW_DEFAULT_SECONDS``; trajan's own timeout is above it, so a
+slow review is reported by the reviewer that ran it, not by the caller killing the process."""
+REVIEW_LOG_FILE = "review-usage.jsonl"
+"""One line per reviewer call, written into the run directory: what the reading cost."""
+
+REVIEW_BOX_ENV = "PANTHEON_REVIEW_BOX"
+REVIEW_MODEL_ENV = "PANTHEON_REVIEW_MODEL"
+REVIEW_SECONDS_ENV = "PANTHEON_REVIEW_SECONDS"
+REVIEW_LOG_ENV = "PANTHEON_REVIEW_LOG"
+REVIEW_COMMAND_ENV = "TRAJAN_REVIEW_COMMAND"
+REVIEW_TIMEOUT_ENV = "TRAJAN_REVIEW_COMMAND_TIMEOUT"
+
 
 @dataclass(frozen=True, slots=True)
 class VerifyResult:
@@ -56,9 +74,67 @@ class VerifyResult:
     reviewed: bool = False
     """Whether a reviewer read the change: a checks-only run says nothing about the change."""
 
+    review: Review | None = None
+    """The reading of the change, when a reviewer ran: who read it, what it found, what it cost."""
+
     @property
     def passed(self) -> bool:
         return self.status == "pass"
+
+
+@dataclass(frozen=True, slots=True)
+class Review:
+    """One reviewer's answer, in the box's words: model, counts, and the bill it left."""
+
+    model: str | None
+    status: str
+    proposed: int
+    confirmed: int
+    prompt_tokens: int
+    completion_tokens: int
+    calls: int
+    cost_cents: float | None
+    error: str | None = None
+
+    @property
+    def read(self) -> bool:
+        """A reader answered. A failed review is a reader that was asked and could not answer."""
+        return self.status == "ok"
+
+    def line(self) -> str:
+        """The review as one line for a person: who, how much found, what it cost."""
+        if not self.read:
+            return f"failed — {self.error or 'no reason recorded'}"
+        money = "cost not reported" if self.cost_cents is None else f"{self.cost_cents:.2f} cents"
+        return (
+            f"{self.model or 'not named'}: {self.confirmed} confirmed of {self.proposed} "
+            f"proposed, {self.prompt_tokens}+{self.completion_tokens} tokens, {money}"
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class Reviewer:
+    """How trajan reaches the reader: a command, and the environment it needs to find the box."""
+
+    spec: str
+    env: dict[str, str]
+
+
+def box_reviewer(
+    box_root: Path, *, model: str | None = None, seconds: int | None = None
+) -> Reviewer:
+    """The box's agent as a reviewer. Opt-in: a review is a paid call, never a default."""
+    wait = seconds or REVIEW_DEFAULT_SECONDS
+    return Reviewer(
+        spec=REVIEW_SPEC,
+        env={
+            REVIEW_COMMAND_ENV: str(REPO_ROOT / REVIEW_COMMAND),
+            REVIEW_TIMEOUT_ENV: str(wait + REVIEW_TIMEOUT_SLACK),
+            REVIEW_BOX_ENV: str(box_root),
+            REVIEW_MODEL_ENV: model or REVIEW_DEFAULT_MODEL,
+            REVIEW_SECONDS_ENV: str(wait),
+        },
+    )
 
 
 def trajan_root(chosen: str | None = None) -> Path:
@@ -94,6 +170,7 @@ def run_verify(
     since: str | None = None,
     diff: Path | None = None,
     reviewer: str | None = None,
+    reviewer_env: dict[str, str] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
     box_root: Path | None = None,
 ) -> VerifyResult:
@@ -103,6 +180,10 @@ def run_verify(
     already produced a settled verdict is answered from that run instead of running again.
     The answer is the earlier one, the record says where it came from, and a verdict that was
     not settled — ``inconclusive`` — is never reused, because it may have been the environment.
+
+    ``reviewer_env`` carries what the reviewer command needs to find its box, and where to
+    write its bill; the bill is read back from the run directory, so a review's cost lives
+    with the run that paid it.
     """
     out.mkdir(parents=True, exist_ok=True)
     policy_path = policy or project / ".trajan" / "policy.toml"
@@ -137,6 +218,11 @@ def run_verify(
         command += ["--since", since]
     if reviewer is not None:
         command += ["--reviewer", reviewer]
+    log = out / REVIEW_LOG_FILE
+    env = _environment(root, python)
+    if reviewer is not None and reviewer_env is not None:
+        env.update(reviewer_env)
+        env[REVIEW_LOG_ENV] = str(log)
     try:
         done = subprocess.run(
             command,
@@ -144,7 +230,7 @@ def run_verify(
             text=True,
             check=False,
             timeout=timeout,
-            env=_environment(root, python),
+            env=env,
         )
     except subprocess.TimeoutExpired as expired:
         raise boxes.HarnessError(
@@ -158,6 +244,8 @@ def run_verify(
         hint = "; ".join(tail) if tail else f"trajan exited {done.returncode}"
         raise boxes.HarnessError(f"trajan wrote no report to {report}: {hint}")
     result = read_report(report, exit_code=done.returncode)
+    if result.review is not None:
+        result = replace(result, review=_with_bill(result.review, log))
     if evidence is not None and box_root is not None:
         _remember(out, project, policy_path, evidence, result)
     return result
@@ -262,6 +350,13 @@ def _remember(
         "report": str(result.report),
         "at": _stamp(datetime.now(UTC)),
         "reused_from": None,
+        "review": None
+        if result.review is None
+        else {
+            "status": result.review.status,
+            "calls": result.review.calls,
+            "cost_cents": result.review.cost_cents,
+        },
     }
     (out / RECORD_FILE).write_text(
         json.dumps(payload, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -306,9 +401,7 @@ def _tree_digest(project: Path) -> str:
     # `git ls-files` names paths from the repository root even inside a subdirectory.
     base = Path(top.strip())
     tracked = _git(project, "ls-files", "-z", "--", ".") or ""
-    untracked = (
-        _git(project, "ls-files", "--others", "--exclude-standard", "-z", "--", ".") or ""
-    )
+    untracked = _git(project, "ls-files", "--others", "--exclude-standard", "-z", "--", ".") or ""
     paths = sorted({item for item in (tracked + "\0" + untracked).split("\0") if item})
     parts = [f"{relative} {_file_digest(base / relative)}" for relative in paths]
     return _sha("\n".join(parts))
@@ -375,7 +468,68 @@ def read_report(path: Path, exit_code: int = 0) -> VerifyResult:
         checks=len(run.get("checks", [])) if isinstance(run.get("checks"), list) else 0,
         exit_code=exit_code,
         reviewed=reviewed,
+        review=_read_review(data.get("review")),
     )
+
+
+def _read_review(section: object) -> Review | None:
+    """The reviewer's answer as the report carries it; the bill comes later, from the run dir."""
+    if not isinstance(section, dict):
+        return None
+    return Review(
+        model=section.get("model") if isinstance(section.get("model"), str) else None,
+        status=str(section.get("status") or "unknown"),
+        proposed=_int(section.get("proposed")),
+        confirmed=_int(section.get("confirmed")),
+        prompt_tokens=_int(section.get("prompt_tokens")),
+        completion_tokens=_int(section.get("completion_tokens")),
+        calls=0,
+        cost_cents=None,
+        error=section.get("error") if isinstance(section.get("error"), str) else None,
+    )
+
+
+def _with_bill(review: Review, log: Path) -> Review:
+    """Add what the reviewer calls cost, summed over every call it made in this run.
+
+    A call with no bill in its line stays unknown: the count says how many calls ran, and
+    ``cost_cents`` is ``None`` unless every call reported a price. A half-known bill is not
+    a bill.
+    """
+    calls, cents, prompt, completion = 0, 0.0, 0, 0
+    unknown = False
+    try:
+        lines = log.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return review
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(entry, dict):
+            continue
+        calls += 1
+        value = entry.get("cost_cents")
+        if isinstance(value, (int, float)):
+            cents += float(value)
+        else:
+            unknown = True
+        prompt += _int(entry.get("prompt_tokens"))
+        completion += _int(entry.get("completion_tokens"))
+    if calls == 0:
+        return review
+    return replace(
+        review,
+        calls=calls,
+        cost_cents=None if unknown else round(cents, 4),
+        prompt_tokens=prompt or review.prompt_tokens,
+        completion_tokens=completion or review.completion_tokens,
+    )
+
+
+def _int(value: object) -> int:
+    return value if isinstance(value, int) and value >= 0 else 0
 
 
 def render_result(result: VerifyResult, project: Path) -> list[str]:
@@ -392,6 +546,10 @@ def render_result(result: VerifyResult, project: Path) -> list[str]:
     )
     if result.reused_from is not None:
         lines.append(f"reused     {result.reused_from}")
+    if result.review is not None:
+        lines.append(f"review     {result.review.line()}")
+    elif not result.reviewed:
+        lines.append("review     none — the change was not read")
     lines.append(f"report     {result.report}")
     return lines
 
@@ -409,6 +567,20 @@ def result_json(result: VerifyResult, project: Path, box: str) -> dict[str, obje
         "blocking": result.blocking,
         "report": str(result.report),
         "reused_from": None if result.reused_from is None else str(result.reused_from),
+        "reviewed": result.reviewed,
+        "review": None
+        if result.review is None
+        else {
+            "model": result.review.model,
+            "status": result.review.status,
+            "proposed": result.review.proposed,
+            "confirmed": result.review.confirmed,
+            "prompt_tokens": result.review.prompt_tokens,
+            "completion_tokens": result.review.completion_tokens,
+            "calls": result.review.calls,
+            "cost_cents": result.review.cost_cents,
+            "error": result.review.error,
+        },
         "exit_code": result.exit_code,
     }
 

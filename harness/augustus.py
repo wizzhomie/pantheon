@@ -169,12 +169,17 @@ def dispatch(
     when: datetime | None = None,
     executor_config: executor.ExecutorConfig | None = None,
     resumed_from: Path | None = None,
+    review: contour.Reviewer | None = None,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
     ``resumed_from`` is set when this is a continuation of an earlier run from the same frozen
     snapshot: the route is then run again from the start, because a retry is a new run of the
     same task, not a second half of the old one.
+
+    ``review`` is the reader for the change, when the run asked for one. Without it the
+    verification is checks-only and the record says the change was not read — the honest
+    answer, not an assumed one.
     """
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "artifacts" / task.id
@@ -206,6 +211,7 @@ def dispatch(
     arch: aurelius.Result | None = None
     attempt: caesar.Attempt | None = None
     verify: contour.VerifyResult | None = None
+    change: Path | None = task.change
     contract_path = _write_contract(box.root, task)
     _event(
         box.root,
@@ -251,9 +257,7 @@ def dispatch(
                 notes.extend(proposal.notes)
                 _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
                 if not proposal.usable:
-                    notes.append(
-                        f"the executor did not produce a usable change: {proposal.reason}"
-                    )
+                    notes.append(f"the executor did not produce a usable change: {proposal.reason}")
                     return _finish(
                         box,
                         task,
@@ -299,7 +303,13 @@ def dispatch(
                 )
 
     if "verify" in stages:
-        verify = _verify(box, directory, stamp, trajan_root, trajan_python)
+        reader = review if change is not None else None
+        if review is not None and reader is None:
+            notes.append(
+                "--review asked for a reader, but this task produced no change to read: the "
+                "checks ran alone"
+            )
+        verify = _verify(box, directory, stamp, trajan_root, trajan_python, reader, change)
         notes.extend(verify.reasons)
     else:
         notes.append("verification was not routed for this task: nothing was checked")
@@ -374,6 +384,7 @@ def resume(
     executor_config: executor.ExecutorConfig | None = None,
     budget: dict[str, int] | None = None,
     retry: bool = False,
+    review: contour.Reviewer | None = None,
 ) -> Dispatch:
     """Continue a dispatch that stopped before its verdict, from the artifacts it left.
 
@@ -421,8 +432,7 @@ def resume(
                 stages=_stages(record_data),
                 directory=directory,
                 notes=[
-                    "nothing to continue: the task is closed "
-                    f"({_relative(record_path, box.root)})"
+                    f"nothing to continue: the task is closed ({_relative(record_path, box.root)})"
                 ],
                 exit_code=0,
             )
@@ -454,6 +464,7 @@ def resume(
             when=stamp,
             executor_config=config,
             resumed_from=record[0] if record is not None else None,
+            review=review,
         )
 
     contract_path = _write_contract(box.root, task)
@@ -533,7 +544,12 @@ def resume(
                 stamp,
             )
 
-    verify = _verify(box, directory, stamp, trajan_root, trajan_python)
+    reader = review if patch is not None else None
+    if review is not None and reader is None:
+        notes.append(
+            "--review asked for a reader, but the recorded change is gone: the checks ran alone"
+        )
+    verify = _verify(box, directory, stamp, trajan_root, trajan_python, reader, patch)
     notes.extend(verify.reasons)
     state = _state(verify, None)
     return _finish(
@@ -556,11 +572,32 @@ def resume(
 
 
 def _verify(
-    box: boxes.Box, directory: Path, stamp: datetime, trajan_root: Path, trajan_python: Path
+    box: boxes.Box,
+    directory: Path,
+    stamp: datetime,
+    trajan_root: Path,
+    trajan_python: Path,
+    review: contour.Reviewer | None = None,
+    change: Path | None = None,
 ) -> contour.VerifyResult:
+    """Run the checks, and the reader too when both a reviewer and a change exist.
+
+    A reviewer without a change would be a request trajan refuses ("a change needs a reader"),
+    so the change is passed exactly when there is one and someone was asked to read it.
+    """
     out = contour.run_directory(directory, stamp)
+    if review is None or change is None:
+        review = None
+        change = None
     return contour.run_verify(
-        box.project, root=trajan_root, python=trajan_python, out=out, box_root=box.root
+        box.project,
+        root=trajan_root,
+        python=trajan_python,
+        out=out,
+        diff=change,
+        reviewer=None if review is None else review.spec,
+        reviewer_env=None if review is None else review.env,
+        box_root=box.root,
     )
 
 
@@ -785,6 +822,20 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         else {
             "status": result.verify.status,
             "report": str(result.verify.report),
+            "reviewed": result.verify.reviewed,
+            "review": None
+            if result.verify.review is None
+            else {
+                "model": result.verify.review.model,
+                "status": result.verify.review.status,
+                "proposed": result.verify.review.proposed,
+                "confirmed": result.verify.review.confirmed,
+                "prompt_tokens": result.verify.review.prompt_tokens,
+                "completion_tokens": result.verify.review.completion_tokens,
+                "calls": result.verify.review.calls,
+                "cost_cents": result.verify.review.cost_cents,
+                "error": result.verify.review.error,
+            },
             "exit_code": result.verify.exit_code,
         },
         "state": result.state,
@@ -796,9 +847,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
     }
 
 
-def _with_write_gate(
-    stages: tuple[str, ...], task: Task
-) -> tuple[tuple[str, ...], bool]:
+def _with_write_gate(stages: tuple[str, ...], task: Task) -> tuple[tuple[str, ...], bool]:
     """A declared change always passes the write gate, whatever the routing table says.
 
     The table decides which contours a kind needs; it cannot decide that a write needs no
@@ -943,10 +992,21 @@ def _unknowns(result: Dispatch) -> list[str]:
                 "the checks did not run in this dispatch: the verdict is the one computed "
                 f"earlier for the same tree ({result.verify.reused_from})"
             )
-        if not result.verify.reviewed:
+        review = result.verify.review
+        if review is None:
             unknown.append(
                 "no reviewer read the change: the verdict is about the checks, not about what "
                 "the change does"
+            )
+        elif not review.read:
+            unknown.append(
+                "the reviewer was asked and failed: the change was not read "
+                f"({review.error or 'no reason recorded'})"
+            )
+        elif review.cost_cents is None:
+            unknown.append(
+                "the reviewer did not report what it cost: the reading is not accounted for in "
+                "any budget"
             )
         if result.verify.status != "pass":
             unknown.append(f"the verdict is {result.verify.status}, not pass")
@@ -984,28 +1044,37 @@ def _executor_line(result: executor.Proposal | None) -> str:
 
 
 def _cost_lines(result: Dispatch) -> list[str]:
-    """What the dispatch spent, in the outbox: money, tokens, and the budget it was given."""
+    """What the dispatch spent, in the outbox: money, tokens, and the budget it was given.
+
+    The executor and the reader are two separate bills, and each is reported even when the
+    other did not run: a review that cost a cent is not "0 — no model was called".
+    """
     proposal = result.proposal
+    review = result.verify.review if result.verify is not None else None
+    lines: list[str] = []
     if proposal is None:
-        return [
-            "0 — no model was called in this dispatch: the contours here are deterministic, "
-            "and no change was asked of an executor."
-        ]
-    usage = proposal.usage
-    if usage is None:
-        first = "unknown — the executor reported no usage: the cost is unknown, not zero."
+        lines.append(
+            "0 — no executor was asked in this dispatch: the change came from the task itself."
+        )
     else:
-        money = (
-            "cost not reported"
-            if usage.cost_cents is None
-            else f"{usage.cost_cents:.2f} cents"
-        )
-        first = (
-            f"{money} ({executor.tokens_line(usage)}, model {usage.model or 'not named'}, "
-            f"{usage.seconds:.1f} s)"
-        )
-    outcome = proposal.status + (f" — {proposal.reason}" if proposal.reason else "")
-    lines = [first, f"outcome: {outcome}"]
+        usage = proposal.usage
+        if usage is None:
+            lines.append("unknown — the executor reported no usage: the cost is not zero.")
+        else:
+            money = (
+                "cost not reported" if usage.cost_cents is None else f"{usage.cost_cents:.2f} cents"
+            )
+            lines.append(
+                f"{money} ({executor.tokens_line(usage)}, model {usage.model or 'not named'}, "
+                f"{usage.seconds:.1f} s)"
+            )
+    if review is not None:
+        lines.append(f"review: {review.line()}")
+    elif result.verify is not None and not result.verify.reviewed:
+        lines.append("review: none — the change was not read.")
+    if proposal is not None:
+        outcome = proposal.status + (f" — {proposal.reason}" if proposal.reason else "")
+        lines.append(f"outcome: {outcome}")
     if result.task.budget:
         lines.append("budget declared in the task: " + ", ".join(_budget_bits(result.task.budget)))
     return lines
@@ -1039,6 +1108,10 @@ def _verify_line(result: contour.VerifyResult | None) -> str:
     line = f"{result.status} ({result.checks} checks, report {result.report})"
     if result.reused_from is not None:
         line += f", reused from {result.reused_from}"
+    if result.review is not None:
+        line += f"; read by {result.review.line()}"
+    elif not result.reviewed:
+        line += "; the change was not read"
     return line
 
 

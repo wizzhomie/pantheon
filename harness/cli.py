@@ -64,15 +64,23 @@ def _parser() -> argparse.ArgumentParser:
     change.add_argument(
         "--since",
         default=None,
-        help="review `git diff REV`; needs --reviewer, since a change needs a reader",
+        help="review `git diff REV`; needs --review or --reviewer, since a change needs a reader",
     )
-    change.add_argument(
-        "--diff", default=None, help="a unified diff to review; needs --reviewer"
-    )
+    change.add_argument("--diff", default=None, help="a unified diff to review; needs --reviewer")
     verify.add_argument("--out", default=None, help="run directory (default: box artifacts/)")
     verify.add_argument("--trajan", default=None, help="the trajan checkout to call")
     verify.add_argument("--python", default=None, help="the interpreter that runs trajan")
     verify.add_argument("--reviewer", default=None, help="MODULE:FACTORY, passes --reviewer")
+    verify.add_argument(
+        "--review",
+        action="store_true",
+        help="have the box's own agent read the change (costs money; needs --diff or --since)",
+    )
+    review = verify.add_argument_group("the box's agent as the reviewer")
+    review.add_argument("--review-model", default=None, help="model that reads the change")
+    review.add_argument(
+        "--review-seconds", type=int, default=None, help="how long the reading may take"
+    )
     verify.add_argument("--json", action="store_true", help="the answer as one JSON object")
     verify.set_defaults(handler=_verify)
 
@@ -118,6 +126,15 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="override the box's executor command for this run (profile/executor.toml)",
     )
+    dispatch.add_argument(
+        "--review",
+        action="store_true",
+        help="have the box's agent read the change too (one more paid call per task)",
+    )
+    dispatch.add_argument("--review-model", default=None, help="model that reads the change")
+    dispatch.add_argument(
+        "--review-seconds", type=int, default=None, help="how long the reading may take"
+    )
     dispatch.add_argument("--json", action="store_true", help="the answer as one JSON object")
     dispatch.set_defaults(handler=_dispatch)
 
@@ -147,6 +164,16 @@ def _parser() -> argparse.ArgumentParser:
         "--executor",
         default=None,
         help="override the box's executor command for this run (profile/executor.toml)",
+    )
+    resume.add_argument(
+        "--review",
+        action="store_true",
+        help="have the box's agent read the change (costs money; the change must still be in "
+        "the tree)",
+    )
+    resume.add_argument("--review-model", default=None, help="model that reads the change")
+    resume.add_argument(
+        "--review-seconds", type=int, default=None, help="how long the reading may take"
     )
     resume.add_argument("--json", action="store_true", help="the answer as one JSON object")
     resume.set_defaults(handler=_resume)
@@ -249,6 +276,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         ),
     )
     lines.insert(-1, f"executor   {executor.describe(agent)}")
+    lines.insert(-1, "reviewer   the box's agent, when asked: `pantheon verify --review`")
     print("\n".join(lines))
     if tasks:
         for task in tasks:
@@ -268,10 +296,20 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
         raise boxes.HarnessError(
             f"project {box.project} has no .trajan/policy.toml: there is nothing to verify against"
         )
-    if (args.since or args.diff) and not args.reviewer:
+    if args.review and args.reviewer:
         raise boxes.HarnessError(
-            "a change needs a reader: pass --reviewer MODULE:FACTORY to have the diff reviewed, "
-            "or drop --since/--diff to run the checks only"
+            "--review and --reviewer name two different readers: pick one, or drop both to run "
+            "the checks only"
+        )
+    if (args.since or args.diff) and not (args.review or args.reviewer):
+        raise boxes.HarnessError(
+            "a change needs a reader: pass --review to have the box's agent read it, or "
+            "--reviewer MODULE:FACTORY for your own, or drop --since/--diff to run the checks "
+            "only"
+        )
+    if args.review and not (args.since or args.diff):
+        raise boxes.HarnessError(
+            "--review needs something to read: pass --diff (a file) or --since (a commit)"
         )
     trajan = contour.trajan_root(args.trajan)
     out = (
@@ -279,6 +317,13 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
         if args.out
         else contour.run_directory(box.root / "artifacts", datetime.now(UTC))
     )
+    reviewer = args.reviewer
+    reviewer_env: dict[str, str] | None = None
+    if args.review:
+        chosen = contour.box_reviewer(
+            box.root, model=args.review_model, seconds=args.review_seconds
+        )
+        reviewer, reviewer_env = chosen.spec, chosen.env
     result = contour.run_verify(
         box.project,
         root=trajan,
@@ -286,7 +331,8 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
         out=out,
         since=args.since,
         diff=Path(args.diff).resolve() if args.diff else None,
-        reviewer=args.reviewer,
+        reviewer=reviewer,
+        reviewer_env=reviewer_env,
         box_root=box.root,
     )
     if args.json:
@@ -344,6 +390,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
         trajan_python=contour.trajan_python(trajan, args.python),
         tool=args.tool,
         executor_config=config,
+        review=_reviewer(args, box),
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))
@@ -382,12 +429,20 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
         executor_config=config,
         budget=budget,
         retry=args.retry,
+        review=_reviewer(args, box),
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))
     else:
         print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
+
+
+def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:
+    """The box's agent as the reader, when the run asked for one: never a default."""
+    if not getattr(args, "review", False):
+        return None
+    return contour.box_reviewer(box.root, model=args.review_model, seconds=args.review_seconds)
 
 
 def _list(args: argparse.Namespace, root: Path) -> int:

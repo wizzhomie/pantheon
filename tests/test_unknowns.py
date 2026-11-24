@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 
 from harness import box as boxes
-from harness import contour
+from harness import container, contour
 from harness.cli import main
 
 PASSING = """\
@@ -64,7 +64,12 @@ def make_project(tmp_path: Path) -> Path:
 
 def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
-    return project, boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "boxes", project)
+    box.compose.write_text(
+        container.render_compose(box, "nousresearch/hermes-agent@sha256:" + "3e9f" * 16),
+        encoding="utf-8",
+    )
+    return project, box
 
 
 def make_patch(tmp_path: Path, project: Path) -> Path:
@@ -193,3 +198,85 @@ def test_status_shows_what_the_newest_dispatch_did_not_check(
     assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
     out = capsys.readouterr().out
     assert "unknown    no reviewer read the change" in out
+
+
+REVIEW = '{"summary": "adds a constant", "findings": []}'
+
+
+@requires_trajan
+def test_a_reviewed_dispatch_names_the_reader_and_drops_the_gap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    code = main(
+        ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--review"]
+    )
+    capsys.readouterr()
+    assert code == 0
+    records = (box.root / "artifacts" / "t-1").glob("dispatch-*.json")
+    payload = json.loads(max(records, key=lambda item: item.name).read_text(encoding="utf-8"))
+    assert payload["verify"]["reviewed"] is True
+    assert payload["verify"]["review"]["status"] == "ok"
+    assert not any("no reviewer read the change" in item for item in payload["unknowns"])
+    body = outbox(box, capsys)
+    assert "read by deepseek-flash" in body
+    assert "review: deepseek-flash" in body, "the reading has its own line in the cost section"
+
+
+@requires_trajan
+def test_a_review_without_a_bill_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The agent answered but reported no cost: the reading happened, its price is unknown."""
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
+    assert (
+        main(
+            [
+                "--boxes",
+                str(box.root.parent),
+                "dispatch",
+                box.name,
+                "--task",
+                str(task),
+                "--review",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert any("the reviewer did not report what it cost" in item for item in payload["unknowns"])
+
+
+@requires_trajan
+def test_a_failed_review_is_named(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A reader was asked and could not answer: that is not the same as nobody reading."""
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project)
+    task = write_task(tmp_path, with_change(patch))
+    monkeypatch.setenv("FAKE_DOCKER_FAIL", "1")
+    assert (
+        main(
+            [
+                "--boxes",
+                str(box.root.parent),
+                "dispatch",
+                box.name,
+                "--task",
+                str(task),
+                "--review",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    payload = json.loads(capsys.readouterr().out)
+    assert any("the reviewer was asked and failed" in item for item in payload["unknowns"])

@@ -244,7 +244,7 @@ def test_a_task_without_a_change_says_so_in_the_outbox(
     outbox = next((box.root / "outbox").glob("*.md"))
     text = outbox.read_text()
     assert "the box declares no executor" in text
-    assert "cost: unknown" not in text and "0 — no model was called" in text
+    assert "cost: unknown" not in text and "no executor was asked" in text
 
 
 def test_the_cli_answers_a_task_in_json(
