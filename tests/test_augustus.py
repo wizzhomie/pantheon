@@ -243,7 +243,8 @@ def test_a_task_without_a_change_says_so_in_the_outbox(
     assert "attempt    not run" in out
     outbox = next((box.root / "outbox").glob("*.md"))
     text = outbox.read_text()
-    assert "the executor is not built" in text
+    assert "the box declares no executor" in text
+    assert "cost: unknown" not in text and "0 — no model was called" in text
 
 
 def test_the_cli_answers_a_task_in_json(

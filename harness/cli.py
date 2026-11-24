@@ -10,12 +10,13 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shlex
 import sys
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import augustus, aurelius, caesar, container, contour
+from . import augustus, aurelius, caesar, container, contour, executor
 from . import box as boxes
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
@@ -111,6 +112,11 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument("--trajan", default=None, help="the trajan checkout to call")
     dispatch.add_argument("--python", default=None, help="the interpreter that runs trajan")
     dispatch.add_argument("--tool", default=None, help="boundary tool for the architecture stage")
+    dispatch.add_argument(
+        "--executor",
+        default=None,
+        help="override the box's executor command for this run (profile/executor.toml)",
+    )
     dispatch.add_argument("--json", action="store_true", help="the answer as one JSON object")
     dispatch.set_defaults(handler=_dispatch)
 
@@ -143,9 +149,15 @@ def _boxes_root(args: argparse.Namespace) -> Path:
 
 def _new(args: argparse.Namespace, root: Path) -> int:
     box = boxes.new_box(root, Path(args.project), args.name, args.image)
+    example = box.root / executor.EXAMPLE_FILE
+    example.parent.mkdir(parents=True, exist_ok=True)
+    if not example.exists():
+        example.write_text(executor.EXAMPLE, encoding="utf-8")
     print(f"box {box.name} created at {box.root}")
     print(f"  project  {box.project}")
     print(f"  image    {box.image or 'not chosen yet (stage 1.5 pins the tag)'}")
+    print(f"  executor {executor.describe(executor.read_config(box.root / executor.PROFILE_FILE))}")
+    print(f"  example  {example}")
     print(f"next: pantheon status {box.name}")
     return 0
 
@@ -155,6 +167,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     report = boxes.status(box)
     tasks = augustus.recent_tasks(box.root)
     facts = container.state(box)
+    agent = executor.read_config(box.root / executor.PROFILE_FILE)
     if args.json:
         payload = boxes.status_json(report)
         payload["container"] = {
@@ -162,6 +175,13 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             "name": facts.name,
             "image": facts.image,
             "detail": facts.detail,
+        }
+        payload["executor"] = {
+            "declared": agent.declared,
+            "command": None if agent.command is None else list(agent.command),
+            "model": agent.model,
+            "max_seconds": agent.max_seconds,
+            "max_cents": agent.max_cents,
         }
         payload["tasks"] = [
             {
@@ -177,6 +197,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         return 0
     lines = boxes.render_status(report)
     lines.insert(-1, f"container  {facts.line}")
+    lines.insert(-1, f"executor   {executor.describe(agent)}")
     print("\n".join(lines))
     if tasks:
         for task in tasks:
@@ -248,6 +269,15 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
     task = augustus.read_task(Path(args.task))
     routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
     trajan = contour.trajan_root(args.trajan)
+    config = executor.read_config(box.root / executor.PROFILE_FILE)
+    if args.executor:
+        config = executor.ExecutorConfig(
+            path=config.path,
+            command=tuple(shlex.split(args.executor)),
+            model=config.model,
+            max_seconds=config.max_seconds,
+            max_cents=config.max_cents,
+        )
     result = augustus.dispatch(
         box,
         task,
@@ -255,6 +285,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
         trajan_root=trajan,
         trajan_python=contour.trajan_python(trajan, args.python),
         tool=args.tool,
+        executor_config=config,
     )
     if args.json:
         print(json.dumps(augustus.dispatch_json(result), indent=2))

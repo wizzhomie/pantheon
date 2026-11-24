@@ -3,6 +3,10 @@
 # The command line is the only thing that knows every contour; a contour knows the box and
 # nothing else; the box knows the filesystem and nothing above it. A contour that imported
 # another contour would make a box command depend on a neighbour's implementation.
+#
+# The reference executors are a layer of their own, above the contours, because the adapter
+# for a model reuses Caesar's rule for what a declared path means: one dialect of globs, not
+# two. They are programs the box declares, not code the command line calls directly.
 
 schema_version = 1
 
@@ -11,11 +15,12 @@ root_packages = ["harness"]
 
 [architecture]
 baseline = """\
-Five modules in one package: a box, three contours (Caesar, Trajan, Aurelius) and a command
-line that glues them together.
+Nine modules in one package: a box, an orchestrator, five contours (Caesar, Trajan,
+Aurelius, the container, the executor) and a command line that glues them together.
 """
 target = """\
-The command line on top; the contours below it, each seeing only the box; the box at the
+The command line on top; the reference executors next, as programs rather than contours; the
+orchestrator below them; the contours below it, each seeing only the box; the box at the
 bottom, importing nothing from the package. Adding a contour means adding a sibling, not
 editing the neighbours.
 """
@@ -25,8 +30,22 @@ name = "the command a person types"
 modules = ["harness.cli"]
 
 [[layer]]
-name = "the contours: gates, verification, architecture"
-modules = ["harness.caesar", "harness.contour", "harness.aurelius"]
+name = "reference executors: programs the box declares"
+modules = ["harness.executors"]
+
+[[layer]]
+name = "the orchestrator: one task through its contours"
+modules = ["harness.augustus"]
+
+[[layer]]
+name = "the contours: a gate, verification, architecture, the container, the executor"
+modules = [
+    "harness.caesar",
+    "harness.contour",
+    "harness.aurelius",
+    "harness.container",
+    "harness.executor",
+]
 independent = true
 
 [[layer]]

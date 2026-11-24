@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour
+from . import aurelius, caesar, contour, executor
 from . import box as boxes
 
 SCHEMA_VERSION = 1
@@ -70,6 +70,7 @@ class Dispatch:
     directory: Path = Path()
     notes: list[str] = field(default_factory=list)
     exit_code: int = 0
+    proposal: executor.Proposal | None = None
 
 
 def read_task(path: Path) -> Task:
@@ -97,6 +98,9 @@ def read_task(path: Path) -> Task:
     budget = data.get("budget", {})
     if not isinstance(budget, dict) or set(budget) - BUDGET_KEYS:
         raise boxes.HarnessError(f"{path}: budget takes only {', '.join(sorted(BUDGET_KEYS))}")
+    for key, value in budget.items():
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise boxes.HarnessError(f"{path}: budget.{key} must be a positive whole number")
     change = data.get("change")
     if change is not None and not isinstance(change, str):
         raise boxes.HarnessError(f"{path}: change must be a path to a patch file")
@@ -160,6 +164,7 @@ def dispatch(
     trajan_python: Path,
     tool: str | None = None,
     when: datetime | None = None,
+    executor_config: executor.ExecutorConfig | None = None,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary."""
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
@@ -202,15 +207,46 @@ def dispatch(
                 stamp,
             )
 
+    proposal: executor.Proposal | None = None
     if "run" in stages:
-        if task.change is None:
-            notes.append(
-                "no change declared: the executor is not built, so nothing was written and "
-                "the write gate had nothing to gate"
-            )
-        else:
+        patch = task.change
+        if patch is None:
+            config = executor_config or executor.read_config(box.root / executor.PROFILE_FILE)
+            if config.command is None:
+                notes.append(
+                    "the task declares no change and the box declares no executor: nothing "
+                    "was written, and the write gate had nothing to gate"
+                )
+            else:
+                proposal = executor.propose(config, task, box, when=stamp)
+                notes.extend(proposal.notes)
+                _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
+                if not proposal.usable:
+                    notes.append(
+                        f"the executor did not produce a usable change: {proposal.reason}"
+                    )
+                    return _finish(
+                        box,
+                        task,
+                        Dispatch(
+                            task,
+                            "returned",
+                            stages,
+                            None,
+                            None,
+                            arch,
+                            None,
+                            directory,
+                            notes,
+                            1,
+                            proposal,
+                        ),
+                        stamp,
+                    )
+                patch = proposal.patch
+        if patch is not None:
             contract = caesar.read_contract(contract_path)
-            attempt = caesar.run_attempt(box.root, box.project, contract, task.change, when=stamp)
+            attempt = caesar.run_attempt(box.root, box.project, contract, patch, when=stamp)
             if not attempt.applied:
                 detail = (
                     "; ".join(f"{item.code}: {item.detail}" for item in attempt.violations)
@@ -221,7 +257,17 @@ def dispatch(
                     box,
                     task,
                     Dispatch(
-                        task, "returned", stages, attempt, None, arch, None, directory, notes, 1
+                        task,
+                        "returned",
+                        stages,
+                        attempt,
+                        None,
+                        arch,
+                        None,
+                        directory,
+                        notes,
+                        1,
+                        proposal,
                     ),
                     stamp,
                 )
@@ -240,7 +286,9 @@ def dispatch(
     return _finish(
         box,
         task,
-        Dispatch(task, state, stages, attempt, verify, arch, None, directory, notes, exit_code),
+        Dispatch(
+            task, state, stages, attempt, verify, arch, None, directory, notes, exit_code, proposal
+        ),
         stamp,
     )
 
@@ -293,6 +341,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
         f"stages     {' -> '.join(result.stages) or 'none'}",
         f"arch       {_arch_line(result.arch)}",
+        f"executor   {_executor_line(result.proposal)}",
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify)}",
         f"state      {result.state}",
@@ -315,6 +364,8 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         if result.arch is None
         else {"status": result.arch.status, "kept": result.arch.kept, "broken": result.arch.broken},
         "attempt": None if result.attempt is None else caesar.attempt_json(result.attempt),
+        "budget": dict(result.task.budget),
+        "executor": None if result.proposal is None else executor.proposal_json(result.proposal),
         "verify": None
         if result.verify is None
         else {
@@ -410,6 +461,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         directory=result.directory,
         notes=result.notes,
         exit_code=result.exit_code,
+        proposal=result.proposal,
     )
     record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
@@ -429,6 +481,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         "",
         "## what ran",
         f"- architecture: {_arch_line(result.arch)}",
+        f"- executor: {_executor_line(result.proposal)}",
         f"- write gate: {_attempt_line(result.attempt)}",
         f"- verification: {_verify_line(result.verify)}",
         "",
@@ -439,11 +492,9 @@ def _summary(result: Dispatch, when: datetime) -> str:
     lines += [
         "",
         "## cost",
-        "0 — no model was called in this dispatch: the contours here are deterministic, and "
-        "the executor that would call one is not built.",
-        "",
-        f"record: {result.directory}",
     ]
+    lines.extend(_cost_lines(result))
+    lines += ["", f"record: {result.directory}"]
     return "\n".join(lines) + "\n"
 
 
@@ -451,8 +502,10 @@ def _questions(result: Dispatch) -> list[str]:
     questions: list[str] = []
     if result.attempt is None and "run" in result.stages:
         questions.append(
-            "the task declares no change and the executor is not built: who produces the patch?"
+            "the task declares no change and the box declares no executor: who produces the patch?"
         )
+    if result.proposal is not None and not result.proposal.usable:
+        questions.append(f"the executor did not deliver: {result.proposal.reason}")
     if result.arch is not None and result.arch.status == "unchecked":
         questions.extend(result.arch.notes)
     if result.verify is None:
@@ -460,6 +513,49 @@ def _questions(result: Dispatch) -> list[str]:
     elif not result.verify.passed:
         questions.extend(result.verify.reasons or ["the verification did not pass"])
     return questions
+
+
+def _executor_line(result: executor.Proposal | None) -> str:
+    if result is None:
+        return "not run"
+    return result.line
+
+
+def _cost_lines(result: Dispatch) -> list[str]:
+    """What the dispatch spent, in the outbox: money, tokens, and the budget it was given."""
+    proposal = result.proposal
+    if proposal is None:
+        return [
+            "0 — no model was called in this dispatch: the contours here are deterministic, "
+            "and no change was asked of an executor."
+        ]
+    usage = proposal.usage
+    if usage is None:
+        first = "unknown — the executor reported no usage: the cost is unknown, not zero."
+    else:
+        money = (
+            "cost not reported"
+            if usage.cost_cents is None
+            else f"{usage.cost_cents:.2f} cents"
+        )
+        first = (
+            f"{money} ({executor.tokens_line(usage)}, model {usage.model or 'not named'}, "
+            f"{usage.seconds:.1f} s)"
+        )
+    outcome = proposal.status + (f" — {proposal.reason}" if proposal.reason else "")
+    lines = [first, f"outcome: {outcome}"]
+    if result.task.budget:
+        lines.append("budget declared in the task: " + ", ".join(_budget_bits(result.task.budget)))
+    return lines
+
+
+def _budget_bits(budget: dict[str, int]) -> list[str]:
+    bits: list[str] = []
+    if "max_cents" in budget:
+        bits.append(f"{budget['max_cents']} cents")
+    if "max_seconds" in budget:
+        bits.append(f"{budget['max_seconds']} s")
+    return bits
 
 
 def _arch_line(result: aurelius.Result | None) -> str:
@@ -481,12 +577,19 @@ def _verify_line(result: contour.VerifyResult | None) -> str:
     return f"{result.status} ({result.checks} checks, report {result.report})"
 
 
-def _event(box_root: Path, when: datetime, kind: str, task: Task, detail: str) -> None:
+def _event(
+    box_root: Path,
+    when: datetime,
+    kind: str,
+    task: Task,
+    detail: str,
+    data: dict[str, object] | None = None,
+) -> None:
     ledger = box_root / "ledger"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    event = {
+    event: dict[str, object] = {
         "id": f"e-{when:%Y-%m-%d}-{len(existing) + 1}",
         "type": kind,
         "at": when.isoformat().replace("+00:00", "Z"),
@@ -495,6 +598,8 @@ def _event(box_root: Path, when: datetime, kind: str, task: Task, detail: str) -
         "reason": detail,
         "links": [f"tasks/{task.id}.contract.toml"],
     }
+    if data is not None:
+        event["data"] = data
     with path.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(event) + "\n")
 
