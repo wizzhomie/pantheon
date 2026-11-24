@@ -16,7 +16,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import box as boxes
-from . import contour
+from . import caesar, contour
 
 DEFAULT_BOXES = Path("~/pantheon/boxes")
 EXIT_REFUSED = 3
@@ -73,6 +73,15 @@ def _parser() -> argparse.ArgumentParser:
     verify.add_argument("--reviewer", default=None, help="MODULE:FACTORY, passes --reviewer")
     verify.add_argument("--json", action="store_true", help="the answer as one JSON object")
     verify.set_defaults(handler=_verify)
+
+    run = commands.add_parser("run", help="gate a change by the task's contract, then apply it")
+    run.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    run.add_argument(
+        "--contract", required=True, help="tasks/<id>.contract.toml: what this attempt may touch"
+    )
+    run.add_argument("--patch", required=True, help="the unified diff the attempt proposes")
+    run.add_argument("--json", action="store_true", help="the attempt as one JSON object")
+    run.set_defaults(handler=_run)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -145,6 +154,19 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
         print("\n".join(contour.render_result(result, box.project)))
         print(f"box        {box.name}")
     return result.exit_code
+
+
+def _run(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    contract = caesar.read_contract(Path(args.contract))
+    if not box.project.is_dir():
+        raise boxes.HarnessError(f"project {box.project} is gone: nothing to apply a change to")
+    attempt = caesar.run_attempt(box.root, box.project, contract, Path(args.patch))
+    if args.json:
+        print(json.dumps(caesar.attempt_json(attempt), indent=2))
+    else:
+        print("\n".join(caesar.render_attempt(attempt, contract)))
+    return 0 if attempt.applied else 1
 
 
 def _run_name() -> str:

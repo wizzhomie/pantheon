@@ -11,7 +11,7 @@ afterthought here; it is the part that already works, and it is where the projec
 | Part | State |
 |---|---|
 | **Trajan** — independent verification (`trajan/`) | **works**, covered by tests and measured on a held-out set: 675 tests, 25 benchmark cases, verdicts computed by code, 3 of 3 planted defects held and 0 of 4 clean changes held on the live run |
-| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes the project, its policy and its requirements, and `pantheon verify` runs trajan on the checks and keeps the report in the box. No container, no ledger, no agent yet — `pantheon up` refuses |
+| **Box** — one project, one directory, one ledger | **half works**: `pantheon new` creates the box, `pantheon status` describes project, policy and requirements, `pantheon verify` runs trajan and keeps the report, `pantheon run` gates a patch by a contract and writes the attempt and the refusal into the box ledger. No container, no agent yet — `pantheon up` refuses |
 | **Caesar** — execution gates: contracts, permissions, attempts | designed, not built |
 | **Aurelius** — architecture model and deterministic drift check | designed, not built |
 | **Augustus** — orchestration inside the box | designed, not built |
@@ -25,8 +25,14 @@ and the box row is only the half of it that can be built before there is an agen
 $ ./bin/pantheon new trajan          # a box next to the project, project mounted by path
 $ ./bin/pantheon status              # what the project promises, read, never executed
 $ ./bin/pantheon verify               # trajan runs the project's checks, report stays in the box
+$ ./bin/pantheon run <box> --contract tasks/T1.contract.toml --patch change.diff
 $ ./bin/pantheon up                  # refuses: stage 1.1 has no container to start
 ```
+
+`run` is Caesar, the gate: the contract declares which paths the change may touch and what it
+must not do, and a patch that steps outside them is never applied — the attempt, its paths and
+the refusal land in `artifacts/<task>/<n>/` and one event in `ledger/`. A refusal that is only
+printed is a refusal nobody can audit.
 
 `verify` runs the checks by default and costs nothing; a diff is reviewed only when a reviewer
 is named with `--reviewer`, because trajan refuses a change that nobody reads. The exit code is
