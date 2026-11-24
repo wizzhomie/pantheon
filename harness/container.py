@@ -330,7 +330,7 @@ def _yaml(value: str) -> str:
 def _compose(
     box: boxes.Box, *args: str, env: dict[str, str] | None = None
 ) -> subprocess.CompletedProcess[str]:
-    prefix = _docker_prefix()
+    prefix = docker_prefix()
     command = [*prefix, "compose", "-p", project_name(box), "-f", str(box.compose), *args]
     try:
         done = subprocess.run(
@@ -354,7 +354,7 @@ def _compose(
     return done
 
 
-def _docker_prefix() -> tuple[str, ...]:
+def docker_prefix() -> tuple[str, ...]:
     """The docker command that works here: the override, then plain, then ``sudo -n``."""
     override = os.environ.get(DOCKER_ENV)
     # An explicit override wins or fails: falling back to the real daemon after a broken
