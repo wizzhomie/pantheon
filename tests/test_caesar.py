@@ -310,3 +310,35 @@ def test_an_empty_patch_is_refused_by_the_project(tmp_path: Path) -> None:
     attempt = caesar.run_attempt(box_root, project, contract, patch)
     assert not attempt.applied
     assert "would not take the patch" in attempt.reason
+
+
+def test_a_mistyped_hunk_header_does_not_drop_the_last_line(tmp_path: Path) -> None:
+    """`git apply` trusts the header count; an undercount silently loses the extra lines."""
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    patch = tmp_path / "short.diff"
+    patch.write_text(
+        "diff --git a/src/new.py b/src/new.py\n"
+        "new file mode 100644\n"
+        "--- /dev/null\n"
+        "+++ b/src/new.py\n"
+        "@@ -0,0 +1,3 @@\n"
+        "+a\n+b\n+c\n+d\n",
+        encoding="utf-8",
+    )
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert attempt.applied
+    assert (project / "src" / "new.py").read_text() == "a\nb\nc\nd\n"
+    assert "header said -0/+3" in attempt.reason
+    assert "body carried -0/+4" in attempt.reason
+    assert (attempt.directory / "change.source.diff").is_file()
+
+
+def test_a_correct_hunk_header_is_left_alone(tmp_path: Path) -> None:
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    patch = make_patch(tmp_path, project, {"src/new.py": "a\nb\n"})
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert attempt.applied
+    assert attempt.reason == ""
+    assert not (attempt.directory / "change.source.diff").exists()

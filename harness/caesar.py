@@ -386,6 +386,7 @@ def run_attempt(
         raise boxes.HarnessError(f"cannot read the patch {patch}: {error}") from error
     prefix = _prefix(project)
     change = _normalize(diff, prefix)
+    change, repaired = _recount(change)
     paths = touched_paths(change)
     digest = patch_digest(project, diff)
     problems = violations(contract, paths, change, read_kinds(project))
@@ -401,19 +402,21 @@ def run_attempt(
     reason = _reason(problems)
     if not problems:
         problem = _apply(project, directory / "change.diff", paths, prefix)
-        if problem is not None:
-            code, detail = problem
-            if code == "git" and _already_applied(project, directory / "change.diff", prefix):
-                # A crash between the write and its record leaves the change in the tree with
-                # nothing to show for it. Applying it again fails, applying it backwards
-                # succeeds: the tree already has it, so the gate's answer is "applied", with
-                # the reason said out loud instead of a second refusal nobody can act on.
-                reason = (
-                    "the tree already had this change: an earlier attempt applied it and did "
-                    "not record the result"
-                )
-            else:
-                status, reason = "refused", detail
+        if problem is None:
+            reason = repaired
+        elif problem[0] == "git" and _already_applied(
+            project, directory / "change.diff", prefix
+        ):
+            # A crash between the write and its record leaves the change in the tree with
+            # nothing to show for it. Applying it again fails, applying it backwards
+            # succeeds: the tree already has it, so the gate's answer is "applied", with
+            # the reason said out loud instead of a second refusal nobody can act on.
+            reason = (
+                "the tree already had this change: an earlier attempt applied it and did "
+                "not record the result"
+            )
+        else:
+            status, reason = "refused", problem[1]
     finished = datetime.now(UTC).replace(microsecond=0)
     attempt = Attempt(
         task=contract.task,
@@ -801,6 +804,65 @@ def _normalize(diff: str, prefix: str) -> str:
 
 def _strip(path: str, prefix: str) -> str:
     return path[len(prefix):] if path.startswith(prefix) else path
+
+
+HUNK_HEADER = re.compile(r"^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(.*)$")
+
+
+def _recount(change: str) -> tuple[str, str]:
+    """Rewrite each hunk header from its body: git trusts the count and drops what exceeds it.
+
+    A model that writes "3 lines" above a four-line hunk is not a refused change; it is a
+    mistyped header. ``git apply`` takes the header at its word and silently leaves the last
+    line out, so the box would judge a tree the model never wrote. The body is the change, so
+    the header is corrected to what the body carries, and the record keeps the original diff
+    beside it (``change.source.diff``) — the repair is visible, not quiet.
+    """
+    lines = change.splitlines(keepends=True)
+    out: list[str] = []
+    notes: list[str] = []
+    index = 0
+    while index < len(lines):
+        match = HUNK_HEADER.match(lines[index].rstrip("\n"))
+        if match is None:
+            out.append(lines[index])
+            index += 1
+            continue
+        start = index + 1
+        removed = added = 0
+        while start < len(lines):
+            body = lines[start]
+            if body.startswith(" "):
+                removed += 1
+                added += 1
+            elif body.startswith("\\"):
+                pass  # "no newline at end of file": a marker for the line above it
+            elif body.startswith("+"):
+                added += 1
+            elif body.startswith("-"):
+                removed += 1
+            else:
+                break
+            start += 1
+        declared = (int(match.group(2) or 1), int(match.group(4) or 1))
+        if (removed, added) != declared:
+            notes.append(
+                f"a hunk header said -{declared[0]}/+{declared[1]} but its body carried "
+                f"-{removed}/+{added}"
+            )
+            out.append(
+                f"@@ -{match.group(1)},{removed} +{match.group(3)},{added} @@{match.group(5)}\n"
+            )
+        else:
+            out.append(lines[index])
+        out.extend(lines[index + 1 : start])
+        index = start
+    note = (
+        ""
+        if not notes
+        else "; ".join(notes) + ": the header was corrected and the body applied as written"
+    )
+    return "".join(out), note
 
 
 def _apply(
