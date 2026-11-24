@@ -162,6 +162,12 @@ NEW_FILE = re.compile(r"^\+\+\+ (?:b/)?(?P<path>.+)$")
 BINARY = re.compile(r"^Binary files a/(?P<left>.+) and b/(?P<right>.+) differ$")
 QUOTED = re.compile(r'^"(?P<inner>.+)"$')
 
+PLAIN_PAIR = re.compile(r"^diff --git a/(?P<left>\S+) b/(?P<right>\S+)$")
+PLAIN_OLD = re.compile(r"^--- a/(?P<path>\S+)$")
+PLAIN_NEW = re.compile(r"^\+\+\+ b/(?P<path>\S+)$")
+PLAIN_BINARY = re.compile(r"^Binary files a/(?P<left>\S+) and b/(?P<right>\S+) differ$")
+METADATA = re.compile(r"^(?:rename from|rename to|copy from|copy to) (?P<path>\S+)$")
+
 
 def touched_paths(diff: str) -> tuple[str, ...]:
     """The project-relative paths a unified diff would create, change, rename or delete.
@@ -257,18 +263,23 @@ def run_attempt(
         diff = patch.read_text(encoding="utf-8")
     except OSError as error:
         raise boxes.HarnessError(f"cannot read the patch {patch}: {error}") from error
-    paths = touched_paths(diff)
-    digest = hashlib.sha256(diff.encode("utf-8")).hexdigest()
-    problems = violations(contract, paths, diff)
+    prefix = _prefix(project)
+    change = _normalize(diff, prefix)
+    paths = touched_paths(change)
+    digest = hashlib.sha256(change.encode("utf-8")).hexdigest()
+    problems = violations(contract, paths, change)
     number = _next_number(box_root, contract.task)
     directory = box_root / "artifacts" / contract.task / str(number)
     directory.mkdir(parents=True, exist_ok=True)
-    (directory / "change.diff").write_text(diff, encoding="utf-8")
+    (directory / "change.diff").write_text(change, encoding="utf-8")
+    if change != diff:
+        # Kept, because the gate judged a rewritten change: the record must show both.
+        (directory / "change.source.diff").write_text(diff, encoding="utf-8")
 
     status = "refused" if problems else "applied"
     reason = _reason(problems)
     if not problems:
-        applied = _apply(project, patch)
+        applied = _apply(project, directory / "change.diff", paths, prefix)
         if applied is not None:
             status, reason = "refused", applied
     finished = datetime.now(UTC).replace(microsecond=0)
@@ -316,18 +327,105 @@ def attempt_json(attempt: Attempt) -> dict[str, object]:
     }
 
 
-def _apply(project: Path, patch: Path) -> str | None:
-    """Apply the patch, or return why the project would not take it."""
+def _prefix(project: Path) -> str:
+    """Where the project sits in its repository: ``""`` at the root, ``trajan/`` below it."""
+    value = _git(project, "rev-parse", "--show-prefix")
+    return (value or "").strip()
+
+
+def _normalize(diff: str, prefix: str) -> str:
+    """Rewrite a repository-root-relative diff into the project's own coordinates.
+
+    ``git diff`` inside a subdirectory writes ``a/trajan/docs/x``; the contract, the evidence
+    and the model's own diffs speak ``docs/x``. The gate must judge one coordinate system, so
+    the patch is translated before it is read. A quoted path is left alone on purpose: failing
+    to translate it produces a visible refusal, while guessing could write somewhere else.
+    """
+    if not prefix:
+        return diff
+    out: list[str] = []
+    for line in diff.splitlines(keepends=True):
+        newline = "\n" if line.endswith("\n") else ""
+        head = line[: -1] if newline else line
+        pair = PLAIN_PAIR.match(head)
+        if pair:
+            left, right = _strip(pair[1], prefix), _strip(pair[2], prefix)
+            out.append(f"diff --git a/{left} b/{right}{newline}")
+            continue
+        old = PLAIN_OLD.match(head)
+        if old:
+            out.append(f"--- a/{_strip(old[1], prefix)}{newline}")
+            continue
+        new = PLAIN_NEW.match(head)
+        if new:
+            out.append(f"+++ b/{_strip(new[1], prefix)}{newline}")
+            continue
+        binary = PLAIN_BINARY.match(head)
+        if binary:
+            left, right = _strip(binary[1], prefix), _strip(binary[2], prefix)
+            out.append(f"Binary files a/{left} and b/{right} differ{newline}")
+            continue
+        metadata = METADATA.match(head)
+        if metadata:
+            verb = head.rsplit(" ", 1)[0]
+            out.append(f"{verb} {_strip(metadata[1], prefix)}{newline}")
+            continue
+        out.append(line)
+    return "".join(out)
+
+
+def _strip(path: str, prefix: str) -> str:
+    return path[len(prefix):] if path.startswith(prefix) else path
+
+
+def _apply(project: Path, patch: Path, paths: tuple[str, ...], prefix: str) -> str | None:
+    """Apply the patch where the project actually lives, or say why it did not.
+
+    Two traps are handled here, both found on a real box rather than in a test:
+
+    * the project may be a **subdirectory** of its repository. ``git apply`` run from that
+      subdirectory resolves patch paths from the repository root, silently skips every path
+      that is not under the current one, and still exits zero — so the gate said "applied"
+      while the tree was untouched. The diff is normalised to the project and applied from the
+      top level with ``--directory=<prefix>``;
+    * a patch can succeed and change nothing (an empty diff, a hunk that was already
+      applied). Success is therefore the tree changing, not the exit code.
+    """
+    top = Path(_git(project, "rev-parse", "--show-toplevel") or project)
+    before = _tree_signature(top, tuple(prefix + path for path in paths))
+    command = ["git", "-C", str(top), "apply", "--whitespace=nowarn"]
+    if prefix:
+        command.append(f"--directory={prefix}")
+    command.append(str(patch))
+    done = subprocess.run(command, capture_output=True, text=True, check=False)
+    if done.returncode != 0:
+        detail = (done.stderr or done.stdout).strip().splitlines()
+        return "the project would not take the patch: " + (
+            "; ".join(detail[-3:]) or "git apply failed"
+        )
+    if _tree_signature(top, tuple(prefix + path for path in paths)) == before:
+        return (
+            "the patch changed nothing: git reported success, but the paths it names are the "
+            "same afterwards"
+        )
+    return None
+
+
+def _tree_signature(base: Path, paths: tuple[str, ...]) -> str:
+    """What git says about the paths before and after: status plus the diff against HEAD."""
+    status = _git(base, "status", "--porcelain", "--untracked-files=all", "--", *paths)
+    diff = _git(base, "diff", "HEAD", "--", *paths)
+    return (status or "") + "\n" + (diff or "")
+
+
+def _git(base: Path, *args: str) -> str | None:
     done = subprocess.run(
-        ["git", "-C", str(project), "apply", "--whitespace=nowarn", str(patch)],
+        ["git", "-C", str(base), *args],
         capture_output=True,
         text=True,
         check=False,
     )
-    if done.returncode == 0:
-        return None
-    detail = (done.stderr or done.stdout).strip().splitlines()
-    return "the project would not take the patch: " + ("; ".join(detail[-3:]) or "git apply failed")
+    return done.stdout.strip() if done.returncode == 0 else None
 
 
 def _reason(problems: tuple[Violation, ...]) -> str:

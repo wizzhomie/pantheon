@@ -241,3 +241,72 @@ def test_a_declared_budget_is_recorded_and_unknown_budget_keys_are_errors(
     path.write_text(CONTRACT + "\n[budget]\nmax_hours = 1\n", encoding="utf-8")
     with pytest.raises(boxes.HarnessError, match="unknown budget key"):
         caesar.read_contract(path)
+
+
+def make_subproject(tmp_path: Path) -> Path:
+    """A project that is a directory inside a larger repository — the real box's shape."""
+    repo = tmp_path / "repo"
+    (repo / "sub" / "src").mkdir(parents=True)
+    (repo / "sub" / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    git(repo, "init", "-q")
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    return repo / "sub"
+
+
+def test_a_project_inside_a_larger_repository_is_written_where_it_lives(
+    tmp_path: Path,
+) -> None:
+    """`git diff` in a subdirectory names paths from the root; the gate must translate them."""
+    project = make_subproject(tmp_path)
+    patch = make_patch(tmp_path, project, {"src/app.py": "value = 2\n"})
+    assert "a/sub/src/app.py" in patch.read_text()
+    contract = caesar.read_contract(write_contract(tmp_path))
+    box = boxes.new_box(tmp_path / "boxes", project)
+    attempt = caesar.run_attempt(box.root, project, contract, patch)
+    assert attempt.applied, attempt.reason
+    assert (project / "src" / "app.py").read_text() == "value = 2\n"
+    assert attempt.paths == ("src/app.py",)
+    assert (attempt.directory / "change.source.diff").is_file()
+    change = json.loads((attempt.directory / "change.json").read_text())
+    assert change["paths"] == ["src/app.py"]
+
+
+def test_a_model_style_diff_lands_in_a_project_inside_a_repository(tmp_path: Path) -> None:
+    project = make_subproject(tmp_path)
+    patch = tmp_path / "model.diff"
+    patch.write_text(
+        "--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-value = 1\n+value = 2\n",
+        encoding="utf-8",
+    )
+    contract = caesar.read_contract(write_contract(tmp_path))
+    box = boxes.new_box(tmp_path / "boxes", project)
+    attempt = caesar.run_attempt(box.root, project, contract, patch)
+    assert attempt.applied, attempt.reason
+    assert (project / "src" / "app.py").read_text() == "value = 2\n"
+
+
+def test_a_patch_that_changes_nothing_is_refused_not_applied(tmp_path: Path) -> None:
+    """`git apply` exits zero when a hunk rewrites a line with itself; "applied" means changed."""
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    patch = tmp_path / "same.diff"
+    patch.write_text(
+        "--- a/src/app.py\n+++ b/src/app.py\n@@ -1 +1 @@\n-value = 1\n+value = 1\n",
+        encoding="utf-8",
+    )
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert not attempt.applied
+    assert "changed nothing" in attempt.reason
+    assert (project / "src" / "app.py").read_text() == "value = 1\n"
+    assert (attempt.directory / "attempt.json").is_file()
+
+
+def test_an_empty_patch_is_refused_by_the_project(tmp_path: Path) -> None:
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    patch = tmp_path / "empty.diff"
+    patch.write_text("", encoding="utf-8")
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert not attempt.applied
+    assert "would not take the patch" in attempt.reason
