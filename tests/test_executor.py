@@ -582,3 +582,14 @@ def test_the_read_budget_leaves_files_out_and_names_them(tmp_path: Path) -> None
     assert any("1 file(s) after the declared read budget of 60 chars" in str(x) for x in left)
     assert "--- src/b.py ---" not in prompt.text
     assert "--- src/a.py ---" in prompt.text
+
+
+def test_status_names_what_the_task_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _project, box, _script, task = probe(tmp_path, READING_ANSWER)
+    assert dispatch(box, task) == 0
+    capsys.readouterr()
+    assert main(["--boxes", str(box.root.parent), "status", "probe"]) == 0
+    out = capsys.readouterr().out
+    assert "read 2 file(s), 40 chars" in out

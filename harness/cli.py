@@ -410,6 +410,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
                 "at": task.at,
                 "verify": task.verify,
                 "record": str(task.record),
+                "reading": _reading_of(task.record),
                 "unknowns": list(task.unknowns),
             }
             for task in tasks
@@ -436,7 +437,8 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     if tasks:
         for task in tasks:
             verify = f"verify {task.verify}" if task.verify else "not verified"
-            print(f"task       {task.id}  {task.state}  {task.at}  {verify}")
+            read = _reading_brief(task.record)
+            print(f"task       {task.id}  {task.state}  {task.at}  {verify}{read}")
         for unknown in tasks[-1].unknowns:
             print(f"unknown    {unknown}")
     else:
@@ -452,6 +454,29 @@ def _records(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(records.render(digest)))
     return 0
+
+
+def _reading_of(record: Path) -> dict[str, object] | None:
+    """What that task read, from its dispatch record: absent means the executor did not say."""
+    try:
+        data: object = json.loads(record.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    reading = data.get("reading")
+    return reading if isinstance(reading, dict) else None
+
+
+def _reading_brief(record: Path) -> str:
+    reading = _reading_of(record)
+    if reading is None:
+        return ""
+    files = reading.get("files")
+    chars = reading.get("chars")
+    if not isinstance(files, int) or not isinstance(chars, int):
+        return ""
+    return f"  read {files} file(s), {chars} chars"
 
 
 def _records_line(box: boxes.Box) -> str:
