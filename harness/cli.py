@@ -26,6 +26,7 @@ from . import (
     contour,
     executor,
     frame,
+    rails,
     records,
     reviewer,
     runner,
@@ -131,6 +132,31 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--note", default="", help="why this frame was accepted")
     approve.add_argument("--json", action="store_true", help="the answer as one JSON object")
     approve.set_defaults(handler=_approve)
+
+    rails_parser = commands.add_parser(
+        "rails",
+        help="the project's frame: brief, goals, milestones, metrics, principles",
+        description=(
+            "A task names the milestone its work serves; the rails are what makes that name mean "
+            "something. `rails` shows the frame and its standing, `rails --approve` records that "
+            "this frame is the basis the owner accepted."
+        ),
+    )
+    rails_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    rails_parser.add_argument(
+        "--approve", action="store_true", help="accept the frame as the basis the work serves"
+    )
+    rails_parser.add_argument("--by", default="owner", help="who accepts the frame")
+    rails_parser.add_argument("--note", default="", help="why this frame was accepted")
+    rails_parser.add_argument(
+        "--delegate",
+        action="append",
+        default=[],
+        metavar="QUESTION=DEFAULT",
+        help="a question the owner left to the box, and the default that was taken",
+    )
+    rails_parser.add_argument("--json", action="store_true", help="the same facts as one object")
+    rails_parser.set_defaults(handler=_rails)
 
     ledger_parser = commands.add_parser(
         "records",
@@ -400,6 +426,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             "max_cents": agent.max_cents,
         }
         payload["frame"] = frame.standing(box).json()
+        payload["rails"] = rails.standing(box).json()
         fresh, stored = records.state(box)
         payload["records"] = {
             "count": fresh.count,
@@ -437,6 +464,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     reader = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
     lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
     lines.insert(-1, f"frame      {frame.standing(box).line()}")
+    lines.insert(-1, f"rails      {rails.standing(box).line()}")
     lines.insert(-1, f"records    {_records_line(box)}")
     print("\n".join(lines))
     if tasks:
@@ -598,6 +626,52 @@ def _approve(args: argparse.Namespace, root: Path) -> int:
         return 0
     print("\n".join(frame.render_approval(approval, current)))
     return 0
+
+
+def _rails(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    if args.approve:
+        delegations = tuple(_delegation(item) for item in args.delegate)
+        approval = rails.approve(box, by=args.by, note=args.note, delegations=delegations)
+        current = rails.read(box.project)
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "approved": approval.digest,
+                        "at": approval.at,
+                        "by": approval.by,
+                        "record": str(approval.path),
+                        "file": rails.RAILS_FILE,
+                        "delegations": [
+                            {"question": item.question, "default": item.default}
+                            for item in approval.delegations
+                        ],
+                        "missing": [] if current is None else list(current.missing),
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        print("\n".join(rails.render(rails.standing(box), current)))
+        return 0
+    standing = rails.standing(box)
+    current = rails.read(box.project)
+    if args.json:
+        print(json.dumps(rails.payload(standing, current), indent=2, ensure_ascii=False))
+        return 0
+    print("\n".join(rails.render(standing, current)))
+    return 0
+
+
+def _delegation(value: str) -> rails.Delegation:
+    question, separator, default = value.partition("=")
+    if not separator or not question.strip() or not default.strip():
+        raise boxes.HarnessError(
+            f"--delegate {value!r} is not QUESTION=DEFAULT: a delegation needs both sides"
+        )
+    return rails.Delegation(question=question.strip(), default=default.strip())
 
 
 def _campaign(args: argparse.Namespace, root: Path) -> int:
