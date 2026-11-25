@@ -917,6 +917,7 @@ def _flow_next(box: boxes.Box, args: argparse.Namespace) -> int:
                 model=config.model,
                 max_seconds=config.max_seconds,
                 max_cents=config.max_cents,
+                max_steps=config.max_steps,
             )
         result = augustus.dispatch(
             box,
@@ -1074,6 +1075,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
             model=config.model,
             max_seconds=config.max_seconds,
             max_cents=config.max_cents,
+            max_steps=config.max_steps,
         )
     result = augustus.dispatch(
         box,
@@ -1127,6 +1129,7 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
             model=config.model,
             max_seconds=config.max_seconds,
             max_cents=config.max_cents,
+            max_steps=config.max_steps,
         )
     result = augustus.resume(
         box,

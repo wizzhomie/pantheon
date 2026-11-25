@@ -42,7 +42,16 @@ SCHEMA_VERSION = 1
 PROFILE_FILE = Path("persona") / "executor.toml"
 EXAMPLE_FILE = Path("persona") / "executor.toml.example"
 CONFIG_KEYS = frozenset(
-    {"schema_version", "command", "model", "models", "max_seconds", "max_cents", "shapes"}
+    {
+        "schema_version",
+        "command",
+        "model",
+        "models",
+        "max_seconds",
+        "max_cents",
+        "max_steps",
+        "shapes",
+    }
 )
 SHAPES = ("patch", "file", "multi")
 """The shape of a change a task asks for: it sizes the answer, and it is declared, not guessed.
@@ -177,6 +186,8 @@ class ExecutorConfig:
     model: str | None = None
     max_seconds: int = DEFAULT_SECONDS
     max_cents: float | None = None
+    max_steps: int | None = None
+    """How many calls a task may make in this box: the ceiling a task can only lower."""
     models: dict[str, ModelChoice] = field(default_factory=dict)
     """Which model a kind of task asks for: the box's decision, not the model's own."""
 
@@ -352,6 +363,12 @@ def read_config(path: Path) -> ExecutorConfig:
         if cents_raw <= 0:
             raise boxes.HarnessError(f"{path}: max_cents must be a positive number")
         cents = float(cents_raw)
+    steps_raw = data.get("max_steps")
+    steps: int | None = None
+    if steps_raw is not None:
+        if isinstance(steps_raw, bool) or not isinstance(steps_raw, int) or steps_raw <= 0:
+            raise boxes.HarnessError(f"{path}: max_steps must be a positive whole number")
+        steps = steps_raw
     return ExecutorConfig(
         path=path,
         command=command,
@@ -360,6 +377,7 @@ def read_config(path: Path) -> ExecutorConfig:
         shapes=shapes,
         max_seconds=seconds,
         max_cents=cents,
+        max_steps=steps,
     )
 
 
@@ -546,6 +564,8 @@ def describe(config: ExecutorConfig) -> str:
     bits.append(f"max {config.max_seconds} s")
     if config.max_cents is not None:
         bits.append(f"{config.max_cents:g} cents")
+    if config.max_steps is not None:
+        bits.append(f"{config.max_steps} call(s)")
     return f"{' '.join(config.command)} ({', '.join(bits)})"
 
 
@@ -557,8 +577,14 @@ def propose(
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
     shape: Shape | None = None,
+    budget_cents: float | None = None,
 ) -> Proposal:
-    """Ask the declared command for a change, and record the answer with its price."""
+    """Ask the declared command for a change, and record the answer with its price.
+
+    ``budget_cents`` is what is left of the task's total: a call may spend no more than the
+    task has remaining, whatever the box and the shape would otherwise allow. The record keeps
+    the ceiling the call was given, so "it cost 0.6 of 1.4 left" is a fact after the run.
+    """
     if config.command is None:
         raise boxes.HarnessError("the box declares no executor: there is nothing to ask")
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
@@ -566,6 +592,8 @@ def propose(
     directory = box.root / "tabularium" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
+    if budget_cents is not None:
+        cents = budget_cents if cents is None else min(cents, budget_cents)
     if shape is not None and shape.max_cents is not None:
         # The shape's price is a ceiling like the box's: a patch may not spend a file's money.
         cents = shape.max_cents if cents is None else min(cents, shape.max_cents)

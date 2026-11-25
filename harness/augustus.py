@@ -46,6 +46,7 @@ TASK_KEYS = frozenset(
         "repro",
         "self_check",
         "shape",
+        "max_steps",
     }
 )
 MODES = ("manual", "auto")
@@ -56,6 +57,9 @@ BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
 ROUTES_ENV = "PANTHEON_ROUTES"
 SNAPSHOT_FILE = "task.json"
 """The task as dispatched, frozen beside its artifacts: a resume reads this, not the file."""
+
+SELF_CHECK_FILE = "self-check.json"
+"""The visible check's result, written beside the attempt it judged: two of them are compared."""
 
 DEFAULT_ROUTES: dict[str, tuple[str, ...]] = {
     "docs": ("verify",),
@@ -119,6 +123,14 @@ class Task:
     satisfies only the visible one is recorded as exactly that.
     """
 
+    max_steps: int | None = None
+    """How many calls this task may make: the task's ceiling, lowered by the box's.
+
+    The budget of a task is a total (``budget.max_cents``) and the calls are what spend it;
+    a task that has used its calls is stopped before another model call, with the reason in
+    the record, instead of being asked again into the same wall.
+    """
+
 
 @dataclass(frozen=True, slots=True)
 class Dispatch:
@@ -156,6 +168,13 @@ class Dispatch:
 
     repeated: str | None = None
     """The digest of a change already tried, when the retry proposed exactly it again."""
+
+    stop_reason: str | None = None
+    """Why the task was not allowed to make another call: its budget, its calls, no progress.
+
+    A stop is not a verdict: it says the box refused to pay for another answer, and names the
+    fact it rested on. ``state`` is ``stopped`` in that case, and the exit code is 2.
+    """
 
     shape: dict[str, object] | None = None
     """What the task declared the change to be, and the room the box gave the answer."""
@@ -268,6 +287,12 @@ def read_task(path: Path) -> Task:
         )
     repro_raw = _command(data.get("repro", []), "repro", path)
     self_check_raw = _command(data.get("self_check", []), "self_check", path)
+    steps_raw = data.get("max_steps")
+    max_steps: int | None = None
+    if steps_raw is not None:
+        if isinstance(steps_raw, bool) or not isinstance(steps_raw, int) or steps_raw <= 0:
+            raise boxes.HarnessError(f"{path}: max_steps must be a positive whole number")
+        max_steps = steps_raw
     return Task(
         path=path,
         id=identifier,
@@ -286,6 +311,7 @@ def read_task(path: Path) -> Task:
         repro=tuple(item.strip() for item in repro_raw),
         self_check=tuple(item.strip() for item in self_check_raw),
         shape=shape if isinstance(shape, str) else None,
+        max_steps=max_steps,
     )
 
 
@@ -526,6 +552,27 @@ def dispatch(
                         else f", {shape.max_cents:g} cents"
                     )
                 )
+                guard = _guard(box, task, config, directory)
+                if guard.stop is not None:
+                    notes.append(guard.stop)
+                    return _finish(
+                        box,
+                        task,
+                        Dispatch(
+                            task=task,
+                            state="stopped",
+                            stages=stages,
+                            arch=arch,
+                            directory=directory,
+                            notes=notes,
+                            exit_code=2,
+                            resumed_from=resumed_from,
+                            stop_reason=guard.stop,
+                        ),
+                        stamp,
+                        began,
+                        rail=rail,
+                    )
                 if task.repro:
                     code, tail = contour.run_repro(
                         box.project, task.repro, root=trajan_root, python=trajan_python
@@ -566,6 +613,7 @@ def dispatch(
                     context=context_pack.payload(pack),
                     previous=previous,
                     shape=shape,
+                    budget_cents=guard.cents,
                 )
                 notes.extend(proposal.notes)
                 _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
@@ -684,6 +732,9 @@ def dispatch(
                     "exit_code": code,
                     "tail": tail,
                 }
+                (attempt.directory / SELF_CHECK_FILE).write_text(
+                    json.dumps(own_check, indent=2) + "\n", encoding="utf-8"
+                )
                 notes.append(
                     f"the check the task shows the model: {own_check['status']} ({tail})"
                 )
@@ -795,6 +846,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
     lines.append("paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")
     if task.shape is not None:
         lines.append(f"shape = {_quote(task.shape)}")
+    if task.max_steps is not None:
+        lines.append(f"max_steps = {task.max_steps}")
     if task.mode != "manual":
         lines.append(f"mode = {_quote(task.mode)}")
     if task.role != "executor":
@@ -1309,6 +1362,150 @@ def _check_over_budget(
         )
 
 
+@dataclass(frozen=True, slots=True)
+class Spend:
+    """What a task has already paid, read from its records: there is no counter to drift."""
+
+    cents: float
+    calls: int
+    unpriced: int
+
+
+def spent(box_root: Path, task_id: str, *, ceiling: float | None = None) -> Spend:
+    """The money a task's records already show, and the calls that made it.
+
+    A call that reported no price is not free: it is counted at the box's ceiling when one is
+    declared, because the only honest number for "unknown" is the most it could have been. The
+    count of such calls is kept too, so a stop can say the sum is a lower bound when the box
+    declares no ceiling at all.
+    """
+    directory = box_root / "tabularium" / task_id
+    cents = 0.0
+    calls = 0
+    unpriced = 0
+    for record in sorted(directory.glob("proposal-*/proposal.json")):
+        data = _read_json(record)
+        calls += 1
+        usage = data.get("usage")
+        cost = usage.get("cost_cents") if isinstance(usage, dict) else None
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            cents += float(cost)
+        else:
+            unpriced += 1
+    if unpriced and ceiling is not None:
+        cents += unpriced * ceiling
+    for record in sorted(directory.glob("dispatch-*.json")):
+        data = _read_json(record)
+        verify = data.get("verify")
+        review = verify.get("review") if isinstance(verify, dict) else None
+        if not isinstance(review, dict):
+            continue
+        cost = review.get("cost_cents")
+        if isinstance(cost, (int, float)) and not isinstance(cost, bool):
+            cents += float(cost)
+            continue
+        cap = data.get("review_cap")
+        if isinstance(cap, (int, float)) and not isinstance(cap, bool):
+            cents += float(cap)
+        elif ceiling is not None:
+            cents += ceiling
+    return Spend(cents=round(cents, 4), calls=calls, unpriced=unpriced)
+
+
+def _steps(task: Task, config: executor.ExecutorConfig) -> int | None:
+    """How many calls this task may make: the lower of the task's ceiling and the box's."""
+    declared = [value for value in (task.max_steps, config.max_steps) if value is not None]
+    return min(declared) if declared else None
+
+
+@dataclass(frozen=True, slots=True)
+class Guard:
+    """What is left for the next call, or why there must not be one."""
+
+    cents: float | None
+    stop: str | None = None
+
+
+def _guard(box: boxes.Box, task: Task, config: executor.ExecutorConfig, directory: Path) -> Guard:
+    """The questions asked before paying for another call, and the answer that stops it.
+
+    Three facts, all read from the box's own records: how many calls were made, how much they
+    cost, and whether the last two attempts failed the same visible check in the same words.
+    The order is deliberate: the budget and the call count are counts, while "no progress" is
+    a judgement about two runs — the counts are cheaper to be sure about.
+    """
+    ceiling = executor.limits(config, {})[1]
+    record = spent(box.root, task.id, ceiling=ceiling)
+    steps = _steps(task, config)
+    if steps is not None and record.calls >= steps:
+        return Guard(
+            None,
+            f"the task allows {steps} call(s) and has already made {record.calls}: nothing was "
+            "asked again",
+        )
+    limit = task.budget.get("max_cents")
+    cents: float | None = None
+    if limit is not None:
+        left = float(limit) - record.cents
+        if left <= 0:
+            unknown = (
+                ""
+                if ceiling is not None
+                else f"; {record.unpriced} call(s) reported no price, so the sum is a lower bound"
+            )
+            return Guard(
+                None,
+                f"the task declared {limit:g} cents and its records already show "
+                f"{record.cents:.2f} cents over {record.calls} call(s){unknown}: nothing was "
+                "asked again — raise the limit if this is a deliberate decision",
+            )
+        cents = left
+    progress = _no_progress(directory)
+    if progress is not None:
+        return Guard(None, progress)
+    return Guard(cents)
+
+
+def _no_progress(directory: Path) -> str | None:
+    """Whether the last two applied attempts failed the visible check in the same words.
+
+    The signal is deterministic and narrow: the same exit code and the same tail twice, read
+    from the attempts themselves rather than from the dispatch records, because an attempt has
+    its own number and cannot be overwritten by a second dispatch in the same second. A visible
+    check that passes is not this: the model saw it pass, so it is not stuck against the thing
+    it can see, and the verdict is still the hidden check's to decide.
+    """
+    if not directory.is_dir():
+        return None
+    attempts = [child for child in directory.iterdir() if child.is_dir() and child.name.isdigit()]
+    attempts.sort(key=lambda child: int(child.name))
+    if len(attempts) < 2:
+        return None
+    checks: list[dict[str, object]] = []
+    for attempt in attempts[-2:]:
+        path = attempt / SELF_CHECK_FILE
+        if not path.is_file():
+            return None
+        check = _read_json(path)
+        if check.get("status") != "failed":
+            return None
+        checks.append(check)
+    first, second = checks
+    codes = (first.get("exit_code"), second.get("exit_code"))
+    tails = (first.get("tail"), second.get("tail"))
+    if (
+        isinstance(codes[0], int)
+        and codes[0] == codes[1]
+        and isinstance(tails[0], str)
+        and tails[0] == tails[1]
+    ):
+        return (
+            "the last two attempts failed the visible check with the same exit code and the "
+            "same words: another call would pay for an answer that is not moving"
+        )
+    return None
+
+
 def _stages(data: dict[str, object]) -> tuple[str, ...]:
     raw = data.get("stages")
     if not isinstance(raw, list):
@@ -1619,6 +1816,8 @@ def render_dispatch(result: Dispatch) -> list[str]:
     ]
     if result.resumed_from is not None:
         lines.append(f"resumed    from {result.resumed_from}")
+    if result.stop_reason is not None:
+        lines.append(f"stopped    {result.stop_reason}")
     for note in result.notes:
         lines.append(f"note       {note}")
     if result.outbox is not None:
@@ -1643,6 +1842,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "context": None if result.context is None else result.context.json(),
         "reading": None if result.proposal is None else result.proposal.reading,
         "repeated": result.repeated,
+        "stop_reason": result.stop_reason,
         "self_check": result.self_check,
         "shape": result.shape,
         "verify": None
@@ -1777,6 +1977,7 @@ def _finish(
         review_skipped=result.review_skipped,
         context=result.context,
         repeated=result.repeated,
+        stop_reason=result.stop_reason,
         self_check=result.self_check,
         shape=result.shape,
         timings=_timings(result, began),
@@ -1841,6 +2042,10 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"scope: {', '.join(task.paths) or 'nothing declared'}",
         f"expected: {task.expected or 'not declared'}",
         f"resumed: {result.resumed_from or 'no — this dispatch started the task'}",
+    ]
+    if result.stop_reason is not None:
+        lines.append(f"stopped: {result.stop_reason}")
+    lines += [
         "",
         "## what ran",
         f"- frame: {_frame_line(result.frame)}",
