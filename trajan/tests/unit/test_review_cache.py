@@ -15,6 +15,7 @@ from pathlib import Path
 from trajan.llm.fake import FakeClient
 from trajan.review import ProposedFinding, ReviewerConfig, ReviewOutcome, anchor, parse_diff
 from trajan.review.cache import ReviewCache
+from trajan.review.prompt import build_user_message
 from trajan.review.reviewer import review_diff
 from trajan.verify.report import _review_section
 
@@ -94,6 +95,41 @@ def test_the_second_review_of_the_same_question_is_served_from_the_cache(tmp_pat
     assert second.cached is True
     assert [finding.id for finding in second.findings] == [finding.id for finding in first.findings]
     assert second.prompt_tokens == first.prompt_tokens
+
+
+def _oversized(marker: str) -> str:
+    """One file whose block is wider than the prompt ceiling: the renderer shows nothing."""
+    body = "\n".join(f"+{marker} {number:05d} " + "x" * 30 for number in range(4000))
+    return (
+        "diff --git a/app.py b/app.py\n"
+        "--- a/app.py\n"
+        "+++ b/app.py\n"
+        "@@ -1,0 +1,4000 @@\n"
+        + body
+        + "\n"
+    )
+
+
+def test_a_change_the_prompt_could_not_show_is_still_its_own_question(tmp_path: Path) -> None:
+    """Above the ceiling the rendered messages are identical; the changes are not.
+
+    A key that is only the rendered question would serve the first review of a truncated
+    diff for a second, different change — a reading of one change attached to another.
+    """
+    first = parse_diff(_oversized("alpha"))
+    second = parse_diff(_oversized("beta"))
+    assert build_user_message(first, max_bytes=120_000) == build_user_message(
+        second, max_bytes=120_000
+    )
+    assert first.digest() != second.digest()
+
+    client = FakeClient([answer(proposal()), answer(proposal())])
+    cache = ReviewCache(tmp_path)
+    one = asyncio.run(review_diff(first, project(tmp_path), client, config(), cache=cache))
+    two = asyncio.run(review_diff(second, project(tmp_path), client, config(), cache=cache))
+
+    assert len(client.requests) == 2, "the second change was never asked about"
+    assert one.cached is False and two.cached is False
 
 
 def test_a_different_model_is_a_different_question(tmp_path: Path) -> None:

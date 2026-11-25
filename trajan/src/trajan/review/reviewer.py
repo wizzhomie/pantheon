@@ -56,8 +56,14 @@ async def review_diff(
         temperature=config.temperature,
         max_tokens=config.max_tokens,
     )
+    # The rendered messages can be identical for two different changes: a diff above the
+    # prompt ceiling is cut, and the cut may hide everything that differs. The change itself
+    # is therefore part of the key — a truncated question is still this change's question.
     cache_key = (
-        cache.key(request, extra="second-look" if config.second_look else "")
+        cache.key(
+            request,
+            extra=f"{'second-look' if config.second_look else 'review'}:{diff.digest()}",
+        )
         if cache is not None
         else None
     )
