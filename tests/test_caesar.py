@@ -412,6 +412,20 @@ def test_a_task_with_a_reproduction_is_read_and_written_back(tmp_path: Path) -> 
     text = augustus.task_text(task)
     assert 'repro = ["python", "-c", "raise SystemExit(1)"]' in text
 
+    # A command with newlines is the pilot's shape: the frozen file must parse back.
+    command = 'import sys\nprint("say hi")\nraise SystemExit(1)'
+    source = tmp_path / "T3.toml"
+    source.write_text(
+        'schema_version = 1\nid = "T3"\npaths = ["src/**"]\n'
+        "repro = ['python', '-c', '''" + command + "''']\n",
+        encoding="utf-8",
+    )
+    loaded = augustus.read_task(source)
+    assert loaded.repro == ("python", "-c", command)
+    frozen = tmp_path / "T3-frozen.toml"
+    frozen.write_text(augustus.task_text(loaded), encoding="utf-8")
+    assert augustus.read_task(frozen).repro == loaded.repro
+
     path.write_text(
         'schema_version = 1\nid = "T2"\npaths = ["src/**"]\nrepro = []\n', encoding="utf-8"
     )

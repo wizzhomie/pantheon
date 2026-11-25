@@ -1376,7 +1376,19 @@ def _relative(path: Path, root: Path) -> str:
 
 
 def _quote(value: str) -> str:
-    return '"' + value.replace(chr(92), chr(92) * 2).replace('"', chr(92) + '"') + '"'
+    """A TOML basic string: a frozen task is read back by the parser that wrote it.
+
+    A command may carry a newline (the pilot's reproduction is a small script), and a raw one
+    inside a basic string makes the file unparsable — the snapshot then cannot be continued.
+    """
+    escaped = (
+        value.replace(chr(92), chr(92) * 2)
+        .replace('"', chr(92) + '"')
+        .replace(chr(10), chr(92) + "n")
+        .replace(chr(13), chr(92) + "r")
+        .replace(chr(9), chr(92) + "t")
+    )
+    return '"' + escaped + '"'
 
 
 @dataclass(frozen=True, slots=True)

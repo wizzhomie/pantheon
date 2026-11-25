@@ -1,0 +1,29 @@
+# Case D4b — the same input as c-d4, retried with the box's own reason. This is not a new
+# task: `pantheon resume --retry` re-asks the frozen c-d4 task, and the only difference is
+# what the model is told. Until 2026-11-25 that retry carried `previous: null` (the sighted
+# retry existed only for campaign steps), so the pilot had never seen what a task retry that
+# knows why it failed can do.
+#
+# Defect and reproduction are c-d4's: pallets/click#2847, the completion of `prog --color=a`
+# loses the `--color=` part. The check the box appends asserts that the values returned by
+# `get_completions` carry the prefix; it failed on the c-d4 answer with the list the model
+# returned, `['auto', 'always']`.
+#
+# Prediction, recorded before the run: the retry prompt will say the previous attempt returned
+# `hold`, that the reproduction failed, and its own words — `AssertionError: ['auto', 'always']`.
+# The model should read from that list that its prefix was empty, compute it before
+# `_resolve_incomplete` splits the "=" off, and pass the same 2 629 tests. The likeliest other
+# end is a patch that changes the shape of `_resolve_incomplete` and breaks its callers, which
+# the suite would catch: a hold with a reason is a real answer here, not a failure of the box.
+schema_version = 1
+id = "c-d4b"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py так, чтобы для незавершённого слова с «=» каждое предложенное значение несло часть до «=» включительно (и для пустого значения тоже), одинаково для bash и zsh; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "c-d4 показал, что вход задачи как проверка работает, а правка модели была пустой. Повтор на тех же словах, но с фактами отказа, отвечает на другой вопрос: меняет ли причину то, что модель её видит."
