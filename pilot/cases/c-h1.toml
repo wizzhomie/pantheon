@@ -1,0 +1,12 @@
+# Speed case: a one-file CLI change, the smallest real hotfix we make.
+# Written before the run; expectation and price ceiling are part of the case.
+schema_version = 1
+id = "c-h1"
+goal = "Добавь `pantheon --version`: команда печатает `pantheon <версия>` и завершается с кодом 0. Версию бери из `harness.__version__`. Добавь тест в `tests/test_harness.py`."
+kind = "hotfix"
+paths = ["harness/cli.py", "tests/test_harness.py"]
+expected = "`pantheon --version` печатает версию и код 0; тест покрывает команду; проверки проекта зелёные"
+
+[budget]
+max_cents = 3
+max_seconds = 180

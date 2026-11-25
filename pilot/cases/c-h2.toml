@@ -1,0 +1,12 @@
+# Speed case: a small CLI feature that prints data, not prose.
+# Written before the run; expectation and price ceiling are part of the case.
+schema_version = 1
+id = "c-h2"
+goal = "Добавь `pantheon list --json`: команда печатает JSON-массив коробок с полями name, project, created и завершается с кодом 0. Без `--json` вывод не меняется. Добавь тест в `tests/test_harness.py`."
+kind = "hotfix"
+paths = ["harness/cli.py", "tests/test_harness.py"]
+expected = "`pantheon list --json` печатает валидный JSON со списком коробок; тест покрывает флаг; проверки проекта зелёные"
+
+[budget]
+max_cents = 3
+max_seconds = 180

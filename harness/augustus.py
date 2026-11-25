@@ -1327,11 +1327,11 @@ def _time_line(result: Dispatch) -> str:
         return "not measured"
     total = result.timings.get("total", 0.0)
     parts = [
-        f"{key} {value:.1f} s"
+        f"{key} {value:.2f} s"
         for key, value in result.timings.items()
         if key != "total" and value
     ]
-    return f"{total:.1f} s" + (f" ({', '.join(parts)})" if parts else "")
+    return f"{total:.2f} s" + (f" ({', '.join(parts)})" if parts else "")
 
 
 def _summary(result: Dispatch, when: datetime) -> str:
@@ -1369,10 +1369,10 @@ def _summary(result: Dispatch, when: datetime) -> str:
         "## cost",
     ]
     lines.extend(_cost_lines(result))
-    lines += ["", "## time", f"- total: {result.timings.get('total', 0.0):.1f} s"]
+    lines += ["", "## time", f"- total: {result.timings.get('total', 0.0):.2f} s"]
     for key, value in result.timings.items():
         if key != "total" and value:
-            lines.append(f"- {key}: {value:.1f} s")
+            lines.append(f"- {key}: {value:.2f} s")
     lines += ["", f"record: {result.directory}"]
     return "\n".join(lines) + "\n"
 

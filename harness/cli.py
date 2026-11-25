@@ -443,7 +443,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         for task in tasks:
             verify = f"verify {task.verify}" if task.verify else "not verified"
             read = _reading_brief(task.record)
-            took = f"  in {task.seconds:.1f}s" if task.seconds is not None else ""
+            took = f"  in {task.seconds:.2f}s" if task.seconds is not None else ""
             print(f"task       {task.id}  {task.state}  {task.at}  {verify}{took}{read}")
         for unknown in tasks[-1].unknowns:
             print(f"unknown    {unknown}")
