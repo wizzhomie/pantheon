@@ -211,3 +211,29 @@ def test_the_box_answer_is_trajans_answer(
     assert payload["verdict"] == direct["verdict"]["status"]
     assert code == done.returncode == payload["exit_code"]
     assert Path(str(payload["report"])).is_file()
+
+
+def test_the_project_venv_goes_first_on_path(tmp_path: Path) -> None:
+    """A foreign project's checks must use the project's own interpreter.
+
+    The box puts the trajan venv first so the contour itself is importable; a project's
+    checks, however, need the interpreter its own dependencies were installed into. When the
+    project carries ``.venv/bin``, it goes in front of everything else.
+    """
+    root = tmp_path / "trajan"
+    (root / "src").mkdir(parents=True)
+    project = tmp_path / "project"
+    (project / ".venv" / "bin").mkdir(parents=True)
+    env = contour._environment(root, Path("/usr/bin/python3"), project)
+    assert env["PATH"].split(os.pathsep)[0] == str(project / ".venv" / "bin")
+    assert env["PATH"].split(os.pathsep)[1] == "/usr/bin"
+    assert env["PYTHONPATH"].startswith(str(root / "src"))
+
+
+def test_without_a_project_venv_the_trajan_interpreter_leads(tmp_path: Path) -> None:
+    root = tmp_path / "trajan"
+    (root / "src").mkdir(parents=True)
+    project = tmp_path / "project"
+    project.mkdir()
+    env = contour._environment(root, Path("/usr/bin/python3"), project)
+    assert env["PATH"].split(os.pathsep)[0] == "/usr/bin"

@@ -270,7 +270,7 @@ def run_verify(
     if reviewer is not None:
         command += ["--reviewer", reviewer]
     log = out / REVIEW_LOG_FILE
-    env = _environment(root, python)
+    env = _environment(root, python, project)
     if reviewer is not None and reviewer_env is not None:
         env.update(reviewer_env)
         env[REVIEW_LOG_ENV] = str(log)
@@ -729,11 +729,21 @@ def result_json(result: VerifyResult, project: Path, box: str) -> dict[str, obje
     }
 
 
-def _environment(root: Path, python: Path) -> dict[str, str]:
-    """Trajan imports from its ``src``, and its checks resolve ``python`` from PATH."""
+def _environment(root: Path, python: Path, project: Path | None = None) -> dict[str, str]:
+    """Trajan imports from its ``src``, and its checks resolve ``python`` from PATH.
+
+    The project's own ``.venv/bin`` goes first when it exists: a foreign project's checks must
+    run with the interpreter its dependencies were installed into, not with trajan's. The
+    interpreter that runs trajan stays on PATH behind it, because trajan itself needs nothing
+    from the project's environment.
+    """
     env = dict(os.environ)
     source = str(root / "src")
     existing = env.get("PYTHONPATH")
     env["PYTHONPATH"] = f"{source}{os.pathsep}{existing}" if existing else source
-    env["PATH"] = f"{python.parent}{os.pathsep}{env.get('PATH', os.defpath)}"
+    parts = []
+    if project is not None and (project / ".venv" / "bin").is_dir():
+        parts.append(str(project / ".venv" / "bin"))
+    parts.append(str(python.parent))
+    env["PATH"] = os.pathsep.join([*parts, env.get("PATH", os.defpath)])
     return env
