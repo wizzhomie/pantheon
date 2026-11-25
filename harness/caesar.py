@@ -447,6 +447,7 @@ def commit_change(
     report: str,
     box_root: Path,
     when: datetime | None = None,
+    attempts: tuple[Attempt, ...] | None = None,
 ) -> Commit:
     """Make the reviewed change the project's next commit, and nothing else durable.
 
@@ -462,7 +463,7 @@ def commit_change(
     began = time.monotonic()
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     commit, message, base = _make_commit(
-        project, contract, attempt, verdict=verdict, report=report, when=stamp
+        project, contract, attempt, verdict=verdict, report=report, when=stamp, attempts=attempts
     )
     commit = replace(commit, seconds=round(time.monotonic() - began, 2))
     _write_commit(box_root, contract, attempt, commit, verdict, report, stamp, message, base)
@@ -477,9 +478,18 @@ def _make_commit(
     verdict: str,
     report: str,
     when: datetime,
+    attempts: tuple[Attempt, ...] | None = None,
 ) -> tuple[Commit, str, str | None]:
-    """The git work, split out so every outcome is recorded by the caller exactly once."""
-    if attempt.status != "applied":
+    """The git work, split out so every outcome is recorded by the caller exactly once.
+
+    ``attempts`` is the run's steps in the order the gate applied them: a steps run commits
+    every applied change, not only the last one. Each patch is applied to the temporary index
+    in turn, which is the same order they met the tree, so the committed tree is the verified
+    tree — not a reconstruction that happens to compile.
+    """
+    changes = attempts if attempts is not None else (attempt,)
+    refused = [item for item in changes if item.status != "applied"]
+    if not changes or refused:
         reason = "the attempt was refused: there is nothing to commit"
         return Commit("skipped", reason=reason), "", None
     top = _git(project, "rev-parse", "--show-toplevel")
@@ -489,12 +499,13 @@ def _make_commit(
     base = _head(top_path)
     if base is None:
         return Commit("skipped", reason="the project has no commit to build on"), "", None
-    patch = attempt.directory / "change.diff"
-    if not patch.is_file():
-        reason = f"the recorded change is gone from {attempt.directory}"
+    patches = [item.directory / "change.diff" for item in changes]
+    gone = [item for item in changes if not (item.directory / "change.diff").is_file()]
+    if gone:
+        reason = f"the recorded change is gone from {gone[0].directory}"
         return Commit("failed", reason=reason), "", base
     message = _message(contract, attempt, verdict, report)
-    tree = _tree_of_change(top_path, base, _prefix(project), patch)
+    tree = _tree_of_change(top_path, base, _prefix(project), patches)
     if isinstance(tree, Commit):
         return tree, message, base
     made = _git_env(
@@ -522,7 +533,8 @@ def _make_commit(
         reason = f"the branch moved while the change was being committed: {_tail(moved)}"
         return Commit("failed", reason=reason), message, base
     notes: tuple[str, ...] = ()
-    paths = [_prefix(project) + path for path in attempt.paths]
+    touched = sorted({path for item in changes for path in item.paths})
+    paths = [_prefix(project) + path for path in touched]
     if paths and _run(top_path, ["reset", "-q", "--", *paths], _clean_env()).returncode != 0:
         notes = (
             "the index was not refreshed for the committed paths: `git status` may still show "
@@ -531,7 +543,7 @@ def _make_commit(
     return Commit("made", sha=made, subject=_subject(contract), notes=notes), message, base
 
 
-def _tree_of_change(top: Path, base: str, prefix: str, patch: Path) -> str | Commit:
+def _tree_of_change(top: Path, base: str, prefix: str, patches: list[Path]) -> str | Commit:
     """``HEAD`` plus the recorded change, staged in a temporary index.
 
     The real index and the working tree are never read here, so a tree that carries unrelated
@@ -546,27 +558,34 @@ def _tree_of_change(top: Path, base: str, prefix: str, patch: Path) -> str | Com
         # with --unidiff-zero, and the commit builds the same change from the same patch, so it
         # must accept the same diffs the gate accepted. Without it a passing change would be
         # verified and then refused at the commit step.
-        staged = ["apply", "--cached", "--unidiff-zero", "--whitespace=nowarn"]
-        reverse = [
-            "apply",
-            "--cached",
-            "--reverse",
-            "--check",
-            "--unidiff-zero",
-            "--whitespace=nowarn",
-        ]
-        for args in (staged, reverse):
-            if prefix:
-                args.append(f"--directory={prefix}")
-            args.append(str(patch))
-        done = _run(top, staged, env)
-        if done.returncode != 0:
-            if _run(top, reverse, env).returncode == 0:
-                return Commit(
-                    "skipped",
-                    reason=f"the change is already in {base[:12]}: there is nothing to commit",
-                )
-            return Commit("failed", reason=f"git would not stage the change: {_tail(done)}")
+        staged_any = False
+        for patch in patches:
+            staged = ["apply", "--cached", "--unidiff-zero", "--whitespace=nowarn"]
+            reverse = [
+                "apply",
+                "--cached",
+                "--reverse",
+                "--check",
+                "--unidiff-zero",
+                "--whitespace=nowarn",
+            ]
+            for args in (staged, reverse):
+                if prefix:
+                    args.append(f"--directory={prefix}")
+                args.append(str(patch))
+            done = _run(top, staged, env)
+            if done.returncode != 0:
+                if _run(top, reverse, env).returncode == 0:
+                    # This change is already in the index: the earlier steps put it there, or
+                    # the project already had it. Either way there is nothing to add for it.
+                    continue
+                return Commit("failed", reason=f"git would not stage the change: {_tail(done)}")
+            staged_any = True
+        if not staged_any:
+            return Commit(
+                "skipped",
+                reason=f"the change is already in {base[:12]}: there is nothing to commit",
+            )
         tree = _git_env(top, ["write-tree"], env)
         if tree is None:
             return Commit("failed", reason="git could not write a tree for the change")

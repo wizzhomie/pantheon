@@ -23,7 +23,7 @@ import sys
 from pathlib import Path
 
 from harness import container
-from harness.executor import previous_lines
+from harness.executor import previous_lines, turn_lines
 from harness.executors.deepseek import extract_diff
 
 DEFAULT_MODEL = "deepseek-flash"
@@ -71,7 +71,14 @@ def main() -> int:
         SERVICE,
         HERMES,
         "-z",
-        _prompt(task, _context_lines(request), request.get("previous")),
+        _prompt(
+            task,
+            _context_lines(request),
+            request.get("previous"),
+            turn=request.get("turn"),
+            turns=request.get("turns"),
+            ceiling=ceiling(request),
+        ),
         "-m",
         model,
         "--provider",
@@ -92,18 +99,24 @@ def main() -> int:
         return _fail(
             "the agent in the container failed: " + ("; ".join(detail[-3:]) or "no message")
         )
+    notes = ["executor: hermes in the box's container"]
+    usage = _usage(usage_file)
+    if done.stdout.strip().upper() == "DONE":
+        answer: dict[str, object] = {"done": True, "model": model, "notes": notes}
+        if usage is not None:
+            answer["usage"] = usage
+        print(json.dumps(answer))
+        return 0
     diff = extract_diff(done.stdout)
     if diff is None:
         problem = _error_line(done.stdout)
         return _fail(
             problem or "the agent answered without a unified diff", notes=[done.stdout[:400]]
         )
-    usage = _usage(usage_file)
-    notes = ["executor: hermes in the box's container"]
     cached = _cached_tokens(usage_file)
     if cached:
         notes.append(f"cache read {cached} tokens")
-    answer: dict[str, object] = {"patch": diff, "model": model, "notes": notes}
+    answer = {"patch": diff, "model": model, "notes": notes}
     if usage is not None:
         answer["usage"] = usage
     print(json.dumps(answer))
@@ -135,10 +148,20 @@ PREVIOUS_HEAD = (
 )
 
 
+def ceiling(request: dict[str, object]) -> object:
+    """The call ceiling the box declared, for the step heading: data, never a guess."""
+    limits = request.get("limits")
+    return limits.get("max_steps") if isinstance(limits, dict) else None
+
+
 def _prompt(
     task: dict[str, object],
     context: list[str] | None = None,
     previous: object = None,
+    *,
+    turn: object = None,
+    turns: object = None,
+    ceiling: object = None,
 ) -> str:
     if task.get("role") == "architect":
         return _architect_prompt(task, context, previous)
@@ -159,6 +182,9 @@ def _prompt(
     prior = previous_lines(previous)
     if prior:
         lines += ["", PREVIOUS_HEAD, *prior]
+    steps = turn_lines(turn, turns, ceiling)
+    if steps:
+        lines += ["", *steps]
     lines += [
         "Каждый файл заканчивается переводом строки. Верни ОДИН унифицированный диф в формате "
         "git (пути a/<файл> и b/<файл>, заголовки @@), "

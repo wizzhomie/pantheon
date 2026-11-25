@@ -36,7 +36,7 @@ from pathlib import Path
 from typing import Any
 
 from harness.caesar import matches
-from harness.executor import previous_lines
+from harness.executor import previous_lines, turn_lines
 
 DEFAULT_URL = "https://api.deepseek.com/chat/completions"
 DEFAULT_MODEL = "deepseek-chat"
@@ -85,8 +85,17 @@ def main() -> int:
     project = _project_path(request)
     model = str(request.get("model") or os.environ.get(MODEL_ENV) or DEFAULT_MODEL)
     read_chars = _read_chars(request)
+    limits = request.get("limits")
+    ceiling = limits.get("max_steps") if isinstance(limits, dict) else None
     prompt = _prompt(
-        task, project, _context_lines(request), request.get("previous"), read_chars
+        task,
+        project,
+        _context_lines(request),
+        request.get("previous"),
+        read_chars,
+        turn=request.get("turn"),
+        turns=request.get("turns"),
+        ceiling=ceiling,
     )
     if (
         read_chars is not None
@@ -120,6 +129,29 @@ def main() -> int:
     except ApiError as error:
         return _fail(str(error))
     notes: list[str] = []
+    usage = answer.get("usage")
+    table: dict[str, Any] = usage if isinstance(usage, dict) else {}
+    prompt_tokens = _int(table.get("prompt_tokens"))
+    completion_tokens = _int(table.get("completion_tokens"))
+    cost = _cost(prompt_tokens, completion_tokens)
+    if text.strip().upper() == "DONE":
+        print(
+            json.dumps(
+                {
+                    "done": True,
+                    "model": reported_model or model,
+                    "usage": {
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "cost_cents": cost,
+                    },
+                    "duration_ms": int(elapsed * 1000),
+                    "notes": notes,
+                    "reading": prompt.reading,
+                }
+            )
+        )
+        return 0
     diff = extract_diff(text)
     if diff is None:
         problem = _error_line(text)
@@ -137,11 +169,6 @@ def main() -> int:
             usage=_usage_payload(answer),
             model=reported_model or model,
         )
-    usage = answer.get("usage")
-    table: dict[str, Any] = usage if isinstance(usage, dict) else {}
-    prompt_tokens = _int(table.get("prompt_tokens"))
-    completion_tokens = _int(table.get("completion_tokens"))
-    cost = _cost(prompt_tokens, completion_tokens)
     if cost is None:
         notes.append(
             "no price is configured: the box will record the tokens and say the cost is unknown"
@@ -220,6 +247,10 @@ def _prompt(
     context: list[str] | None = None,
     previous: object = None,
     read_chars: int | None = None,
+    *,
+    turn: object = None,
+    turns: object = None,
+    ceiling: object = None,
 ) -> Prompt:
     paths = task.get("paths")
     patterns = [item for item in paths if isinstance(item, str)] if isinstance(paths, list) else []
@@ -260,6 +291,9 @@ def _prompt(
     prior = previous_lines(previous)
     if prior:
         lines += ["", "THE PREVIOUS ATTEMPT DID NOT PASS. Answer these facts:", *prior]
+    steps = turn_lines(turn, turns, ceiling)
+    if steps:
+        lines += ["", *steps]
     lines += _project_section(files, in_scope)
     block, reading = _scope(project, in_scope, read_chars)
     beyond = len(files) - FILE_LIST_LIMIT if not _narrow(files, in_scope) else 0

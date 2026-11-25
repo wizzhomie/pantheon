@@ -45,6 +45,8 @@ CONFIG_KEYS = frozenset(
     {
         "schema_version",
         "command",
+        "engine",
+        "engines",
         "model",
         "models",
         "max_seconds",
@@ -53,6 +55,15 @@ CONFIG_KEYS = frozenset(
         "shapes",
     }
 )
+ENGINES = ("one-shot", "steps")
+"""How a task is run: one answer, or a loop of answers that sees what the last one did.
+
+The command is the same in both: it gets the task, may read the project, and answers with one
+diff. The difference is the controller: ``one-shot`` asks once and lives with the answer,
+``steps`` asks again after applying the answer and running the visible check, and hands the
+model the facts of the previous steps. The engine is the box's decision, declared per kind,
+because how much rope a kind of work gets is a property of the work, not of the command.
+"""
 SHAPES = ("patch", "file", "multi")
 """The shape of a change a task asks for: it sizes the answer, and it is declared, not guessed.
 
@@ -74,6 +85,7 @@ ANSWER_KEYS = frozenset(
         "truncated",
         "error",
         "reading",
+        "done",
     }
 )
 READING_KEYS = frozenset(
@@ -89,6 +101,8 @@ REQUEST_KEYS = frozenset(
         "limits",
         "record",
         "attempt",
+        "turn",
+        "turns",
         "model",
         "context",
         "previous",
@@ -118,6 +132,13 @@ EXAMPLE = """\
 # [models]
 # docs = { model = "deepseek-chat", price_in = 0.15, price_out = 0.60 }
 # security = { model = "deepseek-reasoner" }
+#
+# How a kind of task is run: `one-shot` asks once; `steps` asks again after applying the
+# answer and running the visible check, up to `max_steps` calls. The engine is the box's
+# decision, like the model, and the record names it.
+# engine = "one-shot"
+# [engines]
+# bugfix = "steps"
 """
 
 
@@ -157,6 +178,9 @@ class TaskView(Protocol):
     def budget(self) -> dict[str, int]: ...
 
     @property
+    def max_steps(self) -> int | None: ...
+
+    @property
     def role(self) -> str: ...
 
 
@@ -188,6 +212,10 @@ class ExecutorConfig:
     max_cents: float | None = None
     max_steps: int | None = None
     """How many calls a task may make in this box: the ceiling a task can only lower."""
+    engine: str = "one-shot"
+    """The engine a kind without its own entry gets: one answer, or a loop of answers."""
+    engines: dict[str, str] = field(default_factory=dict)
+    """Which engine a kind of task runs under: the box's decision, like the model table."""
     models: dict[str, ModelChoice] = field(default_factory=dict)
     """Which model a kind of task asks for: the box's decision, not the model's own."""
 
@@ -242,6 +270,12 @@ class Proposal:
     reading: dict[str, object] | None = None
     model_choice: str | None = None
     """Why this model: a declared kind entry or the profile's default, as the box decided."""
+    done: bool = False
+    """The executor said the work is finished, with no further change to apply."""
+    engine: str | None = None
+    """Which engine the box ran for this call: the declared table's decision, not the model's."""
+    engine_choice: str | None = None
+    """Why this engine, as the box decided it: a kind entry or the profile's default."""
 
     @property
     def usable(self) -> bool:
@@ -271,6 +305,8 @@ class Proposal:
                     text += f", {len(left)} gap(s) named"
         if self.reason:
             text += f"; {self.reason}"
+        if self.done:
+            text += "; the work is declared done"
         return text
 
     def data(self) -> dict[str, object]:
@@ -286,6 +322,9 @@ class Proposal:
             "proposal": f"proposal-{self.number}",
             "reading": self.reading,
             "model_choice": self.model_choice,
+            "engine": self.engine,
+            "engine_choice": self.engine_choice,
+            "done": self.done,
         }
 
 
@@ -321,6 +360,9 @@ def proposal_json(proposal: Proposal) -> dict[str, object]:
         "notes": list(proposal.notes),
         "reading": proposal.reading,
         "model_choice": proposal.model_choice,
+        "engine": proposal.engine,
+        "engine_choice": proposal.engine_choice,
+        "done": proposal.done,
     }
 
 
@@ -352,6 +394,12 @@ def read_config(path: Path) -> ExecutorConfig:
         raise boxes.HarnessError(f"{path}: model must be a non-empty string")
     models = _models(path, data.get("models"))
     shapes = _shapes(path, data.get("shapes"))
+    engines = _engines(path, data.get("engines"))
+    engine = data.get("engine", "one-shot")
+    if not isinstance(engine, str) or engine not in ENGINES:
+        raise boxes.HarnessError(
+            f"{path}: engine must be one of {', '.join(ENGINES)}, not {engine!r}"
+        )
     seconds = data.get("max_seconds", DEFAULT_SECONDS)
     if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds <= 0:
         raise boxes.HarnessError(f"{path}: max_seconds must be a positive whole number")
@@ -375,10 +423,32 @@ def read_config(path: Path) -> ExecutorConfig:
         model=model.strip() if isinstance(model, str) else None,
         models=models,
         shapes=shapes,
+        engine=engine,
+        engines=engines,
         max_seconds=seconds,
         max_cents=cents,
         max_steps=steps,
     )
+
+
+def _engines(path: Path, raw: object) -> dict[str, str]:
+    """The engine table: kind → one-shot|steps, checked here so a typo costs nothing later."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(
+            f'{path}: engines must be a table of kind = "one-shot"|"steps" entries'
+        )
+    table: dict[str, str] = {}
+    for kind, engine in raw.items():
+        if not isinstance(kind, str) or not kind.strip():
+            raise boxes.HarnessError(f"{path}: engines has a key that is not a kind name")
+        if not isinstance(engine, str) or engine not in ENGINES:
+            raise boxes.HarnessError(
+                f"{path}: engines.{kind} must be one of {', '.join(ENGINES)}, not {engine!r}"
+            )
+        table[kind.strip()] = engine
+    return table
 
 
 def _models(path: Path, raw: object) -> dict[str, ModelChoice]:
@@ -497,6 +567,29 @@ def model_for(config: ExecutorConfig, kind: str | None) -> tuple[ModelChoice | N
     return default, f"the profile's model: no entry for kind {kind}"
 
 
+def engine_for(config: ExecutorConfig, kind: str | None) -> tuple[str, str]:
+    """The engine this task runs under, and the reason the box chose it.
+
+    Like the model table: a kind with an entry takes it, a kind without uses the profile's
+    engine, and the reason travels into the record. The engine is never inferred from the
+    task's size or from its ``max_steps``: the task says how much work it wants to pay for,
+    the box says how much rope that kind of work gets.
+    """
+    if kind is not None and kind in config.engines:
+        return config.engines[kind], f"{config.engines[kind]}, declared for kind {kind}"
+    if kind is None:
+        return config.engine, f"{config.engine}, the profile's engine; the task declared no kind"
+    if config.engines:
+        return config.engine, f"{config.engine}, the profile's engine; no entry for kind {kind}"
+    return config.engine, f"{config.engine}, the profile's engine"
+
+
+def step_ceiling(task: TaskView, config: ExecutorConfig) -> int | None:
+    """How many calls this task may make: the lower of the task's ceiling and the box's."""
+    declared = [value for value in (task.max_steps, config.max_steps) if value is not None]
+    return min(declared) if declared else None
+
+
 def _environment(choice: ModelChoice | None) -> dict[str, str] | None:
     """The call's environment, with the entry's rate when the box declared one.
 
@@ -550,6 +643,12 @@ def describe(config: ExecutorConfig) -> str:
     bits: list[str] = []
     if config.model is not None:
         bits.append(f"model {config.model}")
+    bits.append(f"engine {config.engine}")
+    if config.engines:
+        per_kind = ", ".join(
+            f"{kind} → {engine}" for kind, engine in sorted(config.engines.items())
+        )
+        bits.append(f"engines by kind: {per_kind}")
     if config.models:
         per_kind = ", ".join(
             f"{kind} → {choice.model}"
@@ -560,7 +659,7 @@ def describe(config: ExecutorConfig) -> str:
             )
             for kind, choice in sorted(config.models.items())
         )
-        bits.append(f"by kind: {per_kind}")
+        bits.append(f"models by kind: {per_kind}")
     bits.append(f"max {config.max_seconds} s")
     if config.max_cents is not None:
         bits.append(f"{config.max_cents:g} cents")
@@ -578,17 +677,26 @@ def propose(
     previous: dict[str, object] | None = None,
     shape: Shape | None = None,
     budget_cents: float | None = None,
+    turn: int | None = None,
+    turns: tuple[dict[str, object], ...] = (),
+    engine: str | None = None,
+    engine_choice: str | None = None,
 ) -> Proposal:
     """Ask the declared command for a change, and record the answer with its price.
 
     ``budget_cents`` is what is left of the task's total: a call may spend no more than the
     task has remaining, whatever the box and the shape would otherwise allow. The record keeps
     the ceiling the call was given, so "it cost 0.6 of 1.4 left" is a fact after the run.
+
+    ``turn`` and ``turns`` are the step's place and the facts of the steps before it. A one-shot
+    call is turn 1 with nothing before it; a step gets the same facts a retry does, plus what
+    the visible check said after each applied step, so it answers what happened, not what it
+    imagined.
     """
     if config.command is None:
         raise boxes.HarnessError("the box declares no executor: there is nothing to ask")
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
-    number = _next_number(box.root, task.id)
+    number = next_number(box.root, task.id)
     directory = box.root / "tabularium" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
@@ -601,7 +709,22 @@ def propose(
     chosen, reason = model_for(config, task.kind)
     model = chosen.model if chosen is not None else None
     request = _request(
-        task, box, directory, number, model, seconds, cents, context, previous, read_chars, shape
+        task,
+        box,
+        directory,
+        number,
+        model,
+        seconds,
+        cents,
+        context,
+        previous,
+        read_chars,
+        shape,
+        turn=turn,
+        turns=turns,
+        ceiling=step_ceiling(task, config),
+        engine=engine,
+        engine_choice=engine_choice,
     )
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -634,6 +757,8 @@ def propose(
             stamp,
             [],
             choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
         )
     except (OSError, subprocess.SubprocessError) as error:
         _write_call(directory, "", "")
@@ -649,11 +774,13 @@ def propose(
             stamp,
             [],
             choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
         )
     elapsed = time.monotonic() - started
     _write_call(directory, done.stdout, done.stderr)
     try:
-        patch, usage, answer_model, answer_notes, reading, truncated = _read_answer(
+        patch, usage, answer_model, answer_notes, reading, truncated, declared_done = _read_answer(
             done, directory, elapsed, model
         )
     except _Malformed as error:
@@ -669,6 +796,8 @@ def propose(
             stamp,
             [],
             choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
         )
     notes = list(answer_notes)
     if model is not None and reason is not None:
@@ -693,6 +822,26 @@ def propose(
             stamp,
             notes,
             choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
+        )
+    if declared_done:
+        return _record(
+            directory,
+            task,
+            number,
+            "done",
+            "the executor declared the change done",
+            None,
+            usage,
+            answer_model,
+            stamp,
+            notes,
+            reading=reading,
+            choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
+            done=True,
         )
     if truncated:
         return _record(
@@ -709,6 +858,8 @@ def propose(
             notes,
             reading=reading,
             choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
         )
     if cents is not None and usage is not None and usage.cost_cents is not None:
         if usage.cost_cents > cents:
@@ -725,6 +876,8 @@ def propose(
                 stamp,
                 notes,
                 choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
             )
     elif usage is not None and usage.cost_cents is None and cents is not None:
         notes.append(
@@ -778,6 +931,48 @@ def previous_lines(previous: object) -> list[str]:
     return lines
 
 
+def turn_lines(turn: object, turns: object, ceiling: object = None) -> list[str]:
+    """The steps before this one as lines for the prompt: the change's own short history.
+
+    A steps run is only worth paying for if the next answer can see what the last one did: the
+    gate's verdict on it, and the words of the visible check. These are the box's facts, never
+    a retelling, and a step that was refused says so — otherwise the model repeats a change the
+    gate already turned down. A run with no steps before it renders nothing.
+    """
+    if not isinstance(turns, list) or not turns:
+        return []
+    heading = "THE STEPS BEFORE THIS ONE."
+    if isinstance(turn, int) and isinstance(ceiling, int):
+        heading = f"STEP {turn} OF AT MOST {ceiling}. THE STEPS BEFORE THIS ONE."
+    lines = [heading, "Each line is what the box did with an answer, not what was intended:"]
+    for item in turns:
+        if not isinstance(item, dict):
+            continue
+        number = item.get("turn")
+        label = f"- step {number}" if isinstance(number, int) else "- step"
+        status = item.get("status")
+        if status == "applied":
+            check = item.get("check")
+            if isinstance(check, dict) and check.get("status") == "passed":
+                lines.append(f"{label}: applied; the check you can see passed after it.")
+            elif isinstance(check, dict):
+                tail = str(check.get("tail") or "no output")
+                lines.append(f"{label}: applied; the check you can see still failed ({tail}).")
+            else:
+                lines.append(f"{label}: applied; the check you can see was not run.")
+        elif status == "refused":
+            reason = str(item.get("reason") or "no reason recorded")
+            lines.append(f"{label}: the write gate refused the change ({reason}).")
+        else:
+            reason = str(item.get("reason") or "no reason recorded")
+            lines.append(f"{label}: {status or 'no result'} ({reason}).")
+    lines.append(
+        "Propose the next change against the tree as it is now. If the work is finished, answer "
+        "with one line: DONE."
+    )
+    return lines
+
+
 def _request(
     task: TaskView,
     box: boxes.Box,
@@ -790,11 +985,25 @@ def _request(
     previous: dict[str, object] | None = None,
     read_chars: int | None = None,
     shape: Shape | None = None,
+    *,
+    turn: int | None = None,
+    turns: tuple[dict[str, object], ...] = (),
+    ceiling: int | None = None,
+    engine: str | None = None,
+    engine_choice: str | None = None,
 ) -> dict[str, object]:
-    """The task as the command receives it: declared facts, paths, the limits, and context."""
+    """The task as the command receives it: declared facts, paths, the limits, and context.
+
+    ``turn`` is the call's place in the task (the one-shot call is turn 1), and ``turns`` the
+    steps that came before it: what the gate did with each answer and what the visible check
+    said. Both are facts from the box's records, so the model sees what happened, not a
+    paraphrase of it.
+    """
     return {
         "schema_version": SCHEMA_VERSION,
         "attempt": number,
+        "turn": number if turn is None else turn,
+        "turns": list(turns),
         "task": {
             "id": task.id,
             "goal": task.goal,
@@ -806,11 +1015,14 @@ def _request(
             "self_check": list(task.self_check),
             "forbidden": list(task.forbidden),
             "budget": dict(task.budget),
+            "max_steps": task.max_steps,
         },
         "project": {"path": str(box.project)},
         "box": {"name": box.name, "root": str(box.root)},
         "record": {"directory": str(directory)},
         "model": model,
+        "engine": engine,
+        "engine_choice": engine_choice,
         "context": context,
         "previous": previous,
         "limits": {
@@ -818,6 +1030,7 @@ def _request(
             "max_cents": cents,
             "max_read_chars": read_chars,
             "max_answer_tokens": None if shape is None else shape.max_answer_tokens,
+            "max_steps": ceiling,
         },
     }
 
@@ -827,8 +1040,13 @@ def _read_answer(
     directory: Path,
     elapsed: float,
     model: str | None,
-) -> tuple[Path, Usage, str | None, tuple[str, ...], dict[str, object] | None, bool]:
-    """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore."""
+) -> tuple[Path | None, Usage, str | None, tuple[str, ...], dict[str, object] | None, bool, bool]:
+    """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore.
+
+    The last two flags are ``truncated`` and ``done``: an answer cut at the cap is not a change,
+    and an answer that says "the work is finished" carries no diff by design. A caller that
+    wants one and gets the other records it instead of guessing which was meant.
+    """
     text = done.stdout.strip()
     if not text:
         raise _Malformed(
@@ -855,6 +1073,18 @@ def _read_answer(
     if done.returncode != 0:
         detail = (done.stderr.strip().splitlines() or ["no message"])[-1]
         raise _Malformed(f"the executor exited {done.returncode}: {detail}")
+    declared_done = data.get("done", False)
+    if not isinstance(declared_done, bool):
+        raise _Malformed("the executor's answer: done must be true or false")
+    if declared_done:
+        if data.get("patch") is not None or data.get("patch_file") is not None:
+            raise _Malformed(
+                "the executor's answer says done and carries a patch: one of the two"
+            )
+        usage = _usage(data.get("usage"), elapsed, answer_model)
+        return None, usage, answer_model, _notes(data.get("notes")), _reading(
+            data.get("reading")
+        ), bool(data.get("truncated", False)), True
     patch = _patch_file(data, directory)
     usage = _usage(data.get("usage"), elapsed, answer_model)
     notes = _notes(data.get("notes"))
@@ -862,7 +1092,7 @@ def _read_answer(
     truncated = data.get("truncated", False)
     if not isinstance(truncated, bool):
         raise _Malformed("the executor's answer: truncated must be true or false")
-    return patch, usage, answer_model, notes, reading, truncated
+    return patch, usage, answer_model, notes, reading, truncated, False
 
 
 def _reading(raw: object) -> dict[str, object] | None:
@@ -988,6 +1218,9 @@ def _record(
     *,
     reading: dict[str, object] | None = None,
     choice: str | None = None,
+    done: bool = False,
+    engine: str | None = None,
+    engine_choice: str | None = None,
 ) -> Proposal:
     """Every outcome gets a record: a failed call is part of the task's history too."""
     digest = hashlib.sha256(patch.read_bytes()).hexdigest() if patch is not None else None
@@ -1011,6 +1244,9 @@ def _record(
         "patch": None if digest is None else {"file": "change.diff", "digest": f"sha256:{digest}"},
         "notes": notes,
         "reading": reading,
+        "done": done,
+        "engine": engine,
+        "engine_choice": engine_choice,
     }
     (directory / "proposal.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return Proposal(
@@ -1024,10 +1260,13 @@ def _record(
         notes=tuple(notes),
         reading=reading,
         model_choice=choice,
+        done=done,
+        engine=engine,
+        engine_choice=engine_choice,
     )
 
 
-def _next_number(box_root: Path, task: str) -> int:
+def next_number(box_root: Path, task: str) -> int:
     base = box_root / "tabularium" / task
     if not base.is_dir():
         return 1

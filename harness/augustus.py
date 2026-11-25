@@ -61,6 +61,14 @@ SNAPSHOT_FILE = "task.json"
 SELF_CHECK_FILE = "self-check.json"
 """The visible check's result, written beside the attempt it judged: two of them are compared."""
 
+STEP_FILE = "step.json"
+"""One call of a steps run, written beside its proposal: the gate's answer and the check's words.
+
+The step file is how a resumed loop knows what happened before it: the facts are read from the
+records each time instead of carried in memory, so a run that died mid-loop continues from the
+same history it would have had.
+"""
+
 DEFAULT_ROUTES: dict[str, tuple[str, ...]] = {
     "docs": ("verify",),
     "hotfix": ("run", "verify"),
@@ -187,8 +195,38 @@ class Dispatch:
     answer to the words it was given.
     """
 
+    engine: str = "one-shot"
+    """Which engine ran the task: the box's table decided, and the record must name it."""
+
+    steps: tuple[dict[str, object], ...] = ()
+    """The calls of a steps run: what each answer was and what the box did with it.
+
+    A one-shot run has no steps: its single call is already the proposal and the attempt. A
+    steps run keeps the short history here so the acta can say "three steps, two applied, one
+    refused" without opening every attempt.
+    """
+
     timings: dict[str, float] = field(default_factory=dict)
     """Wall time in seconds per stage and in total, measured around the work, not guessed."""
+
+
+@dataclass(frozen=True, slots=True)
+class StepsRun:
+    """What a loop of calls produced: the steps, the last answer, and why the loop ended.
+
+    ``stop`` is a refusal to pay for another call (budget, calls, no progress); ``terminal`` is
+    an answer the loop will not ask past (an unapproved write, a failed call, a wrong shape).
+    They are different facts: a stop is the box's decision about money, a terminal is the
+    executor's own dead end.
+    """
+
+    proposal: executor.Proposal | None = None
+    attempts: tuple[caesar.Attempt, ...] = ()
+    self_check: dict[str, object] | None = None
+    steps: tuple[dict[str, object], ...] = ()
+    stop: str | None = None
+    repeated: str | None = None
+    terminal: str | None = None
 
 
 def record_addresses(raw: object, where: str) -> tuple[str, ...]:
@@ -388,6 +426,321 @@ def refusal(
     return None
 
 
+def _step_history(directory: Path) -> tuple[dict[str, object], ...]:
+    """The calls already made, as the box recorded them: the history a loop starts from.
+
+    Rebuilt from the proposal directories on every run rather than carried in memory, so a
+    loop that died and came back sees the same steps it would have seen. A proposal with no
+    step file is a call whose answer was never gated: it is named as unsettled, not as a step.
+    """
+    if not directory.is_dir():
+        return ()
+    after = _retry_after(directory)
+    found: list[tuple[int, dict[str, object]]] = []
+    for child in directory.iterdir():
+        if not child.is_dir() or not child.name.startswith("proposal-"):
+            continue
+        number = child.name.removeprefix("proposal-")
+        if not number.isdigit():
+            continue
+        if after is not None and int(number) <= after:
+            continue
+        step = child / STEP_FILE
+        if step.is_file():
+            found.append((int(number), _read_json(step)))
+            continue
+        record = child / "proposal.json"
+        if not record.is_file():
+            continue
+        data = _read_json(record)
+        found.append(
+            (
+                int(number),
+                {
+                    "turn": int(number),
+                    "status": "unsettled",
+                    "reason": (
+                        "the call was recorded and its answer never reached the gate "
+                        f"({data.get('status') or 'no status'})"
+                    ),
+                },
+            )
+        )
+    found.sort(key=lambda pair: pair[0])
+    return tuple(item for _, item in found)
+
+
+def _write_step(directory: Path, proposal: executor.Proposal, step: dict[str, object]) -> None:
+    """One step beside the call that made it: the record the next step and the acta read."""
+    (directory / f"proposal-{proposal.number}" / STEP_FILE).write_text(
+        json.dumps(step, indent=2) + "\n", encoding="utf-8"
+    )
+
+
+def _last_applied_digest(directory: Path) -> str | None:
+    """The digest of the change already in the tree, when the gate applied one."""
+    if not directory.is_dir():
+        return None
+    after = _retry_after(directory)
+    numbers = sorted(
+        (
+            child
+            for child in directory.iterdir()
+            if child.is_dir()
+            and child.name.isdigit()
+            and (after is None or int(child.name) > after)
+        ),
+        key=lambda child: int(child.name),
+        reverse=True,
+    )
+    for child in numbers:
+        record = child / "attempt.json"
+        if not record.is_file():
+            continue
+        data = _read_json(record)
+        if data.get("status") != "applied":
+            return None
+        patch = data.get("patch")
+        digest = patch.get("digest") if isinstance(patch, dict) else None
+        return digest.removeprefix("sha256:") if isinstance(digest, str) else None
+    return None
+
+
+def _retry_after(directory: Path) -> int | None:
+    """The number after which attempts belong to the current run, not to a reverted draft."""
+    record = directory / "reverted.json"
+    if not record.is_file():
+        return None
+    data = _read_json(record)
+    numbers = data.get("attempts")
+    if not isinstance(numbers, list):
+        return None
+    counted = [item for item in numbers if isinstance(item, int) and not isinstance(item, bool)]
+    return max(counted) if counted else None
+
+
+def _applied_attempts(directory: Path) -> tuple[caesar.Attempt, ...]:
+    """The applied changes still in the tree, in the order the gate made them.
+
+    A retry reverts the draft and writes ``reverted.json``; attempts at or below that number
+    are no longer in the tree and must not be committed or verified. Everything above it is
+    what the current tree holds, whatever dispatch applied it.
+    """
+    if not directory.is_dir():
+        return ()
+    after = _retry_after(directory)
+    found: list[caesar.Attempt] = []
+    for child in sorted(
+        (item for item in directory.iterdir() if item.is_dir() and item.name.isdigit()),
+        key=lambda item: int(item.name),
+    ):
+        number = int(child.name)
+        if after is not None and number <= after:
+            continue
+        record = child / "attempt.json"
+        if not record.is_file():
+            continue
+        data = _read_json(record)
+        if data.get("status") != "applied":
+            continue
+        paths = data.get("paths")
+        patch = data.get("patch")
+        found.append(
+            caesar.Attempt(
+                task=str(data.get("task") or ""),
+                number=number,
+                status="applied",
+                reason=str(data.get("reason") or ""),
+                paths=tuple(str(item) for item in paths) if isinstance(paths, list) else (),
+                directory=child,
+                patch_digest=(
+                    str(patch.get("digest") or "").removeprefix("sha256:")
+                    if isinstance(patch, dict)
+                    else ""
+                ),
+            )
+        )
+    return tuple(found)
+
+
+def _accumulated_change(directory: Path, attempts: tuple[caesar.Attempt, ...]) -> Path | None:
+    """The change the verdict is about: every step's diff in the order they were applied.
+
+    The reader reads one change, and in a steps run the change is the series. Concatenating
+    the diffs in order is the same change git will build the commit from; one step needs no
+    new file, the attempt's own diff is already the change.
+    """
+    if not attempts:
+        return None
+    if len(attempts) == 1:
+        return attempts[0].directory / "change.diff"
+    target = attempts[-1].directory / "change.accumulated.diff"
+    parts = [(item.directory / "change.diff").read_text(encoding="utf-8") for item in attempts]
+    target.write_text("".join(parts), encoding="utf-8")
+    return target
+
+
+def _run_steps(
+    box: boxes.Box,
+    task: Task,
+    config: executor.ExecutorConfig,
+    *,
+    shape: executor.Shape | None,
+    context: dict[str, object] | None,
+    engine_reason: str,
+    contract_path: Path,
+    trajan_root: Path,
+    trajan_python: Path,
+    directory: Path,
+    when: datetime,
+    previous: dict[str, object] | None,
+    notes: list[str],
+) -> StepsRun:
+    """Ask, gate, check, read the check, ask again — until a stop, a dead end, or a pass.
+
+    Every answer goes through the same gate as a one-shot change: stepping is more rope, not a
+    second writer. The visible check runs on the tree after each applied step, and its words go
+    into the next request; the hidden check (``repro``) never does, and it is still the verdict.
+
+    The loop ends on the facts in its own records: a call ceiling, the task's remaining money,
+    two applied attempts that failed the visible check the same way, or an answer the box will
+    not ask past (no change, the wrong shape, a direct write). None of them is a verdict.
+    """
+    steps = list(_step_history(directory))
+    applied: list[caesar.Attempt] = []
+    last: executor.Proposal | None = None
+    last_check: dict[str, object] | None = None
+    stop: str | None = None
+    repeated: str | None = None
+    terminal: str | None = None
+    while True:
+        guard = _guard(box, task, config, directory)
+        if guard.stop is not None:
+            stop = guard.stop
+            notes.append(guard.stop)
+            break
+        turn = executor.next_number(box.root, task.id)
+        proposal = executor.propose(
+            config,
+            task,
+            box,
+            when=when,
+            context=context,
+            shape=shape,
+            budget_cents=guard.cents,
+            previous=previous,
+            turn=turn,
+            turns=tuple(steps),
+            engine="steps",
+            engine_choice=engine_reason,
+        )
+        last = proposal
+        notes.extend(proposal.notes)
+        _event(box.root, when, "task.executed", task, proposal.line, proposal.data())
+        if proposal.done:
+            step = {"turn": turn, "status": "done", "reason": proposal.reason}
+            _write_step(directory, proposal, step)
+            steps.append(step)
+            notes.append(
+                f"step {turn}: the executor declared the work done; the loop ended there and "
+                "the box's own check still decides"
+            )
+            break
+        if not proposal.usable:
+            step = {"turn": turn, "status": proposal.status, "reason": proposal.reason}
+            _write_step(directory, proposal, step)
+            steps.append(step)
+            terminal = f"step {turn} produced no usable change: {proposal.reason}"
+            notes.append(terminal)
+            break
+        if proposal.patch is not None:
+            problem = None if shape is None else _shape_problem(shape, proposal.patch)
+            if problem is not None:
+                step = {"turn": turn, "status": "out-of-shape", "reason": problem}
+                _write_step(directory, proposal, step)
+                steps.append(step)
+                terminal = f"step {turn}: {problem}"
+                notes.append(terminal)
+                break
+            digest = _proposal_digest(box.project, proposal.patch)
+            prior = _last_applied_digest(directory)
+            if prior is not None and digest == prior:
+                repeated = digest
+                step = {
+                    "turn": turn,
+                    "status": "repeated",
+                    "reason": "the change is already in the tree: it was not applied again",
+                }
+                _write_step(directory, proposal, step)
+                steps.append(step)
+                notes.append(
+                    f"step {turn}: the executor proposed the change already applied: the loop "
+                    "stopped, because the same answer cannot move the tree"
+                )
+                break
+        assert proposal.patch is not None
+        attempt = caesar.run_attempt(
+            box.root, box.project, caesar.read_contract(contract_path), proposal.patch, when=when
+        )
+        if not attempt.applied:
+            detail = (
+                "; ".join(f"{item.code}: {item.detail}" for item in attempt.violations)
+                or attempt.reason
+            )
+            step = {
+                "turn": turn,
+                "status": "refused",
+                "attempt": attempt.number,
+                "reason": detail,
+            }
+            _write_step(directory, proposal, step)
+            steps.append(step)
+            notes.append(f"step {turn}: the write gate refused the change: {detail}")
+            continue
+        check: dict[str, object] | None = None
+        if task.self_check:
+            code, tail = contour.run_repro(
+                box.project, task.self_check, root=trajan_root, python=trajan_python
+            )
+            check = {"status": "passed" if code == 0 else "failed", "exit_code": code, "tail": tail}
+            (attempt.directory / SELF_CHECK_FILE).write_text(
+                json.dumps(check, indent=2) + "\n", encoding="utf-8"
+            )
+            notes.append(
+                f"step {turn}: applied; the check the task shows the model: {check['status']} "
+                f"({tail})"
+            )
+        else:
+            notes.append(f"step {turn}: applied; the task names no visible check")
+        step = {
+            "turn": turn,
+            "status": "applied",
+            "attempt": attempt.number,
+            "check": check,
+            "seconds": None if proposal.usage is None else proposal.usage.seconds,
+            "gate_seconds": attempt.seconds,
+        }
+        _write_step(directory, proposal, step)
+        steps.append(step)
+        applied.append(attempt)
+        last_check = check
+        if check is not None and check["status"] == "passed":
+            notes.append(
+                f"step {turn}: the visible check passed; the loop ends and the box's own check "
+                "decides"
+            )
+            break
+    return StepsRun(
+        proposal=last,
+        attempts=tuple(applied),
+        self_check=last_check,
+        steps=tuple(steps),
+        stop=stop,
+        repeated=repeated,
+        terminal=terminal,
+    )
+
+
 def dispatch(
     box: boxes.Box,
     task: Task,
@@ -405,6 +758,7 @@ def dispatch(
     driven: bool = False,
     previous: dict[str, object] | None = None,
     notes_prefix: tuple[str, ...] = (),
+    continuing: bool = False,
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -419,6 +773,10 @@ def dispatch(
     ``no_repeat`` is the digest of the change the previous attempt tried: a retry that proposes
     exactly it again is recorded and not applied, because paying twice for the same answer is
     how a retry turns into a loop.
+
+    ``continuing`` is a steps run that stopped before a verdict and is now allowed to go on: the
+    tree already holds the steps it paid for, so the reproduction is not read as "no defect"
+    when it passes, and the loop picks up from the records instead of starting over.
     """
     began = time.monotonic()
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
@@ -450,10 +808,16 @@ def dispatch(
     stages, extended = _with_write_gate(route(task, routes), task)
     notes: list[str] = list(notes_prefix)
     if resumed_from is not None:
-        notes.append(
-            f"continued after {_relative(resumed_from, box.root)}: the change was asked for "
-            "again, from the frozen task, because the recorded attempt was not accepted"
-        )
+        if continuing:
+            notes.append(
+                f"continued after {_relative(resumed_from, box.root)}: the steps already applied "
+                "are kept, and the loop goes on from the records instead of starting over"
+            )
+        else:
+            notes.append(
+                f"continued after {_relative(resumed_from, box.root)}: the change was asked for "
+                "again, from the frozen task, because the recorded attempt was not accepted"
+            )
     task = _snapshot(box, task, stamp)
     if extended:
         notes.append(
@@ -503,6 +867,12 @@ def dispatch(
     own_check: dict[str, object] | None = None
     shape: executor.Shape | None = None
     shape_record: dict[str, object] | None = None
+    engine_name = "one-shot"
+    changed_paths: tuple[str, ...] | None = None
+    steps: tuple[dict[str, object], ...] = ()
+    applied: tuple[caesar.Attempt, ...] = ()
+    loop_stop: str | None = None
+    repeated: str | None = None
     if "run" in stages:
         patch = task.change
         if patch is None:
@@ -552,22 +922,27 @@ def dispatch(
                         else f", {shape.max_cents:g} cents"
                     )
                 )
-                guard = _guard(box, task, config, directory)
-                if guard.stop is not None:
-                    notes.append(guard.stop)
+                engine_name, engine_reason = executor.engine_for(config, task.kind)
+                notes.append(f"engine: {engine_reason}")
+                if engine_name == "steps" and executor.step_ceiling(task, config) is None:
+                    notes.append(
+                        "the box routes this kind through steps, and no call ceiling is declared "
+                        "(max_steps in the task or the profile): a loop without a cap is not "
+                        "allowed, so nothing was asked"
+                    )
                     return _finish(
                         box,
                         task,
                         Dispatch(
                             task=task,
-                            state="stopped",
+                            state="refused",
                             stages=stages,
                             arch=arch,
                             directory=directory,
                             notes=notes,
-                            exit_code=2,
+                            exit_code=1,
                             resumed_from=resumed_from,
-                            stop_reason=guard.stop,
+                            engine=engine_name,
                         ),
                         stamp,
                         began,
@@ -578,10 +953,65 @@ def dispatch(
                         box.project, task.repro, root=trajan_root, python=trajan_python
                     )
                     if code == 0:
+                        if continuing:
+                            notes.append(
+                                "the reproduction passes before this call: the tree already "
+                                "holds the steps the task paid for, so it is not a task without "
+                                "a defect"
+                            )
+                        else:
+                            notes.append(
+                                "the reproduction already passes before any change: the task does "
+                                "not describe a live defect, so nothing was written"
+                            )
+                            return _finish(
+                                box,
+                                task,
+                                Dispatch(
+                                    task=task,
+                                    state="returned",
+                                    stages=stages,
+                                    arch=arch,
+                                    directory=directory,
+                                    notes=notes,
+                                    exit_code=1,
+                                    resumed_from=resumed_from,
+                                ),
+                                stamp,
+                                began,
+                                rail=rail,
+                            )
+                    else:
                         notes.append(
-                            "the reproduction already passes before any change: the task does "
-                            "not describe a live defect, so nothing was written"
+                            f"the reproduction failed before the change as it should: {tail}"
                         )
+                pack = context_pack.build(
+                    box, task.id, task.paths, when=stamp, named=task.records
+                )
+                context_pack.write(pack)
+                notes.append(f"context: {context_pack.line(pack)}")
+                if engine_name == "steps":
+                    run = _run_steps(
+                        box,
+                        task,
+                        config,
+                        shape=shape,
+                        context=context_pack.payload(pack),
+                        engine_reason=engine_reason,
+                        contract_path=contract_path,
+                        trajan_root=trajan_root,
+                        trajan_python=trajan_python,
+                        directory=directory,
+                        when=stamp,
+                        previous=previous,
+                        notes=notes,
+                    )
+                    proposal = run.proposal
+                    steps = run.steps
+                    loop_stop = run.stop
+                    repeated = run.repeated
+                    applied = _applied_attempts(directory)
+                    if run.proposal is not None and run.proposal.status == "unapproved-write":
                         return _finish(
                             box,
                             task,
@@ -593,56 +1023,109 @@ def dispatch(
                                 directory=directory,
                                 notes=notes,
                                 exit_code=1,
+                                proposal=run.proposal,
                                 resumed_from=resumed_from,
+                                context=pack,
+                                engine=engine_name,
+                                steps=steps,
                             ),
                             stamp,
                             began,
                             rail=rail,
                         )
-                    notes.append(f"the reproduction failed before the change as it should: {tail}")
-                pack = context_pack.build(
-                    box, task.id, task.paths, when=stamp, named=task.records
-                )
-                context_pack.write(pack)
-                notes.append(f"context: {context_pack.line(pack)}")
-                proposal = executor.propose(
-                    config,
-                    task,
-                    box,
-                    when=stamp,
-                    context=context_pack.payload(pack),
-                    previous=previous,
-                    shape=shape,
-                    budget_cents=guard.cents,
-                )
-                notes.extend(proposal.notes)
-                _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
-                if not proposal.usable:
-                    notes.append(f"the executor did not produce a usable change: {proposal.reason}")
-                    return _finish(
-                        box,
-                        task,
-                        Dispatch(
-                            task=task,
-                            state="returned",
-                            stages=stages,
-                            arch=arch,
-                            directory=directory,
-                            notes=notes,
-                            exit_code=1,
-                            proposal=proposal,
-                            resumed_from=resumed_from,
-                            context=pack,
-                            shape=shape_record,
-                        ),
-                        stamp,
-                        began,
-                        rail=rail,
+                    if not applied:
+                        if loop_stop is not None:
+                            return _finish(
+                                box,
+                                task,
+                                Dispatch(
+                                    task=task,
+                                    state="stopped",
+                                    stages=stages,
+                                    arch=arch,
+                                    directory=directory,
+                                    notes=notes,
+                                    exit_code=2,
+                                    proposal=run.proposal,
+                                    resumed_from=resumed_from,
+                                    context=pack,
+                                    stop_reason=loop_stop,
+                                    engine=engine_name,
+                                    steps=steps,
+                                    shape=shape_record,
+                                ),
+                                stamp,
+                                began,
+                                rail=rail,
+                            )
+                        return _finish(
+                            box,
+                            task,
+                            Dispatch(
+                                task=task,
+                                state="returned",
+                                stages=stages,
+                                arch=arch,
+                                directory=directory,
+                                notes=notes,
+                                exit_code=1,
+                                proposal=run.proposal,
+                                resumed_from=resumed_from,
+                                context=pack,
+                                engine=engine_name,
+                                steps=steps,
+                                shape=shape_record,
+                            ),
+                            stamp,
+                            began,
+                            rail=rail,
+                        )
+                    attempt = applied[-1]
+                    own_check = run.self_check
+                    change = _accumulated_change(directory, applied) or (
+                        attempt.directory / "change.diff"
                     )
-                if shape is not None and proposal.patch is not None:
-                    problem = _shape_problem(shape, proposal.patch)
-                    if problem is not None:
-                        notes.append(problem)
+                else:
+                    guard = _guard(box, task, config, directory)
+                    if guard.stop is not None:
+                        notes.append(guard.stop)
+                        return _finish(
+                            box,
+                            task,
+                            Dispatch(
+                                task=task,
+                                state="stopped",
+                                stages=stages,
+                                arch=arch,
+                                directory=directory,
+                                notes=notes,
+                                exit_code=2,
+                                resumed_from=resumed_from,
+                                stop_reason=guard.stop,
+                                engine=engine_name,
+                            ),
+                            stamp,
+                            began,
+                            rail=rail,
+                        )
+                    proposal = executor.propose(
+                        config,
+                        task,
+                        box,
+                        when=stamp,
+                        context=context_pack.payload(pack),
+                        previous=previous,
+                        shape=shape,
+                        budget_cents=guard.cents,
+                        engine=engine_name,
+                        engine_choice=engine_reason,
+                    )
+                    notes.extend(proposal.notes)
+                    _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
+                    if not proposal.usable:
+                        notes.append(
+                            f"the executor did not produce a usable change: {proposal.reason}"
+                        )
                         return _finish(
                             box,
                             task,
@@ -658,40 +1141,69 @@ def dispatch(
                                 resumed_from=resumed_from,
                                 context=pack,
                                 shape=shape_record,
+                                engine=engine_name,
                             ),
                             stamp,
                             began,
                             rail=rail,
                         )
-                if no_repeat is not None and proposal.patch is not None:
-                    digest = _proposal_digest(box.project, proposal.patch)
-                    if digest == no_repeat:
-                        notes.append(
-                            "the executor proposed the change that was already tried: it was "
-                            "not applied, because the same answer cannot become a different verdict"
-                        )
-                        return _finish(
-                            box,
-                            task,
-                            Dispatch(
-                                task=task,
-                                state="returned",
-                                stages=stages,
-                                arch=arch,
-                                directory=directory,
-                                notes=notes,
-                                exit_code=1,
-                                proposal=proposal,
-                                resumed_from=resumed_from,
-                                context=pack,
-                                repeated=digest,
-                            ),
-                            stamp,
-                            began,
-                            rail=rail,
-                        )
-                patch = proposal.patch
-        if patch is not None:
+                    if shape is not None and proposal.patch is not None:
+                        problem = _shape_problem(shape, proposal.patch)
+                        if problem is not None:
+                            notes.append(problem)
+                            return _finish(
+                                box,
+                                task,
+                                Dispatch(
+                                    task=task,
+                                    state="returned",
+                                    stages=stages,
+                                    arch=arch,
+                                    directory=directory,
+                                    notes=notes,
+                                    exit_code=1,
+                                    proposal=proposal,
+                                    resumed_from=resumed_from,
+                                    context=pack,
+                                    shape=shape_record,
+                                    engine=engine_name,
+                                ),
+                                stamp,
+                                began,
+                                rail=rail,
+                            )
+                    if no_repeat is not None and proposal.patch is not None:
+                        digest = _proposal_digest(box.project, proposal.patch)
+                        if digest == no_repeat:
+                            notes.append(
+                                "the executor proposed the change that was already tried: it was "
+                                "not applied, because the same answer cannot become a different "
+                                "verdict"
+                            )
+                            return _finish(
+                                box,
+                                task,
+                                Dispatch(
+                                    task=task,
+                                    state="returned",
+                                    stages=stages,
+                                    arch=arch,
+                                    directory=directory,
+                                    notes=notes,
+                                    exit_code=1,
+                                    proposal=proposal,
+                                    resumed_from=resumed_from,
+                                    context=pack,
+                                    repeated=digest,
+                                    shape=shape_record,
+                                    engine=engine_name,
+                                ),
+                                stamp,
+                                began,
+                                rail=rail,
+                            )
+                    patch = proposal.patch
+        if patch is not None and not applied:
             contract = caesar.read_contract(contract_path)
             attempt = caesar.run_attempt(box.root, box.project, contract, patch, when=stamp)
             if not attempt.applied:
@@ -715,6 +1227,7 @@ def dispatch(
                         proposal=proposal,
                         resumed_from=resumed_from,
                         context=pack,
+                        engine=engine_name,
                     ),
                     stamp,
                     began,
@@ -738,6 +1251,10 @@ def dispatch(
                 notes.append(
                     f"the check the task shows the model: {own_check['status']} ({tail})"
                 )
+        if applied:
+            changed_paths = tuple(sorted({name for item in applied for name in item.paths})) or None
+        else:
+            changed_paths = attempt.paths if attempt is not None else None
 
     if "verify" in stages:
         reader, skipped = _reader_for(review, change, notes)
@@ -754,9 +1271,7 @@ def dispatch(
             trajan_python,
             reader,
             change,
-            paths=_verification_paths(
-                box, attempt.paths if attempt is not None else None, notes
-            ),
+            paths=_verification_paths(box, changed_paths, notes),
             repro=task.repro,
         )
         notes.extend(verify.reasons)
@@ -775,7 +1290,14 @@ def dispatch(
             "the answer was fitted to what it could see, not changed where the verdict looks"
         )
     made = _commit_after_verdict(
-        box, attempt, verify, state, contract_path, commit_requested, stamp
+        box,
+        attempt,
+        verify,
+        state,
+        contract_path,
+        commit_requested,
+        stamp,
+        attempts=applied or None,
     )
     if made is not None:
         notes.append(_commit_note(made))
@@ -800,6 +1322,10 @@ def dispatch(
             context=pack,
             self_check=own_check,
             shape=shape_record,
+            engine=engine_name,
+            steps=steps,
+            stop_reason=loop_stop,
+            repeated=repeated,
         ),
         stamp,
         began,
@@ -962,6 +1488,28 @@ def resume(
                 exit_code=0,
             )
 
+    engine, _ = executor.engine_for(config, task.kind)
+    if not retry and engine == "steps" and _steps_unfinished(directory, record):
+        if config.command is None:
+            raise boxes.HarnessError(
+                f"{task_id}: the box declares no executor, so there is nothing to ask again"
+            )
+        return dispatch(
+            box,
+            task,
+            routes=routes,
+            trajan_root=trajan_root,
+            trajan_python=trajan_python,
+            tool=tool,
+            when=stamp,
+            executor_config=config,
+            resumed_from=record[0] if record is not None else None,
+            notes_prefix=tuple(notes),
+            review=review,
+            commit_requested=commit_requested,
+            continuing=True,
+        )
+
     if retry:
         if config.command is None:
             raise boxes.HarnessError(
@@ -1088,7 +1636,14 @@ def resume(
     notes.extend(verify.reasons)
     state = _state(verify, None)
     made = _commit_after_verdict(
-        box, attempt, verify, state, contract_path, commit_requested, stamp
+        box,
+        attempt,
+        verify,
+        state,
+        contract_path,
+        commit_requested,
+        stamp,
+        attempts=_applied_attempts(directory) or None,
     )
     if made is not None:
         notes.append(_commit_note(made))
@@ -1114,6 +1669,34 @@ def resume(
         began,
         rail=rail,
     )
+
+
+def _steps_unfinished(
+    directory: Path, record: tuple[Path, dict[str, object]] | None
+) -> bool:
+    """Whether a steps run stopped with work left, so continuing means going on, not verifying.
+
+    A recorded stop (state ``stopped``) is the box refusing to pay for another call: the tree
+    has no applied step to judge, and continuing is only meaningful after the budget or the
+    call ceiling was raised. Without a record the artifacts speak: a last step whose visible
+    check failed, or one the gate refused, is a loop that had not finished; a passed check, a
+    "done", or an answer the box would not gate means the next thing is the verdict. An
+    unsettled proposal is deliberately not continued: its change is on disk, and applying it
+    is cheaper than asking for it again.
+    """
+    if record is not None:
+        return str(record[1].get("state")) == "stopped"
+    history = _step_history(directory)
+    if not history:
+        return False
+    last = history[-1]
+    status = last.get("status")
+    if status == "refused":
+        return True
+    if status != "applied":
+        return False
+    check = last.get("check")
+    return not (isinstance(check, dict) and check.get("status") == "passed")
 
 
 def _reader_for(
@@ -1244,6 +1827,7 @@ def _commit_after_verdict(
     contract_path: Path,
     requested: bool,
     when: datetime,
+    attempts: tuple[caesar.Attempt, ...] | None = None,
 ) -> caesar.Commit | None:
     """Only a settled green verdict turns the change into a commit; nothing else does.
 
@@ -1269,6 +1853,7 @@ def _commit_after_verdict(
         report=_relative(verify.report, box.root),
         box_root=box.root,
         when=when,
+        attempts=attempts,
     )
 
 
@@ -1640,33 +2225,66 @@ def previous_failure(
 
 
 def _revert_draft(box: boxes.Box, record: dict[str, object], notes: list[str]) -> None:
-    """Undo the draft a failed attempt left in the tree before the retry starts.
+    """Undo the draft a failed run left in the tree before the retry starts.
 
     A retry must begin on the tree the box accepted, not on top of the change it refused: the
     executor reads the files from disk, so the draft would be read as if it were the project.
+    A steps run has several drafts, and they are reverted last-first — the order they were
+    applied in, so each patch meets the tree it was made against. The numbers are written to
+    ``reverted.json``: a later commit or verification must not resurrect a draft that is gone.
     """
     attempt = record.get("attempt")
     if not isinstance(attempt, dict) or attempt.get("status") != "applied":
         return
     directory = attempt.get("directory")
-    patch = Path(directory) / "change.diff" if isinstance(directory, str) and directory else None
-    if patch is None or not patch.is_file():
+    base = Path(directory).parent if isinstance(directory, str) and directory else None
+    applied = _applied_attempts(base) if base is not None else ()
+    if base is None or not applied:
         return
-    if not caesar.contains(box.project, patch):
+    reverted: list[int] = []
+    for item in reversed(applied):
+        patch = item.directory / "change.diff"
+        if not patch.is_file():
+            raise boxes.HarnessError(
+                f"the draft of attempt {item.number} is gone ({patch}): a retry would judge a "
+                "tree that still holds part of the old run"
+            )
+        if not caesar.contains(box.project, patch):
+            raise boxes.HarnessError(
+                f"the draft of attempt {item.number} ({patch}) is no longer in the tree: a "
+                "retry would judge a tree that holds a mix of two runs"
+            )
+        done, detail = caesar.revert(box.project, patch)
+        if not done:
+            raise boxes.HarnessError(
+                f"the draft of attempt {item.number} ({patch}) cannot be reverted: {detail}; a "
+                "retry would judge a tree that holds two changes"
+            )
+        reverted.append(item.number)
+    if reverted:
+        turns = [
+            int(child.name.removeprefix("proposal-"))
+            for child in base.iterdir()
+            if child.is_dir()
+            and child.name.startswith("proposal-")
+            and child.name.removeprefix("proposal-").isdigit()
+        ]
+        (base / "reverted.json").write_text(
+            json.dumps({"attempts": reverted, "after_turn": max(turns, default=0)}, indent=2)
+            + "\n",
+            encoding="utf-8",
+        )
+    if len(reverted) == 1:
+        patch = applied[-1].directory / "change.diff"
         notes.append(
-            "the change of the last attempt is no longer in the tree: the retry starts from "
-            "what is there now"
+            f"the draft of the last attempt was reverted before the retry: "
+            f"{_relative(patch, box.root)}"
         )
-        return
-    done, detail = caesar.revert(box.project, patch)
-    if not done:
-        raise boxes.HarnessError(
-            f"the draft of the last attempt ({patch}) cannot be reverted: {detail}; a retry "
-            "would judge a tree that holds two changes"
+    else:
+        notes.append(
+            f"the draft of the last run was reverted before the retry: {len(reverted)} applied "
+            f"step(s), last first ({', '.join(str(item) for item in reverted)})"
         )
-    notes.append(
-        f"the draft of the last attempt was reverted before the retry: {_relative(patch, box.root)}"
-    )
 
 
 def _last_attempt(directory: Path) -> tuple[Path, dict[str, object]] | None:
@@ -1800,6 +2418,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"role       {result.task.role}",
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
         f"stages     {' -> '.join(result.stages) or 'none'}",
+        f"engine     {_engine_line(result)}",
         f"frame      {_frame_line(result.frame)}",
         f"rails      {_rails_line(result.rails)}",
         f"arch       {_arch_line(result.arch)}",
@@ -1833,6 +2452,8 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "role": result.task.role,
         "paths": list(result.task.paths),
         "stages": list(result.stages),
+        "engine": result.engine,
+        "steps": list(result.steps),
         "arch": None
         if result.arch is None
         else {"status": result.arch.status, "kept": result.arch.kept, "broken": result.arch.broken},
@@ -1980,6 +2601,8 @@ def _finish(
         stop_reason=result.stop_reason,
         self_check=result.self_check,
         shape=result.shape,
+        engine=result.engine,
+        steps=result.steps,
         timings=_timings(result, began),
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
@@ -2005,9 +2628,18 @@ def _timings(result: Dispatch, began: float) -> dict[str, float]:
     total = round(time.monotonic() - began, 2)
     timings: dict[str, float] = {}
     proposal = result.proposal
-    if proposal is not None and proposal.usage is not None and proposal.usage.seconds:
+    if result.steps:
+        # A steps run's timings are sums: the last call's seconds would name one step as if it
+        # were the work, and the acta would understate what the loop cost in wall time.
+        calls = sum(_seconds(step.get("seconds")) for step in result.steps)
+        gates = sum(_seconds(step.get("gate_seconds")) for step in result.steps)
+        if calls:
+            timings["executor"] = round(calls, 2)
+        if gates:
+            timings["gate"] = round(gates, 2)
+    elif proposal is not None and proposal.usage is not None and proposal.usage.seconds:
         timings["executor"] = round(proposal.usage.seconds, 2)
-    if result.attempt is not None and result.attempt.seconds:
+    if not result.steps and result.attempt is not None and result.attempt.seconds:
         timings["gate"] = round(result.attempt.seconds, 2)
     if result.verify is not None:
         timings["verify"] = round(result.verify.seconds, 2)
@@ -2017,6 +2649,10 @@ def _timings(result: Dispatch, began: float) -> dict[str, float]:
     known = sum(value for key, value in timings.items() if key != "total")
     timings["other"] = round(max(0.0, total - known), 2)
     return timings
+
+
+def _seconds(value: object) -> float:
+    return float(value) if isinstance(value, (int, float)) and not isinstance(value, bool) else 0.0
 
 
 def _time_line(result: Dispatch) -> str:
@@ -2051,6 +2687,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- frame: {_frame_line(result.frame)}",
         f"- rails: {_rails_line(result.rails)}",
         f"- architecture: {_arch_line(result.arch)}",
+        f"- engine: {_engine_line(result)}",
         f"- executor: {_executor_line(result.proposal)}",
         f"- context: {_context_line(result.context)}",
         f"- write gate: {_attempt_line(result.attempt)}",
@@ -2316,6 +2953,22 @@ def _arch_line(result: aurelius.Result | None) -> str:
     if result is None:
         return "not run"
     return f"{result.status} ({result.kept} kept, {result.broken} broken)"
+
+
+def _engine_line(result: Dispatch) -> str:
+    """The engine, and for a steps run what the steps came to: counts, not a story."""
+    if not result.steps:
+        return result.engine
+    applied = sum(1 for step in result.steps if step.get("status") == "applied")
+    refused = sum(1 for step in result.steps if step.get("status") == "refused")
+    bits = [f"{len(result.steps)} step(s)", f"{applied} applied"]
+    if refused:
+        bits.append(f"{refused} refused")
+    last = result.steps[-1]
+    check = last.get("check")
+    if isinstance(check, dict):
+        bits.append(f"last visible check {check.get('status')}")
+    return f"{result.engine} ({', '.join(bits)})"
 
 
 def _attempt_line(result: caesar.Attempt | None) -> str:
