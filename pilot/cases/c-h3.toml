@@ -1,0 +1,12 @@
+# Speed case: one file only, so the executor cannot lose the context of a second one.
+# Written before the run; expectation and price ceiling are part of the case.
+schema_version = 1
+id = "c-h3"
+goal = "Добавь в `harness/cli.py` флаг `--version`: `pantheon --version` печатает `pantheon <версия>` и выходит с кодом 0. Версию бери из `harness.__version__`."
+kind = "hotfix"
+paths = ["harness/cli.py"]
+expected = "`pantheon --version` печатает версию и код 0; линт, типы и тесты среды зелёные"
+
+[budget]
+max_cents = 2
+max_seconds = 120
