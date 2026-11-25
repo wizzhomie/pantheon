@@ -1,0 +1,25 @@
+# Case D3 — the same real defect as c-d1/c-d2, in the shape c-d2 pointed at: one file AND one edit
+# in a named place. c-d2 gave the best answer of the series (442 tokens, the right idea) and still
+# failed because it added a new helper and put it after the wrong neighbour. Here the task names
+# the function to change and says not to add new ones, so the only way to answer is to edit that
+# function in place — one hunk, no placement decision.
+#
+# Defect: pallets/click#2847, reproduced by hand at this commit: `_COMPLETE=bash_complete` on
+# `prog --color=a` returns `auto`, `always`; the shell replaces the whole word and `--color=`
+# disappears. The same Python path feeds bash and zsh.
+#
+# Prediction, recorded before the run: the box edits ShellComplete.get_completions in
+# src/click/shell_completion.py, re-attaches the prefix before "=" to every completion, the
+# 2 629-test suite stays green, verdict pass, under half a cent.
+schema_version = 1
+id = "c-d3"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается; при `prog --color=` — те же значения без префикса. Исправь это в существующей функции `ShellComplete.get_completions` в src/click/shell_completion.py: если в незавершённом слове есть «=» и оно начинается с опции, каждое предложенное значение должно нести часть до «=» включительно (и для пустого значения тоже); на словах без «=» и на голом «=» поведение не меняется. Новых функций не добавляй, других файлов не трогай, сигнатуры не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Дефект открыт в трекере (click#2847) и воспроизведён руками; правка целиком лежит в одной названной функции, поэтому нет ни выбора места, ни второго файла — ровно та форма, которую пользователь выбрал после c-d2."
