@@ -15,6 +15,7 @@ of this dispatch. The outbox says which of the two happened, because "nothing wa
 from __future__ import annotations
 
 import json
+import re
 import time
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -333,6 +334,7 @@ def dispatch(
     no_repeat: str | None = None,
     driven: bool = False,
     previous: dict[str, object] | None = None,
+    notes_prefix: tuple[str, ...] = (),
 ) -> Dispatch:
     """Run the task through its contours, write the record and the outbox summary.
 
@@ -376,11 +378,11 @@ def dispatch(
             rails=rail,
         )
     stages, extended = _with_write_gate(route(task, routes), task)
-    notes: list[str] = []
+    notes: list[str] = list(notes_prefix)
     if resumed_from is not None:
         notes.append(
             f"continued after {_relative(resumed_from, box.root)}: the change was asked for "
-            "again, from the frozen task, because the recorded attempt produced nothing usable"
+            "again, from the frozen task, because the recorded attempt was not accepted"
         )
     task = _snapshot(box, task, stamp)
     if extended:
@@ -772,6 +774,8 @@ def resume(
             raise boxes.HarnessError(
                 f"{task_id}: the box declares no executor, so there is nothing to ask again"
             )
+        if record is not None:
+            _revert_draft(box, record[1], notes)
         return dispatch(
             box,
             task,
@@ -782,6 +786,12 @@ def resume(
             when=stamp,
             executor_config=config,
             resumed_from=record[0] if record is not None else None,
+            previous=previous_failure(
+                record[1], attempts=len(list(directory.glob("dispatch-*.json")))
+            )
+            if record is not None
+            else None,
+            notes_prefix=tuple(notes),
             review=review,
             commit_requested=commit_requested,
         )
@@ -1180,6 +1190,132 @@ def _last_record(directory: Path) -> tuple[Path, dict[str, object]] | None:
     if not isinstance(data, dict):
         raise boxes.HarnessError(f"the newest dispatch record {newest} is not a JSON object")
     return newest, {str(key): value for key, value in data.items()}
+
+
+CHECK_HINT_LINES = 4
+"""A retry needs the sentence that failed, not the whole log it sat in."""
+CHECK_HINT_CHARS = 400
+_CHECK_HINT = re.compile(r"(?i)error|invalid|failed|failure|expected|assert|--> ")
+"""Lines that name what went wrong; a check's whole output would bury the reason in noise."""
+
+
+def check_tail(report: dict[str, object], item: dict[str, object]) -> str:
+    """The failing check's own words, from the report the box already wrote.
+
+    ``detail`` says only "exit 1, expected 0", which tells a retry that something is wrong but
+    not what: it would answer the counter instead of the failure. The check's output is in the
+    same report, so the retry is given the line that broke — never a summary invented here.
+    """
+    evidence = item.get("evidence")
+    name = evidence[0] if isinstance(evidence, list) and evidence else None
+    run = report.get("run")
+    checks = run.get("checks") if isinstance(run, dict) else None
+    if not isinstance(name, str) or not isinstance(checks, list):
+        return ""
+    for check in checks:
+        if not isinstance(check, dict) or check.get("check_id") != name:
+            continue
+        tail = check.get("output_tail")
+        if not isinstance(tail, str):
+            return ""
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        picked = [line for line in lines if _CHECK_HINT.search(line)][:CHECK_HINT_LINES]
+        text = " / ".join(picked or lines[:CHECK_HINT_LINES])
+        return text if len(text) <= CHECK_HINT_CHARS else text[: CHECK_HINT_CHARS - 1] + "…"
+    return ""
+
+
+def _report_at(value: object) -> dict[str, object] | None:
+    """A verify report by the path the record holds, or ``None``: a lost report is a gap."""
+    if not isinstance(value, str) or not value:
+        return None
+    try:
+        data = json.loads(Path(value).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def previous_failure(
+    record: dict[str, object], *, attempts: int | None = None
+) -> dict[str, object] | None:
+    """Why the last dispatch was not accepted, as facts for the next attempt.
+
+    A retry that repeats the same words without the verdict that refused them is blind: it can
+    only change something at random. The lines come from the box's own record — the verdict,
+    the failed checks with the line that broke, the findings — so the executor is told what
+    needs answering, not what someone thinks of it. A campaign step and a single task retry
+    answer to the same question, so they read the same record through this function.
+    """
+    checks: list[str] = []
+    findings: list[str] = []
+    verify = record.get("verify")
+    report = _report_at(verify.get("report")) if isinstance(verify, dict) else None
+    if report is not None:
+        items = report.get("findings")
+        if isinstance(items, list):
+            for item in items:
+                if not isinstance(item, dict) or item.get("status") == "false-positive":
+                    continue
+                title = str(item.get("title", ""))
+                if item.get("kind") == "check-failure":
+                    detail = check_tail(report, item) or str(item.get("detail", ""))
+                    checks.append(f"{title} ({detail})" if detail else title)
+                else:
+                    location = item.get("location")
+                    name = location.get("file") if isinstance(location, dict) else ""
+                    findings.append(f"{name}: {title}" if name else title)
+    reason = ""
+    executor_record = record.get("executor")
+    if isinstance(executor_record, dict) and executor_record.get("status") == "failed":
+        reason = str(executor_record.get("reason") or "")
+    if not reason:
+        recorded_notes = record.get("notes")
+        if isinstance(recorded_notes, list) and recorded_notes:
+            reason = str(recorded_notes[-1])
+    verdict = "no verdict"
+    if isinstance(verify, dict) and isinstance(verify.get("status"), str):
+        verdict = str(verify["status"])
+    elif record.get("state") == "closed":
+        verdict = "closed"
+    count = attempts if attempts is not None else record.get("attempts", "?")
+    return {
+        "verdict": verdict,
+        "attempts": count,
+        "reason": reason,
+        "checks": checks,
+        "findings": findings,
+    }
+
+
+def _revert_draft(box: boxes.Box, record: dict[str, object], notes: list[str]) -> None:
+    """Undo the draft a failed attempt left in the tree before the retry starts.
+
+    A retry must begin on the tree the box accepted, not on top of the change it refused: the
+    executor reads the files from disk, so the draft would be read as if it were the project.
+    """
+    attempt = record.get("attempt")
+    if not isinstance(attempt, dict) or attempt.get("status") != "applied":
+        return
+    directory = attempt.get("directory")
+    patch = Path(directory) / "change.diff" if isinstance(directory, str) and directory else None
+    if patch is None or not patch.is_file():
+        return
+    if not caesar.contains(box.project, patch):
+        notes.append(
+            "the change of the last attempt is no longer in the tree: the retry starts from "
+            "what is there now"
+        )
+        return
+    done, detail = caesar.revert(box.project, patch)
+    if not done:
+        raise boxes.HarnessError(
+            f"the draft of the last attempt ({patch}) cannot be reverted: {detail}; a retry "
+            "would judge a tree that holds two changes"
+        )
+    notes.append(
+        f"the draft of the last attempt was reverted before the retry: {_relative(patch, box.root)}"
+    )
 
 
 def _last_attempt(directory: Path) -> tuple[Path, dict[str, object]] | None:

@@ -386,3 +386,83 @@ def test_three_tasks_interrupted_in_different_ways_reach_the_same_verdict(
     got = verdict(project, box)
     assert got == clean("killed", TASK, good)
     assert got[:2] == ("closed", "pass")
+
+
+FAILING_CHECK = """\
+name = "probe"
+
+[[checks]]
+id = "smoke"
+argv = ["python", "check.py"]
+purpose = "the value the failed task asked for"
+"""
+
+
+def write_failing_check(project: Path) -> None:
+    """A check that fails on the changed value and says why, in its own words."""
+    (project / "check.py").write_text(
+        "import pathlib\n\n"
+        "text = pathlib.Path('src/app.py').read_text()\n"
+        "assert text == 'value = 1\\n', 'the prefix was empty'\n",
+        encoding="utf-8",
+    )
+    (project / ".trajan" / "policy.toml").write_text(FAILING_CHECK, encoding="utf-8")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "failing check")
+
+
+def write_recording_executor(tmp_path: Path) -> Path:
+    """An executor that answers with the same patch and keeps the request it was sent."""
+    script = tmp_path / "recording-executor.py"
+    script.write_text(
+        "#!/usr/bin/env python3\n"
+        "import json, os, sys\n"
+        "request = json.load(sys.stdin)\n"
+        'with open(os.environ["FAKE_EXECUTOR_REQUEST"], "w", encoding="utf-8") as dump:\n'
+        "    json.dump(request, dump)\n"
+        "print(json.dumps({\n"
+        f'    "patch": {json.dumps(PATCH)},\n'
+        '    "model": "fake-model",\n'
+        '    "usage": {"prompt_tokens": 100, "completion_tokens": 20, "cost_cents": 0.5},\n'
+        "}))\n",
+        encoding="utf-8",
+    )
+    script.chmod(0o755)
+    return script
+
+
+@requires_trajan
+def test_a_retry_is_told_what_the_failed_check_said(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The recorded reason reaches the next attempt, and the draft it produced is gone first.
+
+    A blind retry pays for a second guess: the pilot showed three of them changing something at
+    random. The failed check's own line is in the report the box already wrote, so the retry is
+    given it — and the tree it starts on is the one the box accepted, not the draft it refused.
+    """
+    project = make_project(tmp_path)
+    write_failing_check(project)
+    box = make_box(tmp_path, project)
+    write_profile(box, write_executor(tmp_path, name="first-executor.py"))
+    task = write_task(tmp_path, TASK)
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "state      returned" in out and (project / "src/app.py").read_text() == "value = 2\n"
+
+    dump = tmp_path / "request.json"
+    monkeypatch.setenv("FAKE_EXECUTOR_REQUEST", str(dump))
+    recorder = write_recording_executor(tmp_path)
+    assert resume(box, "--retry", "--executor", str(recorder)) == 1
+    capsys.readouterr()
+    request = json.loads(dump.read_text(encoding="utf-8"))
+    previous = request["previous"]
+    assert previous["verdict"] == "hold"
+    assert any("the prefix was empty" in item for item in previous["checks"]), previous
+
+    newest = json.loads(records(box)[-1].read_text(encoding="utf-8"))
+    assert "the draft of the last attempt was reverted before the retry" in " ".join(
+        newest["notes"]
+    )
+    assert newest["attempt"]["status"] == "applied", "the retry started on the accepted tree"
+    assert newest["verify"]["status"] == "hold", "the same patch still fails the check"

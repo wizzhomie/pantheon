@@ -16,7 +16,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import re
 import tomllib
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -550,10 +549,8 @@ def retry(box: boxes.Box, campaign: Campaign, step: Step, state: State | None) -
 def previous_failure(state: State | None, step: Step) -> dict[str, object] | None:
     """Why the last attempt was not accepted, as facts for the next one.
 
-    A retry that repeats the same words without the verdict that refused them is blind: it
-    can only change something at random. The lines come from the box's own record — the
-    verdict, the failed checks with the line that broke, the findings — so the executor is
-    told what needs answering, not what someone thinks of it.
+    The step's record and a single task's record say the same things, so the reading is one
+    function in Augustus; a campaign adds only the step's own verdict and attempt count.
     """
     if state is None:
         return None
@@ -563,72 +560,10 @@ def previous_failure(state: State | None, step: Step) -> dict[str, object] | Non
     record = _read_json(recorded.record)
     if record is None:
         return None
-    checks: list[str] = []
-    findings: list[str] = []
-    verify = record.get("verify")
-    report = _read_json(verify.get("report")) if isinstance(verify, dict) else None
-    if report is not None:
-        items = report.get("findings")
-        if isinstance(items, list):
-            for item in items:
-                if not isinstance(item, dict) or item.get("status") == "false-positive":
-                    continue
-                title = str(item.get("title", ""))
-                if item.get("kind") == "check-failure":
-                    detail = _check_tail(report, item) or str(item.get("detail", ""))
-                    checks.append(f"{title} ({detail})" if detail else title)
-                else:
-                    location = item.get("location")
-                    name = location.get("file") if isinstance(location, dict) else ""
-                    findings.append(f"{name}: {title}" if name else title)
-    reason = ""
-    executor = record.get("executor")
-    if isinstance(executor, dict) and executor.get("status") == "failed":
-        reason = str(executor.get("reason") or "")
-    if not reason:
-        notes = record.get("notes")
-        if isinstance(notes, list) and notes:
-            reason = str(notes[-1])
-    return {
-        "verdict": recorded.verdict or "none",
-        "attempts": recorded.attempts,
-        "reason": reason,
-        "checks": checks,
-        "findings": findings,
-    }
-
-
-CHECK_HINT_LINES = 4
-"""A retry needs the sentence that failed, not the whole log it sat in."""
-CHECK_HINT_CHARS = 400
-_CHECK_HINT = re.compile(r"(?i)error|invalid|failed|failure|expected|assert|--> ")
-"""Lines that name what went wrong; a check's whole output would bury the reason in noise."""
-
-
-def _check_tail(report: dict[str, object], item: dict[str, object]) -> str:
-    """The failing check's own words, from the report the box already wrote.
-
-    ``detail`` says only "exit 1, expected 0", which tells a retry that something is wrong but
-    not what: it would answer the counter instead of the failure. The check's output is in the
-    same report, so the retry is given the line that broke — never a summary invented here.
-    """
-    evidence = item.get("evidence")
-    name = evidence[0] if isinstance(evidence, list) and evidence else None
-    run = report.get("run")
-    checks = run.get("checks") if isinstance(run, dict) else None
-    if not isinstance(name, str) or not isinstance(checks, list):
-        return ""
-    for check in checks:
-        if not isinstance(check, dict) or check.get("check_id") != name:
-            continue
-        tail = check.get("output_tail")
-        if not isinstance(tail, str):
-            return ""
-        lines = [line.strip() for line in tail.splitlines() if line.strip()]
-        picked = [line for line in lines if _CHECK_HINT.search(line)][:CHECK_HINT_LINES]
-        text = " / ".join(picked or lines[:CHECK_HINT_LINES])
-        return text if len(text) <= CHECK_HINT_CHARS else text[: CHECK_HINT_CHARS - 1] + "…"
-    return ""
+    facts = augustus.previous_failure(record)
+    if facts is None:
+        return None
+    return {**facts, "verdict": recorded.verdict or "none", "attempts": recorded.attempts}
 
 
 def previous_patch(state: State | None, step: Step) -> Path | None:
