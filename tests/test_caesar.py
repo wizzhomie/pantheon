@@ -342,3 +342,55 @@ def test_a_correct_hunk_header_is_left_alone(tmp_path: Path) -> None:
     assert attempt.applied
     assert attempt.reason == ""
     assert not (attempt.directory / "change.source.diff").exists()
+
+
+def test_a_hunk_with_context_on_one_side_is_applied_and_said_out_loud(tmp_path: Path) -> None:
+    """Models write hunks with context only above the change; git refuses them by default."""
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    (project / "src" / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "longer")
+    patch = tmp_path / "one-sided.diff"
+    patch.write_text(
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -2,1 +2,2 @@\n"
+        " two\n"
+        "+two and a half\n",
+        encoding="utf-8",
+    )
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert attempt.applied
+    assert (project / "src" / "app.py").read_text() == "one\ntwo\ntwo and a half\nthree\n"
+    assert "context on one side only" in attempt.reason
+    assert "--unidiff-zero" in attempt.reason
+
+
+def test_a_one_sided_change_is_committed_after_the_gate_accepted_it(tmp_path: Path) -> None:
+    """The commit rebuilds the change from the same patch: it must accept what the gate did."""
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    (project / "src" / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "longer")
+    patch = tmp_path / "one-sided.diff"
+    patch.write_text(
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -2,1 +2,2 @@\n"
+        " two\n"
+        "+two and a half\n",
+        encoding="utf-8",
+    )
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert attempt.applied
+    commit = caesar.commit_change(
+        project,
+        contract,
+        attempt,
+        verdict="pass",
+        report=str(tmp_path / "report.md"),
+        box_root=box_root,
+    )
+    assert commit.status == "made", commit.reason
+    assert git(project, "show", "--stat", "--oneline", "HEAD").splitlines()[0]
+    assert "two and a half" in git(project, "show", "HEAD:src/app.py")

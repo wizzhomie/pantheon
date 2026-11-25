@@ -406,10 +406,10 @@ def run_attempt(
     status = "refused" if problems else "applied"
     reason = _reason(problems)
     if not problems:
-        problem = _apply(project, directory / "change.diff", paths, prefix)
-        if problem is None:
-            reason = repaired
-        elif problem[0] == "git" and _already_applied(
+        applied, told = _apply(project, directory / "change.diff", paths, prefix)
+        if applied in ("ok", "ok-relaxed"):
+            reason = "; ".join(item for item in (repaired, told) if item)
+        elif applied == "git" and _already_applied(
             project, directory / "change.diff", prefix
         ):
             # A crash between the write and its record leaves the change in the tree with
@@ -421,7 +421,7 @@ def run_attempt(
                 "not record the result"
             )
         else:
-            status, reason = "refused", problem[1]
+            status, reason = "refused", told
     finished = datetime.now(UTC).replace(microsecond=0)
     attempt = Attempt(
         task=contract.task,
@@ -542,8 +542,19 @@ def _tree_of_change(top: Path, base: str, prefix: str, patch: Path) -> str | Com
         env = {**os.environ, "GIT_INDEX_FILE": str(Path(temporary) / "index")}
         if _run(top, ["read-tree", base], env).returncode != 0:
             return Commit("failed", reason=f"git could not read {base[:12]} into an index")
-        staged = ["apply", "--cached", "--whitespace=nowarn"]
-        reverse = ["apply", "--cached", "--reverse", "--check", "--whitespace=nowarn"]
+        # The allowance the gate may have needed: a hunk with context on one side only applies
+        # with --unidiff-zero, and the commit builds the same change from the same patch, so it
+        # must accept the same diffs the gate accepted. Without it a passing change would be
+        # verified and then refused at the commit step.
+        staged = ["apply", "--cached", "--unidiff-zero", "--whitespace=nowarn"]
+        reverse = [
+            "apply",
+            "--cached",
+            "--reverse",
+            "--check",
+            "--unidiff-zero",
+            "--whitespace=nowarn",
+        ]
         for args in (staged, reverse):
             if prefix:
                 args.append(f"--directory={prefix}")
@@ -878,10 +889,10 @@ def _recount(change: str) -> tuple[str, str]:
 
 def _apply(
     project: Path, patch: Path, paths: tuple[str, ...], prefix: str
-) -> tuple[str, str] | None:
+) -> tuple[str, str]:
     """Apply the patch where the project actually lives, or say why it did not.
 
-    Two traps are handled here, both found on a real box rather than in a test:
+    Three traps are handled here, all found on a real box rather than in a test:
 
     * the project may be a **subdirectory** of its repository. ``git apply`` run from that
       subdirectory resolves patch paths from the repository root, silently skips every path
@@ -889,25 +900,35 @@ def _apply(
       while the tree was untouched. The diff is normalised to the project and applied from the
       top level with ``--directory=<prefix>``;
     * a patch can succeed and change nothing (an empty diff, a hunk that was already
-      applied). Success is therefore the tree changing, not the exit code.
+      applied). Success is therefore the tree changing, not the exit code;
+    * **a hunk with context on one side only**. Models write them, ``patch`` applies them, and
+      ``git apply`` refuses them unless told ``--unidiff-zero``: its default mode demands
+      context after the change as well as before it. The strict apply is tried first; only
+      when it refuses does the same patch get one more chance with the allowance, and the
+      record says which path it took — a repair that is visible, not quiet.
 
-    The reason comes back with its kind: ``"git"`` means git refused to apply it, ``"noop"``
-    means git applied it and nothing changed. The two need different handling — a git refusal
-    may mean the change is already there, a no-op never does.
+    The answer comes back with its kind: ``"ok"`` and ``"ok-relaxed"`` mean applied (the
+    second names the allowance), ``"git"`` means git refused it, ``"noop"`` means it applied
+    and nothing changed. A git refusal may mean the change is already there; a no-op never does.
     """
     top = Path(_git(project, "rev-parse", "--show-toplevel") or project)
     before = _tree_signature(top, tuple(prefix + path for path in paths))
-    command = ["git", "-C", str(top), "apply", "--whitespace=nowarn"]
-    if prefix:
-        command.append(f"--directory={prefix}")
-    command.append(str(patch))
-    done = subprocess.run(command, capture_output=True, text=True, check=False)
-    if done.returncode != 0:
-        detail = (done.stderr or done.stdout).strip().splitlines()
-        return (
-            "git",
-            "the project would not take the patch: "
-            + ("; ".join(detail[-3:]) or "git apply failed"),
+    done = _run_apply(top, patch, prefix)
+    if done.returncode == 0:
+        kind, told = "ok", ""
+    else:
+        relaxed = _run_apply(top, patch, prefix, relaxed=True)
+        if relaxed.returncode != 0:
+            detail = (done.stderr or done.stdout).strip().splitlines()
+            return (
+                "git",
+                "the project would not take the patch: "
+                + ("; ".join(detail[-3:]) or "git apply failed"),
+            )
+        kind, told = (
+            "ok-relaxed",
+            "the hunk carried context on one side only: the strict apply refused it and it "
+            "applied with --unidiff-zero against the same context",
         )
     if _tree_signature(top, tuple(prefix + path for path in paths)) == before:
         return (
@@ -915,7 +936,20 @@ def _apply(
             "the patch changed nothing: git reported success, but the paths it names are the "
             "same afterwards",
         )
-    return None
+    return kind, told
+
+
+def _run_apply(
+    top: Path, patch: Path, prefix: str, *, relaxed: bool = False
+) -> subprocess.CompletedProcess[str]:
+    """One `git apply` run: strict by default, with the one-sided-context allowance if asked."""
+    command = ["git", "-C", str(top), "apply", "--whitespace=nowarn"]
+    if relaxed:
+        command.append("--unidiff-zero")
+    if prefix:
+        command.append(f"--directory={prefix}")
+    command.append(str(patch))
+    return subprocess.run(command, capture_output=True, text=True, check=False)
 
 
 def revert(project: Path, patch: Path) -> tuple[bool, str]:
@@ -927,7 +961,15 @@ def revert(project: Path, patch: Path) -> tuple[bool, str]:
     """
     prefix = _prefix(project)
     top = Path(_git(project, "rev-parse", "--show-toplevel") or project)
-    command = ["git", "-C", str(top), "apply", "--reverse", "--whitespace=nowarn"]
+    command = [
+        "git",
+        "-C",
+        str(top),
+        "apply",
+        "--reverse",
+        "--unidiff-zero",
+        "--whitespace=nowarn",
+    ]
     if prefix:
         command.append(f"--directory={prefix}")
     command.append(str(patch))
@@ -943,7 +985,16 @@ def _already_applied(project: Path, patch: Path, prefix: str) -> bool:
     top = _git(project, "rev-parse", "--show-toplevel")
     if top is None:
         return False
-    command = ["git", "-C", top, "apply", "--reverse", "--check", "--whitespace=nowarn"]
+    command = [
+        "git",
+        "-C",
+        top,
+        "apply",
+        "--reverse",
+        "--check",
+        "--unidiff-zero",
+        "--whitespace=nowarn",
+    ]
     if prefix:
         command.append(f"--directory={prefix}")
     command.append(str(patch))
