@@ -124,6 +124,14 @@ def main() -> int:
     diff = extract_diff(text)
     if diff is None:
         problem = _error_line(text)
+        if not text.strip() and finish == "length":
+            return _fail(
+                "the answer was cut before any text: the model spent its token budget on "
+                "reasoning and returned nothing",
+                notes=[f"finish_reason=length; raise {MAX_TOKENS_ENV} and ask again"],
+                usage=_usage_payload(answer),
+                model=reported_model or model,
+            )
         return _fail(
             problem or "the model answered without a unified diff",
             notes=[text[:400]],

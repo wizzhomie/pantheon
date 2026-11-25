@@ -677,3 +677,25 @@ def test_status_names_what_the_task_read(
     assert main(["--castra", str(box.root.parent), "status", "probe"]) == 0
     out = capsys.readouterr().out
     assert "read 2 file(s), 40 chars" in out
+
+
+def test_an_answer_cut_before_any_text_says_so(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reasoning model can spend the whole budget and return nothing: name that, not "no diff"."""
+    request = {"task": {"id": "t"}, "project": {"path": str(tmp_path)}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request)))
+    monkeypatch.setenv(deepseek.KEY_ENV, "k")
+
+    def fake_post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
+        return {
+            "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 8192},
+        }
+
+    monkeypatch.setattr(deepseek, "_post", fake_post)
+    assert deepseek.main() == 1
+    answer = json.loads(capsys.readouterr().out)
+    assert "cut before any text" in answer["error"]
+    assert any("raise" in note for note in answer["notes"])
+    assert answer["usage"]["completion_tokens"] == 8192
