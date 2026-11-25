@@ -876,3 +876,93 @@ def test_a_narrow_scope_gets_the_layout_not_the_file_inventory(tmp_path: Path) -
     whole = deepseek._prompt({"id": "t", "paths": ["**"]}, project)
     assert "FILES IN THE PROJECT (relative to its root):" in whole.text
     assert "src/pkg/app.py" in whole.text
+
+
+def test_the_box_sizes_the_answer_by_the_shape_of_the_change(tmp_path: Path) -> None:
+    """A patch gets a patch's room, a whole file gets more: one cap for all is waste or a cut.
+
+    The shape is declared by the task and priced by the box, like the budget: a task may ask
+    for a smaller shape, never for a bigger one than the box allows for it.
+    """
+    path = tmp_path / "executor.toml"
+    path.write_text(
+        'schema_version = 1\ncommand = "/bin/true"\n'
+        "[shapes.patch]\nmax_answer_tokens = 4096\nmax_cents = 2\n"
+        "[shapes.file]\nmax_answer_tokens = 16384\nmax_cents = 5\n",
+        encoding="utf-8",
+    )
+    config = executor.read_config(path)
+    patch, reason = executor.shape_for(config, "patch")
+    assert patch is not None and patch.max_answer_tokens == 4096 and patch.max_cents == 2
+    assert "4096 answer tokens" in reason
+    assert executor.shape_for(config, None) == (
+        None,
+        "the task declared no shape: the box's own cap applies",
+    )
+    missing, why = executor.shape_for(config, "multi")
+    assert missing is None and "declares no limits for it" in why
+
+    for text, match in (
+        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.huge]\nmax_answer_tokens = 1\n',
+         "is not one of"),
+        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.patch]\nmax_cents = 2\n',
+         "max_answer_tokens"),
+        ('schema_version = 1\ncommand = "/bin/true"\n'
+         "[shapes.patch]\nmax_answer_tokens = 1\nprice = 2\n", "unknown key"),
+    ):
+        path.write_text(text, encoding="utf-8")
+        with pytest.raises(boxes.HarnessError, match=match):
+            executor.read_config(path)
+
+
+def test_the_request_carries_the_answer_room_and_the_adapter_uses_it(tmp_path: Path) -> None:
+    project, box, _script, _task = probe(tmp_path, ANSWER)
+    task = augustus.Task(
+        path=tmp_path / "t.toml",
+        id="t-1",
+        goal="g",
+        kind="bugfix",
+        paths=("src/**",),
+        expected="e",
+        change=None,
+        forbidden=(),
+        budget={},
+        shape="file",
+    )
+    directory = box.root / "tabularium" / "t-1" / "proposal-1"
+    directory.mkdir(parents=True)
+    shape = executor.Shape("file", 16384, 5.0)
+    request = executor._request(task, box, directory, 1, "m", 60, 2.0, shape=shape)
+    seen = cast(dict[str, Any], request["task"])
+    assert seen["shape"] == "file"
+    limits = cast(dict[str, Any], request["limits"])
+    assert limits["max_answer_tokens"] == 16384
+    assert deepseek._max_tokens(request) == 16384
+    assert deepseek._max_tokens({"limits": {"max_answer_tokens": None}}) == 4096
+
+    prompt = deepseek._prompt(seen, project)
+    assert "THE SHAPE OF THIS CHANGE: file" in prompt.text
+    assert "one file may be rewritten" in prompt.text
+    assert "ERROR: <what the change really needs>" in prompt.text
+
+
+def test_a_task_declaring_a_shape_the_box_does_not_price_is_refused_before_the_call(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """An unpriced shape is a wrong plan, not a default: the model is not asked and not paid."""
+    _project, box, _script, task = probe(tmp_path, ANSWER)
+    text = task.read_text(encoding="utf-8")
+    task.write_text(text.replace("kind = ", 'shape = "multi"\nkind = '), encoding="utf-8")
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "declares no limits for it" in out
+    assert not list(box.root.glob("tabularium/t-1/proposal-*"))
+
+    (box.root / "persona" / "executor.toml").write_text(
+        (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
+        + '\n[shapes.multi]\nmax_answer_tokens = 32768\nmax_cents = 6\n',
+        encoding="utf-8",
+    )
+    assert dispatch(box, task) == 0, "the fake change passes its checks: the run closes"
+    out = capsys.readouterr().out
+    assert "shape      multi — 32768 answer tokens, 6 cents" in out

@@ -42,8 +42,16 @@ SCHEMA_VERSION = 1
 PROFILE_FILE = Path("persona") / "executor.toml"
 EXAMPLE_FILE = Path("persona") / "executor.toml.example"
 CONFIG_KEYS = frozenset(
-    {"schema_version", "command", "model", "models", "max_seconds", "max_cents"}
+    {"schema_version", "command", "model", "models", "max_seconds", "max_cents", "shapes"}
 )
+SHAPES = ("patch", "file", "multi")
+"""The shape of a change a task asks for: it sizes the answer, and it is declared, not guessed.
+
+A task that adds a few lines, one that rewrites a file and one that touches several files need
+different rooms to answer in; one cap for all three is either waste or a cut-off. The box
+declares what each shape may spend, the task names its shape, and a change that does not fit
+the declared shape is an estimate to correct, not a wasted attempt.
+"""
 USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "cost_cents"})
 ANSWER_KEYS = frozenset(
     {
@@ -131,6 +139,9 @@ class TaskView(Protocol):
     def self_check(self) -> tuple[str, ...]: ...
 
     @property
+    def shape(self) -> str | None: ...
+
+    @property
     def forbidden(self) -> tuple[str, ...]: ...
 
     @property
@@ -169,9 +180,21 @@ class ExecutorConfig:
     models: dict[str, ModelChoice] = field(default_factory=dict)
     """Which model a kind of task asks for: the box's decision, not the model's own."""
 
+    shapes: dict[str, Shape] = field(default_factory=dict)
+    """What each shape of change may spend, when the box declares shapes."""
+
     @property
     def declared(self) -> bool:
         return self.command is not None
+
+
+@dataclass(frozen=True, slots=True)
+class Shape:
+    """What one shape of change may spend: the answer's room and the call's ceiling."""
+
+    name: str
+    max_answer_tokens: int
+    max_cents: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -315,6 +338,7 @@ def read_config(path: Path) -> ExecutorConfig:
     if model is not None and (not isinstance(model, str) or not model.strip()):
         raise boxes.HarnessError(f"{path}: model must be a non-empty string")
     models = _models(path, data.get("models"))
+    shapes = _shapes(path, data.get("shapes"))
     seconds = data.get("max_seconds", DEFAULT_SECONDS)
     if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds <= 0:
         raise boxes.HarnessError(f"{path}: max_seconds must be a positive whole number")
@@ -331,6 +355,7 @@ def read_config(path: Path) -> ExecutorConfig:
         command=command,
         model=model.strip() if isinstance(model, str) else None,
         models=models,
+        shapes=shapes,
         max_seconds=seconds,
         max_cents=cents,
     )
@@ -366,6 +391,47 @@ def _models(path: Path, raw: object) -> dict[str, ModelChoice]:
                 "price_out, or neither"
             )
         table[kind.strip()] = ModelChoice(name.strip(), price_in, price_out)
+    return table
+
+
+def _shapes(path: Path, raw: object) -> dict[str, Shape]:
+    """The shape table: each shape declares the room its answer needs, and may declare its price.
+
+    An unknown shape is a refusal rather than an entry: a task naming a shape nobody defined
+    would otherwise get the box's default cap and look like a small task.
+    """
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(
+            f"{path}: shapes must be a table of shape = {{ max_answer_tokens = N }} entries"
+        )
+    table: dict[str, Shape] = {}
+    for name, entry in raw.items():
+        if name not in SHAPES:
+            raise boxes.HarnessError(
+                f"{path}: shape {name!r} is not one of {', '.join(SHAPES)}"
+            )
+        if not isinstance(entry, dict):
+            raise boxes.HarnessError(f"{path}: shapes.{name} must be a table")
+        extra = set(entry) - {"max_answer_tokens", "max_cents"}
+        if extra:
+            raise boxes.HarnessError(
+                f"{path}: shapes.{name} has unknown key(s) {', '.join(sorted(extra))}"
+            )
+        tokens = entry.get("max_answer_tokens")
+        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens <= 0:
+            raise boxes.HarnessError(
+                f"{path}: shapes.{name}.max_answer_tokens must be a positive whole number"
+            )
+        cents = entry.get("max_cents")
+        if cents is not None and (
+            isinstance(cents, bool) or not isinstance(cents, (int, float)) or cents <= 0
+        ):
+            raise boxes.HarnessError(
+                f"{path}: shapes.{name}.max_cents must be a positive number"
+            )
+        table[name] = Shape(name, tokens, None if cents is None else float(cents))
     return table
 
 
@@ -411,6 +477,25 @@ def _environment(choice: ModelChoice | None) -> dict[str, str] | None:
     return env
 
 
+def shape_for(config: ExecutorConfig, shape: str | None) -> tuple[Shape | None, str]:
+    """The room this task's answer gets, and the reason it is that room.
+
+    A task that declares no shape keeps the box's own cap: the same cap as before, and the
+    record says the shape was not declared. A task that declares one gets that shape's room,
+    and a box that declares no such shape refuses the task instead of sizing it by default.
+    """
+    if shape is None:
+        return None, "the task declared no shape: the box's own cap applies"
+    found = config.shapes.get(shape)
+    if found is None:
+        return None, (
+            f"the task declares shape {shape!r} and the box declares no limits for it: "
+            f"declare [shapes.{shape}] in persona/executor.toml, or the answer is sized by "
+            "guesswork"
+        )
+    return found, f"declared shape {shape}: {found.max_answer_tokens} answer tokens"
+
+
 def limits(config: ExecutorConfig, budget: dict[str, int]) -> tuple[int, float | None]:
     """The box's cap is a ceiling: a task may ask for less, never for more."""
     seconds = config.max_seconds
@@ -454,6 +539,7 @@ def propose(
     when: datetime | None = None,
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
+    shape: Shape | None = None,
 ) -> Proposal:
     """Ask the declared command for a change, and record the answer with its price."""
     if config.command is None:
@@ -463,11 +549,14 @@ def propose(
     directory = box.root / "tabularium" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
+    if shape is not None and shape.max_cents is not None:
+        # The shape's price is a ceiling like the box's: a patch may not spend a file's money.
+        cents = shape.max_cents if cents is None else min(cents, shape.max_cents)
     read_chars = task.budget.get("max_read_chars")
     chosen, reason = model_for(config, task.kind)
     model = chosen.model if chosen is not None else None
     request = _request(
-        task, box, directory, number, model, seconds, cents, context, previous, read_chars
+        task, box, directory, number, model, seconds, cents, context, previous, read_chars, shape
     )
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -655,6 +744,7 @@ def _request(
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
     read_chars: int | None = None,
+    shape: Shape | None = None,
 ) -> dict[str, object]:
     """The task as the command receives it: declared facts, paths, the limits, and context."""
     return {
@@ -667,6 +757,7 @@ def _request(
             "role": task.role,
             "paths": list(task.paths),
             "expected": task.expected,
+            "shape": task.shape,
             "self_check": list(task.self_check),
             "forbidden": list(task.forbidden),
             "budget": dict(task.budget),
@@ -681,6 +772,7 @@ def _request(
             "max_seconds": seconds,
             "max_cents": cents,
             "max_read_chars": read_chars,
+            "max_answer_tokens": None if shape is None else shape.max_answer_tokens,
         },
     }
 

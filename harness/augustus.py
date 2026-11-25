@@ -45,6 +45,7 @@ TASK_KEYS = frozenset(
         "outside_plan",
         "repro",
         "self_check",
+        "shape",
     }
 )
 MODES = ("manual", "auto")
@@ -102,6 +103,13 @@ class Task:
     words of the check is not a change. What the model sees is ``self_check``.
     """
 
+    shape: str | None = None
+    """How big the change is, declared by the task: patch, file, or multi.
+
+    The shape sizes the answer (a patch gets a patch's room) and says which scheme the box
+    asks for; a change that does not fit it is a wrong estimate, recorded, not a lost attempt.
+    """
+
     self_check: tuple[str, ...] = ()
     """The check the model is shown, and the box runs beside the verdict — never as the verdict.
 
@@ -148,6 +156,9 @@ class Dispatch:
 
     repeated: str | None = None
     """The digest of a change already tried, when the retry proposed exactly it again."""
+
+    shape: dict[str, object] | None = None
+    """What the task declared the change to be, and the room the box gave the answer."""
 
     self_check: dict[str, object] | None = None
     """What the check the task shows the model said, when the task names one.
@@ -249,6 +260,12 @@ def read_task(path: Path) -> Task:
             f"{path}: a task either names a milestone or says why it stands outside the plan, "
             "not both"
         )
+    shape = data.get("shape")
+    if shape is not None and shape not in executor.SHAPES:
+        raise boxes.HarnessError(
+            f"{path}: shape {shape!r} is not one of {', '.join(executor.SHAPES)}: the shape "
+            "sizes the answer, and a made-up one would size it by nothing"
+        )
     repro_raw = _command(data.get("repro", []), "repro", path)
     self_check_raw = _command(data.get("self_check", []), "self_check", path)
     return Task(
@@ -268,6 +285,7 @@ def read_task(path: Path) -> Task:
         outside_plan=_text(outside_plan),
         repro=tuple(item.strip() for item in repro_raw),
         self_check=tuple(item.strip() for item in self_check_raw),
+        shape=shape if isinstance(shape, str) else None,
     )
 
 
@@ -457,6 +475,7 @@ def dispatch(
     proposal: executor.Proposal | None = None
     pack: context_pack.Pack | None = None
     own_check: dict[str, object] | None = None
+    shape: executor.Shape | None = None
     if "run" in stages:
         patch = task.change
         if patch is None:
@@ -467,6 +486,34 @@ def dispatch(
                     "was written, and the write gate had nothing to gate"
                 )
             else:
+                shape, shape_reason = executor.shape_for(config, task.shape)
+                if task.shape is not None and shape is None:
+                    notes.append(shape_reason)
+                    return _finish(
+                        box,
+                        task,
+                        Dispatch(
+                            task=task,
+                            state="refused",
+                            stages=stages,
+                            arch=arch,
+                            directory=directory,
+                            notes=notes,
+                            exit_code=1,
+                            resumed_from=resumed_from,
+                        ),
+                        stamp,
+                        began,
+                        rail=rail,
+                    )
+                notes.append(
+                    f"shape: {shape_reason}"
+                    + (
+                        ""
+                        if shape is None or shape.max_cents is None
+                        else f", {shape.max_cents:g} cents"
+                    )
+                )
                 if task.repro:
                     code, tail = contour.run_repro(
                         box.project, task.repro, root=trajan_root, python=trajan_python
@@ -506,6 +553,7 @@ def dispatch(
                     when=stamp,
                     context=context_pack.payload(pack),
                     previous=previous,
+                    shape=shape,
                 )
                 notes.extend(proposal.notes)
                 _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
@@ -663,6 +711,13 @@ def dispatch(
             review_skipped=skipped or None,
             context=pack,
             self_check=own_check,
+            shape=None
+            if shape is None
+            else {
+                "name": shape.name,
+                "max_answer_tokens": shape.max_answer_tokens,
+                "max_cents": shape.max_cents,
+            },
         ),
         stamp,
         began,
@@ -707,6 +762,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         if value is not None:
             lines.append(f"{key} = {_quote(value)}")
     lines.append("paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")
+    if task.shape is not None:
+        lines.append(f"shape = {_quote(task.shape)}")
     if task.mode != "manual":
         lines.append(f"mode = {_quote(task.mode)}")
     if task.role != "executor":
@@ -1524,6 +1581,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify, result.review_skipped)}",
         f"own check  {_own_check_line(result.self_check, result.task.self_check)}",
+        f"shape      {_shape_line(result.shape)}",
         f"commit     {_commit_line(result.commit)}",
         f"time       {_time_line(result)}",
         f"state      {result.state}",
@@ -1555,6 +1613,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "reading": None if result.proposal is None else result.proposal.reading,
         "repeated": result.repeated,
         "self_check": result.self_check,
+        "shape": result.shape,
         "verify": None
         if result.verify is None
         else {
@@ -1688,6 +1747,7 @@ def _finish(
         context=result.context,
         repeated=result.repeated,
         self_check=result.self_check,
+        shape=result.shape,
         timings=_timings(result, began),
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
@@ -1896,6 +1956,16 @@ def _questions(result: Dispatch) -> list[str]:
     elif not result.verify.passed:
         questions.extend(result.verify.reasons or ["the verification did not pass"])
     return questions
+
+
+def _shape_line(shape: dict[str, object] | None) -> str:
+    if shape is None:
+        return "not declared — the box's own answer cap applies"
+    room = f"{shape.get('max_answer_tokens')} answer tokens"
+    cents = shape.get("max_cents")
+    if isinstance(cents, (int, float)):
+        room += f", {cents:g} cents"
+    return f"{shape.get('name')} — {room}"
 
 
 def _own_check_line(check: dict[str, object] | None, declared: tuple[str, ...]) -> str:

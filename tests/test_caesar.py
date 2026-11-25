@@ -504,3 +504,24 @@ def test_a_hunk_that_changes_nothing_is_dropped_and_said_out_loud(tmp_path: Path
     assert attempt.applied, attempt.reason
     assert (project / "src" / "app.py").read_text() == "one\none and a half\ntwo\nthree\n"
     assert "carried no change and were dropped" in attempt.reason
+
+
+def test_a_task_declares_how_big_the_change_is(tmp_path: Path) -> None:
+    """The shape is task data: it sizes the answer, so an unknown one is refused, not defaulted."""
+    from harness import augustus
+
+    path = tmp_path / "S1.toml"
+    path.write_text(
+        'schema_version = 1\nid = "S1"\npaths = ["src/**"]\nshape = "patch"\n',
+        encoding="utf-8",
+    )
+    task = augustus.read_task(path)
+    assert task.shape == "patch"
+    assert 'shape = "patch"' in augustus.task_text(task)
+
+    path.write_text(
+        'schema_version = 1\nid = "S1"\npaths = ["src/**"]\nshape = "huge"\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(boxes.HarnessError, match="is not one of patch, file, multi"):
+        augustus.read_task(path)

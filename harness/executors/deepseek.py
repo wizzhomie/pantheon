@@ -109,7 +109,7 @@ def main() -> int:
                     {"role": "user", "content": prompt.text},
                 ],
                 "temperature": 0,
-                "max_tokens": _max_tokens(),
+                "max_tokens": _max_tokens(request),
             },
         )
     except ApiError as error:
@@ -232,6 +232,16 @@ def _prompt(
         f"paths the change may touch: {', '.join(patterns) or 'none declared'}",
         f"expected: {task.get('expected') or 'not declared'}",
     ]
+    shape = task.get("shape")
+    if isinstance(shape, str) and shape:
+        lines += [
+            "",
+            f"THE SHAPE OF THIS CHANGE: {shape}. "
+            + _shape_words(shape),
+            "If the change cannot be made in that shape, answer with one line: "
+            "ERROR: <what the change really needs>. The box records that as a wrong estimate "
+            "instead of paying for a retry.",
+        ]
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
         lines.append(f"forbidden: {', '.join(str(item) for item in forbidden)}")
@@ -259,6 +269,18 @@ def _prompt(
         left.append(f"{beyond} file name(s) beyond the {FILE_LIST_LIMIT}-name list")
     lines += ["FILES IN THE DECLARED SCOPE:", *block]
     return Prompt("\n".join(lines), reading)
+
+
+SHAPE_WORDS = {
+    "patch": "a few lines in the places the task names: do not restate the file or its imports",
+    "file": "one file may be rewritten as a whole, but only the file the task names",
+    "multi": "several files may change, each as one diff, and every one inside the declared paths",
+}
+"""What each shape asks for, in words the model can act on: the size and the answer together."""
+
+
+def _shape_words(shape: str) -> str:
+    return SHAPE_WORDS.get(shape, "the change stays inside the declared paths")
 
 
 def _narrow(files: list[str], in_scope: list[str]) -> bool:
@@ -423,7 +445,17 @@ def _content(answer: dict[str, Any]) -> tuple[str, str | None, str | None]:
     )
 
 
-def _max_tokens() -> int:
+def _max_tokens(request: dict[str, object] | None = None) -> int:
+    """The answer's room: the task's shape decides, then the box, then the built-in default.
+
+    The shape is the box's own declaration of how big this change is (patch, file, several
+    files), so the cap follows the work rather than one number for every task.
+    """
+    limits = request.get("limits") if isinstance(request, dict) else None
+    if isinstance(limits, dict):
+        chosen = limits.get("max_answer_tokens")
+        if isinstance(chosen, int) and not isinstance(chosen, bool) and chosen > 0:
+            return chosen
     raw = os.environ.get(MAX_TOKENS_ENV)
     try:
         value = int(raw) if raw else DEFAULT_MAX_TOKENS
