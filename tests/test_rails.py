@@ -500,3 +500,95 @@ def test_the_cli_records_a_revision(
     capsys.readouterr()
     assert run(box, "rails", box.name, "--revise", "add", "--note", "x", "--approve") == 2
     assert "two acts" in capsys.readouterr().err
+
+
+def test_a_milestone_closes_by_record_not_by_editing_the_frame(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    closure = rails.close(box, "M1", "a task names a milestone and the gate checks it")
+    assert closure.milestone == "M1" and closure.by == "owner"
+    assert closure.path.name == "milestone-M1-closed.json"
+    written = json.loads(closure.path.read_text(encoding="utf-8"))
+    assert written["type"] == "rails.closure"
+    current = rails.read(project)
+    assert current is not None
+    assert written["digest"] == current.digest
+    assert written["closes_when"] == "a task names a milestone and the gate checks it"
+    milestone = current.milestone("M1")
+    assert milestone is not None
+    assert milestone.state == "open", "the frame is evidence, not a scratch pad"
+
+
+def test_the_closed_milestone_reads_as_closed_and_names_the_record(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    rails.close(box, "M1", "the gate names the milestone now")
+    lines = rails.render(
+        rails.standing(box), rails.read(project), None, rails.closures(box)
+    )
+    assert any(line.startswith("milestone  M1") and "(closed)" in line for line in lines)
+    assert any("the gate names the milestone now" in line for line in lines)
+    payload = rails.payload(
+        rails.standing(box), rails.read(project), None, rails.closures(box)
+    )
+    milestones = payload["milestones"]
+    assert isinstance(milestones, list)
+    first = milestones[0]
+    assert isinstance(first, dict) and first["state"] == "closed"
+    closures = payload["closures"]
+    assert isinstance(closures, list)
+    closed = closures[0]
+    assert isinstance(closed, dict) and closed["milestone"] == "M1"
+
+
+def test_closing_a_milestone_without_a_reason_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    with pytest.raises(boxes.HarnessError) as error:
+        rails.close(box, "M1", "  ")
+    assert "--note" in str(error.value)
+
+
+def test_closing_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    with pytest.raises(boxes.HarnessError) as error:
+        rails.close(box, "M9", "done")
+    assert "M9" in str(error.value) and "M1" in str(error.value)
+
+
+def test_closing_a_milestone_twice_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    rails.close(box, "M1", "done")
+    with pytest.raises(boxes.HarnessError) as error:
+        rails.close(box, "M1", "done again")
+    assert "already closed" in str(error.value)
+
+
+def test_a_milestone_closes_only_on_an_accepted_frame(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    with pytest.raises(boxes.HarnessError) as error:
+        rails.close(box, "M1", "done")
+    assert "accept the frame" in str(error.value)
+
+
+def test_closing_a_milestone_is_its_own_act_in_the_cli(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    assert (
+        run(box, "rails", box.name, "--close", "M1", "--note", "the gate names it", "--json") == 0
+    )
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["closed"]["milestone"] == "M1"
+    assert run(box, "rails", box.name, "--close", "M1", "--note", "x", "--approve") == 2
+    assert "own act" in capsys.readouterr().err

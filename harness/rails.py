@@ -27,6 +27,7 @@ SCHEMA_VERSION = 1
 RAILS_FILE = ".pantheon/rails.toml"
 RECORD_TYPE = "rails.approval"
 REVISION_TYPE = "rails.revision"
+CLOSURE_TYPE = "rails.closure"
 RECORDS = Path("tabularium") / "forma"
 KINDS = ("add", "replace", "revisit")
 HEAVY = frozenset({"replace", "revisit"})
@@ -212,6 +213,37 @@ class Revision:
             "lose": self.lose,
             "by": self.by,
             "before": list(self.before),
+            "record": str(self.path),
+        }
+
+
+@dataclass(frozen=True, slots=True)
+class Closure:
+    """A milestone closed by a record, not by an edit of the frame.
+
+    The frame's ``state`` stays as it was written; the record is what says the closing
+    condition was met, on which digest of the frame, and why. An edit of the frame would
+    move its digest and make every task look like it rested on a frame nobody accepted.
+    """
+
+    path: Path
+    at: str
+    milestone: str
+    title: str
+    closes_when: str
+    digest: str
+    by: str
+    note: str
+
+    def json(self) -> dict[str, object]:
+        return {
+            "milestone": self.milestone,
+            "title": self.title,
+            "closes_when": self.closes_when,
+            "at": self.at,
+            "digest": self.digest,
+            "by": self.by,
+            "note": self.note,
             "record": str(self.path),
         }
 
@@ -546,6 +578,111 @@ def latest_revision(box: boxes.Box) -> Revision | None:
     )
 
 
+def closures(box: boxes.Box) -> dict[str, Closure]:
+    """Every milestone closed by a record, by id; an unreadable record is an error, not a skip."""
+    directory = box.root / RECORDS
+    if not directory.is_dir():
+        return {}
+    found: dict[str, Closure] = {}
+    for path in sorted(
+        directory.glob("milestone-*-closed.json"),
+        key=lambda item: item.stat().st_mtime_ns,
+    ):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as error:
+            raise boxes.HarnessError(
+                f"the milestone closure {path} does not parse: {error}"
+            ) from error
+        if not isinstance(data, dict) or data.get("type") != CLOSURE_TYPE:
+            raise boxes.HarnessError(f"{path} is not a milestone closure record")
+        milestone = str(data.get("milestone", ""))
+        if not milestone:
+            raise boxes.HarnessError(f"{path} names no milestone")
+        found[milestone] = Closure(
+            path=path,
+            at=str(data.get("at", "")),
+            milestone=milestone,
+            title=str(data.get("title", "")),
+            closes_when=str(data.get("closes_when", "")),
+            digest=str(data.get("digest", "")),
+            by=str(data.get("by", "")),
+            note=str(data.get("note", "")),
+        )
+    return found
+
+
+def close(
+    box: boxes.Box,
+    milestone: str,
+    note: str,
+    *,
+    by: str = "owner",
+    when: datetime | None = None,
+) -> Closure:
+    """Record that a milestone's closing condition is met; the frame itself is not edited.
+
+    The record names the digest of the frame the decision was made on: a frame that moves
+    afterwards does not silently inherit the closure.
+    """
+    if not note.strip():
+        raise boxes.HarnessError("a milestone closes for a reason: `--note` is empty")
+    current = read(box.project)
+    if current is None:
+        raise boxes.HarnessError(
+            f"there are no rails to close a milestone on in {box.project}: {RAILS_FILE} "
+            "does not exist"
+        )
+    found = current.milestone(milestone)
+    if found is None:
+        known = ", ".join(item.id for item in current.milestones) or "none"
+        raise boxes.HarnessError(
+            f"the frame does not declare milestone {milestone!r}; known milestones: {known}"
+        )
+    if found.state == "closed":
+        raise boxes.HarnessError(f"the frame already says milestone {milestone!r} is closed")
+    existing = closures(box).get(milestone)
+    if existing is not None:
+        raise boxes.HarnessError(
+            f"milestone {milestone!r} was already closed {existing.at} by {existing.by}"
+        )
+    how = standing(box)
+    if how.state != "approved":
+        raise boxes.HarnessError(
+            "a milestone closes on an accepted frame: accept the frame first `pantheon rails "
+            "--approve`"
+        )
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    directory = box.root / RECORDS
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"milestone-{milestone}-closed.json"
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "type": CLOSURE_TYPE,
+        "at": _stamp(stamp),
+        "milestone": milestone,
+        "title": found.title,
+        "closes_when": found.closes_when,
+        "metric": found.metric,
+        "digest": how.digest,
+        "by": by,
+        "note": note,
+        "base": caesar.head(box.project),
+    }
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    _append_event(box, by, note, path, stamp, kind="rails.closed")
+    return Closure(
+        path=path,
+        at=_stamp(stamp),
+        milestone=milestone,
+        title=found.title,
+        closes_when=found.closes_when,
+        digest=how.digest,
+        by=by,
+        note=note,
+    )
+
+
 def standing(box: boxes.Box) -> Standing:
     """The rails on disk against the newest approval: the answer a dispatch will record."""
     current = read(box.project)
@@ -611,7 +748,10 @@ def check(box: boxes.Box, *, milestone: str | None, outside: str | None) -> Chec
 
 
 def render(
-    standing: Standing, current: Rails | None, revision: Revision | None = None
+    standing: Standing,
+    current: Rails | None,
+    revision: Revision | None = None,
+    closed: dict[str, Closure] | None = None,
 ) -> list[str]:
     """The rails as a person reads them: the frame, what is missing, and who accepted it."""
     lines = [f"rails      {standing.line()}"]
@@ -625,9 +765,15 @@ def render(
         for goal in current.goals:
             lines.append(f"goal       {goal.text}")
         for milestone in current.milestones:
-            lines.append(f"milestone  {milestone.id}  {milestone.title}  ({milestone.state})")
+            closure = None if closed is None else closed.get(milestone.id)
+            state = "closed" if closure is not None else milestone.state
+            lines.append(f"milestone  {milestone.id}  {milestone.title}  ({state})")
             lines.append(f"           closes when: {milestone.closes_when}")
             lines.append(f"           metric: {milestone.metric}")
+            if closure is not None:
+                lines.append(f"           closed {closure.at} by {closure.by}")
+                if closure.note:
+                    lines.append(f"           note {closure.note}")
         for metric in current.metrics:
             lines.append(f"metric     {metric.name}  {metric.direction}  {metric.threshold}")
         for principle in current.principles:
@@ -666,7 +812,10 @@ def render(
 
 
 def payload(
-    standing: Standing, current: Rails | None, revision: Revision | None = None
+    standing: Standing,
+    current: Rails | None,
+    revision: Revision | None = None,
+    closed: dict[str, Closure] | None = None,
 ) -> dict[str, object]:
     """The rails as one JSON object: the same facts the render puts on lines."""
     body = standing.json()
@@ -689,10 +838,19 @@ def payload(
             "title": milestone.title,
             "closes_when": milestone.closes_when,
             "metric": milestone.metric,
-            "state": milestone.state,
+            "state": (
+                "closed"
+                if closed is not None and milestone.id in closed
+                else milestone.state
+            ),
         }
         for milestone in current.milestones
     ]
+    body["closures"] = (
+        []
+        if closed is None
+        else [item.json() for item in sorted(closed.values(), key=lambda item: item.milestone)]
+    )
     body["metrics"] = [
         {"name": metric.name, "direction": metric.direction, "threshold": metric.threshold}
         for metric in current.metrics

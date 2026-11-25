@@ -149,6 +149,12 @@ def _parser() -> argparse.ArgumentParser:
     rails_parser.add_argument(
         "--approve", action="store_true", help="accept the frame as the basis the work serves"
     )
+    rails_parser.add_argument(
+        "--close",
+        default=None,
+        metavar="MILESTONE",
+        help="record that a milestone's closing condition is met, and why",
+    )
     rails_parser.add_argument("--by", default="owner", help="who accepts the frame")
     rails_parser.add_argument("--note", default="", help="why this frame was accepted")
     rails_parser.add_argument(
@@ -709,6 +715,19 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
         raise boxes.HarnessError(
             "a revision and an approval are two acts: record the revision, then accept the frame"
         )
+    if args.close is not None and (args.revise is not None or args.approve):
+        raise boxes.HarnessError(
+            "closing a milestone is its own act: close it first, then revise or accept the frame"
+        )
+    if args.close is not None:
+        closure = rails.close(box, args.close, args.note, by=args.by)
+        if args.json:
+            print(json.dumps({"closed": closure.json()}, indent=2, ensure_ascii=False))
+            return 0
+        print(f"closed {closure.milestone}  {closure.title}")
+        print(f"record {closure.path}")
+        print(f"note   {closure.note}")
+        return 0
     if args.revise is not None:
         revision = rails.revise(
             box,
@@ -723,7 +742,7 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
         if args.json:
             print(json.dumps({"revision": revision.json()}, indent=2, ensure_ascii=False))
             return 0
-        print("\n".join(rails.render(standing, current, revision)))
+        print("\n".join(rails.render(standing, current, revision, rails.closures(box))))
         return 0
     if args.approve:
         delegations = tuple(_delegation(item) for item in args.delegate)
@@ -749,15 +768,30 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
                 )
             )
             return 0
-        print("\n".join(rails.render(rails.standing(box), current, rails.latest_revision(box))))
+        print(
+            "\n".join(
+                rails.render(
+                    rails.standing(box),
+                    current,
+                    rails.latest_revision(box),
+                    rails.closures(box),
+                )
+            )
+        )
         return 0
     standing = rails.standing(box)
     current = rails.read(box.project)
     previous = rails.latest_revision(box)
     if args.json:
-        print(json.dumps(rails.payload(standing, current, previous), indent=2, ensure_ascii=False))
+        print(
+            json.dumps(
+                rails.payload(standing, current, previous, rails.closures(box)),
+                indent=2,
+                ensure_ascii=False,
+            )
+        )
         return 0
-    print("\n".join(rails.render(standing, current, previous)))
+    print("\n".join(rails.render(standing, current, previous, rails.closures(box))))
     return 0
 
 
