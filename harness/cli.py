@@ -24,6 +24,7 @@ from . import (
     campaign,
     container,
     contour,
+    debt,
     executor,
     frame,
     rails,
@@ -443,6 +444,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         }
         payload["frame"] = frame.standing(box).json()
         payload["rails"] = rails.standing(box).json()
+        payload["debt"] = debt.tally(box).json()
         fresh, stored = records.state(box)
         payload["records"] = {
             "count": fresh.count,
@@ -481,6 +483,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
     lines.insert(-1, f"frame      {frame.standing(box).line()}")
     lines.insert(-1, f"rails      {rails.standing(box).line()}")
+    lines.insert(-1, f"debt       {debt.tally(box).line()}")
     lines.insert(-1, f"records    {_records_line(box)}")
     print("\n".join(lines))
     if tasks:

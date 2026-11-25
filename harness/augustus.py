@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour, executor, frame, rails, records
+from . import aurelius, caesar, contour, debt, executor, frame, rails, records
 from . import box as boxes
 from . import context as context_pack
 
@@ -531,7 +531,9 @@ def dispatch(
             trajan_python,
             reader,
             change,
-            paths=attempt.paths if attempt is not None else None,
+            paths=_verification_paths(
+                box, attempt.paths if attempt is not None else None, notes
+            ),
         )
         notes.extend(verify.reasons)
     else:
@@ -818,7 +820,9 @@ def resume(
         trajan_python,
         reader,
         patch,
-        paths=attempt.paths if attempt is not None else _attempt_paths(last_attempt),
+        paths=_verification_paths(
+            box, attempt.paths if attempt is not None else _attempt_paths(last_attempt), notes
+        ),
     )
     notes.extend(verify.reasons)
     state = _state(verify, None)
@@ -882,6 +886,26 @@ def _attempt_paths(found: tuple[Path, dict[str, object]] | None) -> tuple[str, .
     if not isinstance(raw, list):
         return None
     return tuple(str(item) for item in raw)
+
+
+def _verification_paths(
+    box: boxes.Box, narrowed: tuple[str, ...] | None, notes: list[str]
+) -> tuple[str, ...] | None:
+    """The paths that narrow a plan; a debt at the limit is repaid with one full run.
+
+    The debt is the box's, not the task's: a quick verdict is a decision taken earlier, and the
+    run that repays it checks everything the policy declares instead of what the change touches.
+    """
+    if narrowed is None:
+        return None
+    owed = debt.tally(box)
+    if not owed.due():
+        return narrowed
+    notes.append(
+        f"the check debt reached {owed.count} narrowed verdicts: this run verified the full "
+        "policy instead of the set its paths touch, and the debt is repaid"
+    )
+    return None
 
 
 def _verify(

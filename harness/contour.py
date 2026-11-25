@@ -424,6 +424,7 @@ def _reuse(
         "digest": digest_map,
         "status": earlier.status,
         "report": str(report),
+        "skipped": list(earlier.skipped),
         "at": _stamp(datetime.now(UTC)),
         "reused_from": str(record),
         "earlier_at": data.get("at"),
@@ -450,6 +451,7 @@ def _remember(
         "digest": digest_map,
         "status": result.status,
         "report": str(result.report),
+        "skipped": list(result.skipped),
         "at": _stamp(datetime.now(UTC)),
         "reused_from": None,
         "review": None
