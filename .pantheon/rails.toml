@@ -19,6 +19,7 @@ id = "M0"
 title = "Архитектура и решения"
 closes_when = "D1–D10 подтверждены, документы и код не расходятся"
 metric = "open"
+state = "closed"
 
 [[milestone]]
 id = "M1"
