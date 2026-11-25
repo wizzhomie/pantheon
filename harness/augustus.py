@@ -15,6 +15,7 @@ of this dispatch. The outbox says which of the two happened, because "nothing wa
 from __future__ import annotations
 
 import json
+import time
 import tomllib
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
@@ -52,6 +53,7 @@ SNAPSHOT_FILE = "task.json"
 
 DEFAULT_ROUTES: dict[str, tuple[str, ...]] = {
     "docs": ("verify",),
+    "hotfix": ("run", "verify"),
     "bugfix": ("run", "verify"),
     "feature": ("arch", "run", "verify"),
     "architecture": ("arch", "run", "verify"),
@@ -113,6 +115,9 @@ class Dispatch:
 
     repeated: str | None = None
     """The digest of a change already tried, when the retry proposed exactly it again."""
+
+    timings: dict[str, float] = field(default_factory=dict)
+    """Wall time in seconds per stage and in total, measured around the work, not guessed."""
 
 
 def record_addresses(raw: object, where: str) -> tuple[str, ...]:
@@ -224,6 +229,11 @@ def route(task: Task, routes: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     return routes.get(task.kind, ())
 
 
+def _is_pattern(path: str) -> bool:
+    """Whether a declared path is a pattern; the hotfix lane names exact files instead."""
+    return any(char in path for char in "*?[")
+
+
 def refusal(
     task: Task, routes: dict[str, tuple[str, ...]], *, driven: bool = False
 ) -> str | None:
@@ -237,6 +247,13 @@ def refusal(
         return "the task declares no kind: a change without a type does not start"
     if not task.paths:
         return "the task declares no paths: nothing is in scope, so nothing may be done"
+    if task.kind == "hotfix":
+        pattern = next((path for path in task.paths if _is_pattern(path)), None)
+        if pattern is not None:
+            return (
+                f"a hotfix names exact files, not patterns ({pattern!r}): a pattern reads the "
+                "whole tree, which is the cost the hotfix lane exists to avoid"
+            )
     if not route(task, routes):
         return f"no route for kind {task.kind!r}; known kinds: {', '.join(sorted(routes))}"
     if task.role == "architect" and task.kind != "architecture":
@@ -289,6 +306,7 @@ def dispatch(
     exactly it again is recorded and not applied, because paying twice for the same answer is
     how a retry turns into a loop.
     """
+    began = time.monotonic()
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "tabularium" / task.id
     directory.mkdir(parents=True, exist_ok=True)
@@ -350,6 +368,7 @@ def dispatch(
                     resumed_from=resumed_from,
                 ),
                 stamp,
+                began,
             )
 
     proposal: executor.Proposal | None = None
@@ -397,6 +416,7 @@ def dispatch(
                             context=pack,
                         ),
                         stamp,
+                        began,
                     )
                 if no_repeat is not None and proposal.patch is not None:
                     digest = _proposal_digest(box.project, proposal.patch)
@@ -422,6 +442,7 @@ def dispatch(
                                 repeated=digest,
                             ),
                             stamp,
+                            began,
                         )
                 patch = proposal.patch
         if patch is not None:
@@ -450,6 +471,7 @@ def dispatch(
                         context=pack,
                     ),
                     stamp,
+                    began,
                 )
             # The change the gate applied is the change a reader must read: a task that
             # carried its patch and a task whose executor proposed one are the same fact here.
@@ -462,7 +484,16 @@ def dispatch(
                 "--review asked for a reader, but this task produced no change to read: the "
                 "checks ran alone"
             )
-        verify = _verify(box, directory, stamp, trajan_root, trajan_python, reader, change)
+        verify = _verify(
+            box,
+            directory,
+            stamp,
+            trajan_root,
+            trajan_python,
+            reader,
+            change,
+            paths=attempt.paths if attempt is not None else None,
+        )
         notes.extend(verify.reasons)
     else:
         notes.append("verification was not routed for this task: nothing was checked")
@@ -494,6 +525,7 @@ def dispatch(
             context=pack,
         ),
         stamp,
+        began,
     )
 
 
@@ -570,6 +602,7 @@ def resume(
     What a continuation never does: ask the model again for a change already on disk, verify a
     tree the applied change is no longer in, or close a task whose verification already ran.
     """
+    began = time.monotonic()
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "tabularium" / task_id
     snapshot = directory / SNAPSHOT_FILE
@@ -712,6 +745,7 @@ def resume(
                     resumed_from=source,
                 ),
                 stamp,
+                began,
             )
 
     reader, skipped = _reader_for(review, patch, notes)
@@ -719,7 +753,16 @@ def resume(
         notes.append(
             "--review asked for a reader, but the recorded change is gone: the checks ran alone"
         )
-    verify = _verify(box, directory, stamp, trajan_root, trajan_python, reader, patch)
+    verify = _verify(
+        box,
+        directory,
+        stamp,
+        trajan_root,
+        trajan_python,
+        reader,
+        patch,
+        paths=attempt.paths if attempt is not None else _attempt_paths(last_attempt),
+    )
     notes.extend(verify.reasons)
     state = _state(verify, None)
     made = _commit_after_verdict(
@@ -746,6 +789,7 @@ def resume(
             review_skipped=skipped or None,
         ),
         stamp,
+        began,
     )
 
 
@@ -772,6 +816,16 @@ def _reader_for(
     return None, reason
 
 
+def _attempt_paths(found: tuple[Path, dict[str, object]] | None) -> tuple[str, ...] | None:
+    """The paths a recorded attempt touched: what the plan of a later verify narrows by."""
+    if found is None:
+        return None
+    raw = found[1].get("paths")
+    if not isinstance(raw, list):
+        return None
+    return tuple(str(item) for item in raw)
+
+
 def _verify(
     box: boxes.Box,
     directory: Path,
@@ -780,6 +834,7 @@ def _verify(
     trajan_python: Path,
     review: contour.Reviewer | None = None,
     change: Path | None = None,
+    paths: tuple[str, ...] | None = None,
 ) -> contour.VerifyResult:
     """Run the checks, and the reader too when both a reviewer and a change exist.
 
@@ -796,6 +851,7 @@ def _verify(
         python=trajan_python,
         out=out,
         diff=change,
+        paths=paths,
         reviewer=None if review is None else review.spec,
         reviewer_env=None if review is None else review.env,
         box_root=box.root,
@@ -1018,6 +1074,8 @@ class TaskSummary:
     verify: str | None
     record: Path
     unknowns: tuple[str, ...] = ()
+    seconds: float | None = None
+    """The dispatch's total wall time, when its record measured one."""
 
 
 def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
@@ -1038,6 +1096,8 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
             continue
         verify = data.get("verify")
         unknowns = data.get("unknowns")
+        timings = data.get("timings")
+        seconds = timings.get("total") if isinstance(timings, dict) else None
         found.append(
             TaskSummary(
                 id=str(data.get("task", task_dir.name)),
@@ -1048,6 +1108,7 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
                 unknowns=tuple(str(item) for item in unknowns)
                 if isinstance(unknowns, list)
                 else (),
+                seconds=float(seconds) if isinstance(seconds, (int, float)) else None,
             )
         )
     return tuple(found[-limit:])
@@ -1069,6 +1130,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify, result.review_skipped)}",
         f"commit     {_commit_line(result.commit)}",
+        f"time       {_time_line(result)}",
         f"state      {result.state}",
     ]
     if result.resumed_from is not None:
@@ -1126,6 +1188,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "review_cap": result.review_cap,
         "review_skipped": result.review_skipped,
         "unknowns": _unknowns(result),
+        "timings": dict(result.timings),
         "notes": list(result.notes),
         "acta": None if result.outbox is None else str(result.outbox),
         "exit_code": result.exit_code,
@@ -1194,7 +1257,9 @@ def _write_contract(box_root: Path, task: Task) -> Path:
     return path
 
 
-def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dispatch:
+def _finish(
+    box: boxes.Box, task: Task, result: Dispatch, when: datetime, began: float
+) -> Dispatch:
     record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
     outbox = box.root / "acta" / f"{when:%Y-%m-%d}-{task.id}.md"
     outbox.parent.mkdir(parents=True, exist_ok=True)
@@ -1217,6 +1282,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         review_skipped=result.review_skipped,
         context=result.context,
         repeated=result.repeated,
+        timings=_timings(result, began),
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
     # read here, and a summary that omitted it would be the quietest gap of all.
@@ -1228,6 +1294,44 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
     # is one run behind would make every dispatch leave a stale index behind it.
     records.write(box)
     return finished
+
+
+def _timings(result: Dispatch, began: float) -> dict[str, float]:
+    """Where the wall time went, measured around each stage and leaving the rest named.
+
+    The executor, the gate, the checks and the commit report their own seconds; ``other`` is
+    the box's work around them (contract, context, records), computed from the difference. A
+    stage that did not run is absent, not zero: "not asked" and "asked and took no time" are
+    different facts, and only one of them belongs in a budget conversation.
+    """
+    total = round(time.monotonic() - began, 2)
+    timings: dict[str, float] = {}
+    proposal = result.proposal
+    if proposal is not None and proposal.usage is not None and proposal.usage.seconds:
+        timings["executor"] = round(proposal.usage.seconds, 2)
+    if result.attempt is not None and result.attempt.seconds:
+        timings["gate"] = round(result.attempt.seconds, 2)
+    if result.verify is not None:
+        timings["verify"] = round(result.verify.seconds, 2)
+    if result.commit is not None and result.commit.seconds:
+        timings["commit"] = round(result.commit.seconds, 2)
+    timings["total"] = total
+    known = sum(value for key, value in timings.items() if key != "total")
+    timings["other"] = round(max(0.0, total - known), 2)
+    return timings
+
+
+def _time_line(result: Dispatch) -> str:
+    """The timing as one line for a person: the total first, the parts after it."""
+    if not result.timings:
+        return "not measured"
+    total = result.timings.get("total", 0.0)
+    parts = [
+        f"{key} {value:.1f} s"
+        for key, value in result.timings.items()
+        if key != "total" and value
+    ]
+    return f"{total:.1f} s" + (f" ({', '.join(parts)})" if parts else "")
 
 
 def _summary(result: Dispatch, when: datetime) -> str:
@@ -1265,6 +1369,10 @@ def _summary(result: Dispatch, when: datetime) -> str:
         "## cost",
     ]
     lines.extend(_cost_lines(result))
+    lines += ["", "## time", f"- total: {result.timings.get('total', 0.0):.1f} s"]
+    for key, value in result.timings.items():
+        if key != "total" and value:
+            lines.append(f"- {key}: {value:.1f} s")
     lines += ["", f"record: {result.directory}"]
     return "\n".join(lines) + "\n"
 
@@ -1473,7 +1581,8 @@ def _verify_line(
 ) -> str:
     if result is None:
         return "not run"
-    line = f"{result.status} ({result.checks} checks, report {result.report})"
+    ran = result.checks - len(result.skipped)
+    line = f"{result.status} ({ran} of {result.checks} checks ran, report {result.report})"
     if result.skipped:
         line += f"; not selected: {', '.join(result.skipped)}"
     if result.reused_from is not None:

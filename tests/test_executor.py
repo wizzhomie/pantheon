@@ -320,9 +320,12 @@ def test_the_change_an_executor_proposed_is_the_change_a_reader_reads(
         python: Path,
         review: contour.Reviewer | None = None,
         change: Path | None = None,
+        paths: tuple[str, ...] | None = None,
     ) -> contour.VerifyResult:
         seen["change"] = change
-        return real(box_, directory, stamp, root, python, review=None, change=change)
+        return real(
+            box_, directory, stamp, root, python, review=None, change=change, paths=paths
+        )
 
     monkeypatch.setattr(augustus, "_verify", spy)
     assert dispatch(box, task) == 0

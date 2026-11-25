@@ -393,3 +393,52 @@ def test_a_declared_path_decides_whether_the_change_is_read(
     assert "not read by declaration" in "\n".join(
         line for line in outbox.splitlines() if line.startswith("- ")
     )
+
+
+@requires_trajan
+def test_a_dispatch_records_where_its_time_went(tmp_path: Path) -> None:
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project, "value = 2\n")
+    task = write_task(tmp_path, TASK + f'change = "{patch}"\n')
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    record = json.loads(
+        next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    timings = record["timings"]
+    assert timings["total"] >= 0.0 and "verify" in timings and "other" in timings
+    assert timings["verify"] >= 0.0, "the checks report their own seconds"
+    outbox = next((box.root / "acta").glob("*.md")).read_text(encoding="utf-8")
+    assert "## time" in outbox and "total:" in outbox
+    attempt = json.loads(
+        (box.root / "tabularium" / "t-1" / "1" / "attempt.json").read_text(encoding="utf-8")
+    )
+    assert "seconds" in attempt, "the gate records what its own work took"
+
+
+def test_a_hotfix_refuses_a_pattern_instead_of_exact_files(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    _project, box = make_box(tmp_path)
+    task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "hotfix"'))
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
+    out = capsys.readouterr().out
+    assert "state      refused" in out and "exact files" in out
+
+
+@requires_trajan
+def test_a_hotfix_with_exact_files_is_closed_like_any_task(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    patch = make_patch(tmp_path, project, "value = 2\n")
+    task = write_task(
+        tmp_path,
+        TASK.replace('kind = "bugfix"', 'kind = "hotfix"')
+        .replace('paths = ["src/**"]', 'paths = ["src/app.py"]')
+        + f'change = "{patch}"\n',
+    )
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    out = capsys.readouterr().out
+    assert "state      closed" in out and "time       " in out

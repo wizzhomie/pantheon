@@ -20,6 +20,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -80,6 +81,9 @@ class VerifyResult:
 
     skipped: tuple[str, ...] = ()
     """Checks the plan did not select: a decision the report explains, not a gap."""
+
+    seconds: float = 0.0
+    """Wall time the checks took; zero when the verdict was reused, because nothing ran."""
 
     @property
     def passed(self) -> bool:
@@ -220,6 +224,7 @@ def run_verify(
     policy: Path | None = None,
     since: str | None = None,
     diff: Path | None = None,
+    paths: tuple[str, ...] | None = None,
     reviewer: str | None = None,
     reviewer_env: dict[str, str] | None = None,
     timeout: int = DEFAULT_TIMEOUT,
@@ -239,7 +244,14 @@ def run_verify(
     out.mkdir(parents=True, exist_ok=True)
     policy_path = policy or project / ".trajan" / "policy.toml"
     evidence = (
-        digest(project, policy_path, root, change=diff, reviewed=reviewer is not None)
+        digest(
+            project,
+            policy_path,
+            root,
+            change=diff,
+            reviewed=reviewer is not None,
+            paths=None if diff is not None else paths,
+        )
         if box_root is not None and since is None
         else None
     )
@@ -267,10 +279,15 @@ def run_verify(
         command += ["--diff", str(diff)]
     elif since is not None:
         command += ["--since", since]
+    elif paths:
+        # The change is not read, but the plan still narrows by what it touches: a check
+        # whose paths the change never touched is a decision, not a gap in the evidence.
+        command += ["--paths", *paths]
     if reviewer is not None:
         command += ["--reviewer", reviewer]
     log = out / REVIEW_LOG_FILE
     env = _environment(root, python, project)
+    began = time.monotonic()
     if reviewer is not None and reviewer_env is not None:
         env.update(reviewer_env)
         env[REVIEW_LOG_ENV] = str(log)
@@ -295,6 +312,7 @@ def run_verify(
         hint = "; ".join(tail) if tail else f"trajan exited {done.returncode}"
         raise boxes.HarnessError(f"trajan wrote no report to {report}: {hint}")
     result = read_report(report, exit_code=done.returncode)
+    result = replace(result, seconds=round(time.monotonic() - began, 2))
     if result.review is not None:
         result = replace(result, review=_with_bill(result.review, log))
     if evidence is not None and box_root is not None:
@@ -320,6 +338,7 @@ def digest(
     *,
     change: Path | None = None,
     reviewed: bool = False,
+    paths: tuple[str, ...] | None = None,
 ) -> dict[str, str]:
     """What a verdict depends on: the tree, the policy, the checker — and what was asked.
 
@@ -333,6 +352,7 @@ def digest(
         "policy": _file_digest(policy),
         "trajan": _trajan_digest(root),
         "change": "none" if change is None else _file_digest(change),
+        "paths": "all" if not paths else "|".join(sorted(paths)),
         "review": "yes" if reviewed else "no",
     }
 

@@ -1,23 +1,51 @@
 # What Pantheon checks about itself.
 #
-# The repository is a project like any other: its own gate is `make check` — trajan's checks,
-# the harness tests, ruff and mypy — and that command is what CI runs. Naming it here instead
-# of restating the tools keeps one source of truth; a check that cannot run would say so, not
-# pass quietly.
+# The repository is a project like any other, and its gate is the same work CI runs: ruff,
+# mypy, the harness suite and trajan's own check. The checks are declared separately and
+# scoped by path, so a change pays for what it can actually break: a one-file change in
+# `harness/` does not run trajan's 690 tests, and a docs change runs lint alone. `make check`
+# is still the full gate when no change narrows the plan — and the checkpoint before a push.
+#
+# Scoping is a selection, not a waiver: trajan reports a check whose paths were not touched as
+# "not selected", with the reason, so the verdict says which checks it covers.
 
 name = "pantheon-self"
 
 [budget]
 max_seconds = 400
-max_checks = 3
+max_checks = 4
 
 [sandbox]
 memory_mb = 2048
 file_mb = 128
 
 [[checks]]
-id = "gate"
-name = "make check"
-argv = ["make", "check"]
-timeout_s = 380
-purpose = "the same command CI runs: both test suites, ruff and mypy"
+id = "lint"
+name = "ruff"
+argv = ["make", "harness-lint"]
+timeout_s = 60
+purpose = "style is cheap to check and would otherwise be found in review"
+
+[[checks]]
+id = "types"
+name = "mypy"
+argv = ["make", "harness-typecheck"]
+timeout_s = 180
+when_paths = ["harness/**", "tests/**", "bin/**", "pyproject.toml"]
+purpose = "the harness is typed strictly; a changed module can break a caller it did not name"
+
+[[checks]]
+id = "harness-tests"
+name = "harness test suite"
+argv = ["make", "harness-test"]
+timeout_s = 300
+when_paths = ["harness/**", "tests/**", "bin/**", "pyproject.toml", "trajan/**"]
+purpose = "the suite that exercises the box; trajan is in its paths because the tests call it"
+
+[[checks]]
+id = "trajan"
+name = "trajan check"
+argv = ["make", "trajan-check"]
+timeout_s = 300
+when_paths = ["trajan/**"]
+purpose = "the verification contour's own suite, when the change touches it"

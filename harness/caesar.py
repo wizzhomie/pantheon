@@ -23,8 +23,9 @@ import os
 import re
 import subprocess
 import tempfile
+import time
 import tomllib
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -104,6 +105,8 @@ class Attempt:
     directory: Path = Path()
     patch_digest: str = ""
     notes: list[str] = field(default_factory=list)
+    seconds: float = 0.0
+    """Wall time of the gate's own work: reading, judging and applying the change."""
 
     @property
     def applied(self) -> bool:
@@ -119,6 +122,8 @@ class Commit:
     reason: str = ""
     subject: str = ""
     notes: tuple[str, ...] = ()
+    seconds: float = 0.0
+    """Wall time of the commit work: building it from the recorded change, not staging a tree."""
 
     @property
     def made(self) -> bool:
@@ -378,6 +383,7 @@ def run_attempt(
     when: datetime | None = None,
 ) -> Attempt:
     """Check the change against the contract, apply it only if allowed, record either way."""
+    began = time.monotonic()
     started = (when or datetime.now(UTC)).replace(microsecond=0)
     try:
         diff = patch.read_text(encoding="utf-8")
@@ -426,6 +432,7 @@ def run_attempt(
         violations=problems,
         directory=directory,
         patch_digest=digest,
+        seconds=round(time.monotonic() - began, 2),
     )
     _write_records(box_root, project, contract, attempt, started, finished)
     return attempt
@@ -452,10 +459,12 @@ def commit_change(
     that would not take the patch, or a change already in ``HEAD`` gives ``skipped`` or
     ``failed`` with the reason written down, and the verdict itself still stands.
     """
+    began = time.monotonic()
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     commit, message, base = _make_commit(
         project, contract, attempt, verdict=verdict, report=report, when=stamp
     )
+    commit = replace(commit, seconds=round(time.monotonic() - began, 2))
     _write_commit(box_root, contract, attempt, commit, verdict, report, stamp, message, base)
     return commit
 
@@ -561,6 +570,7 @@ def commit_json(commit: Commit) -> dict[str, object]:
         "subject": commit.subject,
         "reason": commit.reason,
         "notes": list(commit.notes),
+        "seconds": commit.seconds,
     }
 
 
@@ -591,6 +601,7 @@ def attempt_json(attempt: Attempt) -> dict[str, object]:
         "violations": [{"code": item.code, "detail": item.detail} for item in attempt.violations],
         "patch_digest": attempt.patch_digest,
         "directory": str(attempt.directory),
+        "seconds": attempt.seconds,
     }
 
 
@@ -709,6 +720,7 @@ def _write_commit(
         "notes": list(commit.notes),
         "message": message,
         "at": _stamp(when),
+        "seconds": commit.seconds,
     }
     (directory / "commit.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     _append_commit_event(box_root, contract, attempt, commit, when)
@@ -1017,6 +1029,7 @@ def _write_records(
             {"code": item.code, "detail": item.detail} for item in attempt.violations
         ],
         "patch": {"digest": f"sha256:{attempt.patch_digest}", "file": "change.diff"},
+        "seconds": attempt.seconds,
     }
     (base / "attempt.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
     _append_event(box_root, contract, attempt, finished)

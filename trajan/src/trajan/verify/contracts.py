@@ -225,12 +225,25 @@ class VerificationRequest(StrictModel):
         default=False,
         description="a second reader checks the reviewer's claims; costs one more call each",
     )
+    paths: list[str] | None = Field(
+        default=None,
+        max_length=5000,
+        description=(
+            "changed paths that narrow the plan without a reading; a request that carries a "
+            "diff gets them from the diff instead"
+        ),
+    )
     notes: str = Field(default="", max_length=500, description="why this request exists")
 
     @model_validator(mode="after")
     def _review_parameters_agree(self) -> VerificationRequest:
         if self.diff is not None and self.since is not None:
             raise ValueError("a request reviews either a diff file or a revision, not both")
+        if self.paths is not None and (self.diff is not None or self.since is not None):
+            raise ValueError(
+                "a request narrows the plan by paths or by a change, not both: with a change "
+                "the paths come from it"
+            )
         if self.needs_review and self.reviewer is None:
             raise ValueError(
                 "a request with a change needs a reviewer (--reviewer), or the change is not read"
@@ -249,6 +262,8 @@ class VerificationRequest(StrictModel):
         parts = [self.name, self.policy]
         if change:
             parts.append(change)
+        if self.paths:
+            parts.append("paths " + ", ".join(self.paths))
         if self.reviewer:
             parts.append(f"reviewer {self.reviewer}")
         return " · ".join(parts)

@@ -21,11 +21,18 @@ id = "R1"
 title = "Вердикт считает код, а не модель"
 status = "approved"
 detail = "Trajan выносит вердикт чистой функцией от прогона и находок; модель может предложить, но не выставить pass."
-checks = ["gate"]
+checks = ["harness-tests"]
 
 [[requirements]]
 id = "R2"
 title = "Проект не получает прав записи мимо ворот"
 status = "approved"
 detail = "Единственный писатель в коробке — Caesar; агент в контейнере предлагает диф, применяет его хост."
-checks = ["gate"]
+checks = ["harness-tests"]
+
+[[requirements]]
+id = "R3"
+title = "Изменение не ломает стиль, типы и вторую половину репозитория"
+status = "approved"
+detail = "Линт и типы проверяют изменённые модули, тесты среды — правку коробки, набор trajan — правку контура проверки; на полном прогоне это те же четыре команды, что в `make check`."
+checks = ["lint", "types", "harness-tests", "trajan"]

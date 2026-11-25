@@ -414,6 +414,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
                 "at": task.at,
                 "verify": task.verify,
                 "record": str(task.record),
+                "seconds": task.seconds,
                 "reading": _reading_of(task.record),
                 "unknowns": list(task.unknowns),
             }
@@ -442,7 +443,8 @@ def _status(args: argparse.Namespace, root: Path) -> int:
         for task in tasks:
             verify = f"verify {task.verify}" if task.verify else "not verified"
             read = _reading_brief(task.record)
-            print(f"task       {task.id}  {task.state}  {task.at}  {verify}{read}")
+            took = f"  in {task.seconds:.1f}s" if task.seconds is not None else ""
+            print(f"task       {task.id}  {task.state}  {task.at}  {verify}{took}{read}")
         for unknown in tasks[-1].unknowns:
             print(f"unknown    {unknown}")
     else:

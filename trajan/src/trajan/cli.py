@@ -292,6 +292,15 @@ def _build_parser() -> argparse.ArgumentParser:
     verify.add_argument(
         "--dry-run", action="store_true", help="print the plan and the budget, run nothing"
     )
+    verify.add_argument(
+        "--paths",
+        nargs="+",
+        metavar="PATH",
+        help=(
+            "changed paths for the plan when the change is not read: selects the checks that "
+            "guard them, without asking for a reviewer"
+        ),
+    )
     change = verify.add_mutually_exclusive_group()
     change.add_argument("--diff", type=Path, metavar="PATH", help="a unified diff to review")
     change.add_argument(
@@ -744,6 +753,7 @@ def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequ
                 ("--policy", args.policy),
                 ("--diff", args.diff),
                 ("--since", args.since),
+                ("--paths", args.paths),
                 ("--reviewer", args.reviewer),
                 ("--review-instructions", args.review_instructions),
                 ("--review-model", args.review_model),
@@ -759,6 +769,7 @@ def _request_from_args(args: argparse.Namespace, repo: Path) -> VerificationRequ
             policy=str(args.policy) if args.policy is not None else ".trajan/policy.toml",
             diff=str(args.diff) if args.diff is not None else None,
             since=args.since,
+            paths=args.paths,
             reviewer=args.reviewer,
             instructions=str(args.review_instructions)
             if args.review_instructions is not None

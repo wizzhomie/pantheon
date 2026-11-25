@@ -337,3 +337,82 @@ def test_a_truncated_diff_does_not_narrow_the_plan() -> None:
 
     assert diff.truncated
     assert changed_paths(diff) is None
+
+
+def test_a_paths_only_request_narrows_without_asking_a_reader(tmp_path: Path) -> None:
+    """A plan may narrow by declared paths while the change itself stays unread.
+
+    The box knows what the change touched from the gate's record; refusing to plan without a
+    reviewer would make the cheapest honest run impossible, and planning everything would
+    charge a one-file change for every suite in the repository.
+    """
+    from trajan.orchestrator import execute
+
+    repo = tmp_path / "demo"
+    repo.mkdir()
+    (repo / "policy.toml").write_text(
+        "\n".join(
+            [
+                'name = "demo"',
+                "[budget]",
+                "max_seconds = 30",
+                "",
+                "[[checks]]",
+                'id = "tests"',
+                'argv = ["' + sys.executable + '", "-c", "pass"]',
+                "",
+                "[[checks]]",
+                'id = "sql"',
+                'argv = ["' + sys.executable + '", "-c", "pass"]',
+                'when_paths = ["db/**"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    request = VerificationRequest(policy="policy.toml", paths=["src/app.py"])
+
+    report, _ = asyncio.run(execute(request, repo))
+
+    sql = next(item for item in report.run.checks if item.check_id == "sql")
+    assert (sql.status, sql.selected) == ("skipped", False)
+    tests = next(item for item in report.run.checks if item.check_id == "tests")
+    assert tests.selected is True
+    assert report.review is None, "paths narrow the plan; they are not a request to read"
+    assert report.verdict.status == "pass"
+
+
+def test_paths_and_a_change_cannot_both_narrow_the_plan() -> None:
+    with pytest.raises(ValueError, match="by paths or by a change"):
+        VerificationRequest(policy="policy.toml", diff="change.diff", paths=["src/app.py"])
+
+
+def test_the_dry_run_narrows_from_declared_paths(tmp_path: Path) -> None:
+    repo = tmp_path / "demo"
+    repo.mkdir()
+    (repo / "policy.toml").write_text(
+        "\n".join(
+            [
+                'name = "demo"',
+                "[budget]",
+                "max_seconds = 30",
+                "",
+                "[[checks]]",
+                'id = "tests"',
+                'argv = ["' + sys.executable + '", "-c", "pass"]',
+                "",
+                "[[checks]]",
+                'id = "sql"',
+                'argv = ["' + sys.executable + '", "-c", "pass"]',
+                'when_paths = ["db/**"]',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+    request = VerificationRequest(policy="policy.toml", paths=["src/app.py"])
+
+    lines = plan_lines(request, repo)
+
+    assert any("[not-selected]" in line and "sql" in line for line in lines)
+    assert any("tests" in line and "[required]" in line for line in lines)

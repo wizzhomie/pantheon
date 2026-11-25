@@ -77,6 +77,8 @@ async def execute(
     review: ReviewOutcome | None = None
     gaps: list[str] = []
     changed: list[str] | None = None
+    if request.paths is not None:
+        changed = list(request.paths)
     if request.needs_review:
         diff = load_diff(request, root)
         changed = changed_paths(diff)
@@ -138,7 +140,8 @@ def plan_lines(request: VerificationRequest, repo: str | Path) -> list[str]:
     if sandbox is not None:
         lines.append(f"  sandbox: {sandbox}")
     diff = load_diff(request, root) if request.needs_review else None
-    plan = build_plan(policy, profile, changed=changed_paths(diff))
+    changed = changed_paths(diff) if diff is not None else request.paths
+    plan = build_plan(policy, profile, changed=changed)
     lines.extend(f"  {line}" for line in describe_plan(plan))
     if diff is not None:
         lines.append(
