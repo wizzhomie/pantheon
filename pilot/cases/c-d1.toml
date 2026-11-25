@@ -1,0 +1,27 @@
+# Case D1 — a real defect from the foreign project's tracker, handed to the box as a
+# narrow entry: this input produces that wrong output, fix it. The search is the human's
+# here, the fix is the box's; the earlier open-ended "find a defect" runs (c-t2, c-t3)
+# showed the model cannot do the search and the harness refused both patches.
+#
+# The defect is pallets/click#2847: long option completion with "=" gobbles the option.
+# It is open on the project's tracker, the expected behaviour is stated there, and it
+# reproduces at this commit by hand: `_COMPLETE=bash_complete` on `prog --color=a`
+# returns `auto`, `always` — the shell then replaces the whole word and `--color=`
+# disappears. The same Python path feeds bash and zsh.
+#
+# Prediction, recorded before the run: the box changes src/click/shell_completion.py so
+# the prefix before "=" is re-attached to every completion, adds one or two tests to
+# tests/test_shell_completion.py, leaves the 2 629-test suite green, verdict pass,
+# under one cent.
+schema_version = 1
+id = "c-d1"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py", "tests/test_shell_completion.py"]
+cost_bound_cents = 3
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается; при `prog --color=` — `auto`, `always`, `never` без префикса. Сделай так, чтобы для незавершённого слова с «=» каждое предложенное значение несло часть до «=» включительно, включая пустой вариант, и одинаково для bash и zsh; на словах без «=» поведение не меняется. Добавь регрессионные тесты в tests/test_shell_completion.py, больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Дефект открыт в трекере (click#2847) и воспроизведён руками на этом коммите; правка в одном небольшом файле, набор click остаётся зелёным, новых находок не ожидается."
