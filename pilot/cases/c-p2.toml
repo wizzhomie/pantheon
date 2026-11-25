@@ -1,0 +1,16 @@
+# Case P2 — a small feature with a test. The first case where the change actually runs:
+# the harness must keep its own suite green, and the reader must not confuse "adds a field"
+# with "changes behaviour". Price bound is the highest of the three, because the agent
+# reads the module before writing.
+schema_version = 1
+id = "c-p2"
+repo = "https://github.com/wizzhomie/pantheon"
+base_commit = "1fb3ea4"
+kind = "bugfix"
+paths = ["harness/cli.py", "harness/records.py", "tests/test_records.py"]
+cost_bound_cents = 5
+goal = "Команда `pantheon records` перечисляет нечитаемые записи строками `skipped`, но ни в тексте, ни в JSON не называет их число. Добавь число `unreadable` в JSON-ответ и строку «не прочитано: N» в текстовый вывод, и тест на это. Формат строки выбери сам."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Добавление поля в вывод не меняет вердиктов; зелёные проверки и отсутствие находок — ожидаемый итог."
