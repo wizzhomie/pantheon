@@ -42,6 +42,7 @@ TASK_KEYS = frozenset(
         "records",
         "milestone",
         "outside_plan",
+        "repro",
     }
 )
 MODES = ("manual", "auto")
@@ -88,6 +89,13 @@ class Task:
 
     outside_plan: str | None = None
     """Why this task is outside the plan, when the owner decided it is."""
+
+    repro: tuple[str, ...] = ()
+    """The input the task names, as a command: it must fail before the change and pass after it.
+
+    A defect task without this is a task whose "done" nobody can check: a green suite only
+    proves what the suite covers, and the defect lives where no test looks (c-d3).
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,6 +215,16 @@ def read_task(path: Path) -> Task:
             f"{path}: a task either names a milestone or says why it stands outside the plan, "
             "not both"
         )
+    repro_raw = data.get("repro", [])
+    if not isinstance(repro_raw, list) or not all(
+        isinstance(item, str) and item.strip() for item in repro_raw
+    ):
+        raise boxes.HarnessError(f"{path}: repro must be a list of non-empty strings")
+    if repro_raw and len(repro_raw) < 2:
+        raise boxes.HarnessError(
+            f"{path}: repro must be a command as a list, at least the executable and its "
+            "first argument"
+        )
     return Task(
         path=path,
         id=identifier,
@@ -222,6 +240,7 @@ def read_task(path: Path) -> Task:
         records=record_addresses(data.get("records", []), str(path)),
         milestone=_text(milestone),
         outside_plan=_text(outside_plan),
+        repro=tuple(item.strip() for item in repro_raw),
     )
 
 
@@ -419,6 +438,33 @@ def dispatch(
                     "was written, and the write gate had nothing to gate"
                 )
             else:
+                if task.repro:
+                    code, tail = contour.run_repro(
+                        box.project, task.repro, root=trajan_root, python=trajan_python
+                    )
+                    if code == 0:
+                        notes.append(
+                            "the reproduction already passes before any change: the task does "
+                            "not describe a live defect, so nothing was written"
+                        )
+                        return _finish(
+                            box,
+                            task,
+                            Dispatch(
+                                task=task,
+                                state="returned",
+                                stages=stages,
+                                arch=arch,
+                                directory=directory,
+                                notes=notes,
+                                exit_code=1,
+                                resumed_from=resumed_from,
+                            ),
+                            stamp,
+                            began,
+                            rail=rail,
+                        )
+                    notes.append(f"the reproduction failed before the change as it should: {tail}")
                 pack = context_pack.build(
                     box, task.id, task.paths, when=stamp, named=task.records
                 )
@@ -534,6 +580,7 @@ def dispatch(
             paths=_verification_paths(
                 box, attempt.paths if attempt is not None else None, notes
             ),
+            repro=task.repro,
         )
         notes.extend(verify.reasons)
     else:
@@ -622,6 +669,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         lines.append("forbidden = [" + ", ".join(_quote(item) for item in task.forbidden) + "]")
     if task.records:
         lines.append("records = [" + ", ".join(_quote(item) for item in task.records) + "]")
+    if task.repro:
+        lines.append("repro = [" + ", ".join(_quote(item) for item in task.repro) + "]")
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
     return "\n".join(lines) + "\n"
@@ -926,27 +975,62 @@ def _verify(
     review: contour.Reviewer | None = None,
     change: Path | None = None,
     paths: tuple[str, ...] | None = None,
+    repro: tuple[str, ...] = (),
 ) -> contour.VerifyResult:
     """Run the checks, and the reader too when both a reviewer and a change exist.
 
     A reviewer without a change would be a request trajan refuses ("a change needs a reader"),
     so the change is passed exactly when there is one and someone was asked to read it.
+
+    ``repro`` is the task's own input, added to the policy as one more check: the defect the
+    task names must go from failing to passing, or the green suite proved nothing about it.
     """
     out = contour.run_directory(directory, stamp)
     if review is None or change is None:
         review = None
         change = None
+    policy = _policy_with_repro(box.project, repro, out) if repro else None
     return contour.run_verify(
         box.project,
         root=trajan_root,
         python=trajan_python,
         out=out,
+        policy=policy,
         diff=change,
         paths=paths,
         reviewer=None if review is None else review.spec,
         reviewer_env=None if review is None else review.env,
         box_root=box.root,
     )
+
+
+REPRO_CHECK = """\
+
+[[checks]]
+id = "repro"
+name = "the reproduction the task names"
+argv = [{argv}]
+purpose = "the input the task names: it must fail before the change and pass after it"
+timeout_s = 120
+"""
+
+
+def _policy_with_repro(project: Path, repro: tuple[str, ...], out: Path) -> Path:
+    """The project's policy plus one check: the task's own reproduction, run as evidence.
+
+    Written by appending a ``[[checks]]`` table, so the policy stays data and the box does not
+    re-serialise a file it only reads. The check has no ``when_paths``: the input is the point,
+    not the paths the change touches.
+    """
+    source = project / ".trajan" / "policy.toml"
+    text = source.read_text(encoding="utf-8") if source.is_file() else ""
+    out.mkdir(parents=True, exist_ok=True)
+    argv = ", ".join(json.dumps(item) for item in repro)
+    target = out / "policy-repro.toml"
+    target.write_text(
+        text.rstrip("\n") + "\n" + REPRO_CHECK.format(argv=argv), encoding="utf-8"
+    )
+    return target
 
 
 def _commit_after_verdict(

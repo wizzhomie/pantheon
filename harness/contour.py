@@ -320,6 +320,39 @@ def run_verify(
     return result
 
 
+def run_repro(
+    project: Path,
+    argv: tuple[str, ...],
+    *,
+    root: Path,
+    python: Path,
+    timeout: int = 120,
+) -> tuple[int, str]:
+    """Run the task's own reproduction against the tree as it is; the code and the last line.
+
+    The command resolves ``python`` from the project's venv first, like every other check the
+    box runs: a reproduction that ran under another interpreter would be evidence about the
+    wrong thing. A timeout is a failure with a number, not a crash of the box.
+    """
+    try:
+        done = subprocess.run(
+            list(argv),
+            cwd=str(project),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=timeout,
+            env=_environment(root, python, project),
+        )
+    except subprocess.TimeoutExpired:
+        return 124, f"the reproduction did not finish in {timeout}s"
+    except OSError as error:
+        return 127, f"the reproduction could not be started: {error}"
+    tail = (done.stderr or done.stdout).strip().splitlines()[-1:]
+    line = tail[0][:200] if tail else f"exit {done.returncode}"
+    return done.returncode, f"exit {done.returncode}: {line}"
+
+
 def run_directory(parent: Path, when: datetime) -> Path:
     """A run directory that never overwrites an earlier run: the stamp, then a counter."""
     base = "verify-" + when.strftime("%Y%m%dT%H%M%SZ")

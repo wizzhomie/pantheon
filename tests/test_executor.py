@@ -332,6 +332,7 @@ def test_the_change_an_executor_proposed_is_the_change_a_reader_reads(
         review: contour.Reviewer | None = None,
         change: Path | None = None,
         paths: tuple[str, ...] | None = None,
+        repro: tuple[str, ...] = (),
     ) -> contour.VerifyResult:
         seen["change"] = change
         return real(
@@ -770,3 +771,17 @@ def test_a_diff_that_hit_the_cap_is_marked_truncated(
     assert answer["truncated"] is True
     assert answer["patch"] == DIFF
     assert any("token cap" in note for note in answer["notes"])
+
+
+def test_a_reproduction_that_already_passes_stops_the_task_before_the_model(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The defect must be shown first: a repro that already passes describes no live defect."""
+    _project, box, _script, task = probe(tmp_path, ANSWER)
+    text = task.read_text(encoding="utf-8")
+    repro = 'repro = ["python", "-c", "raise SystemExit(0)"]\n'
+    task.write_text(text.replace("\n[budget]", "\n" + repro + "\n[budget]"), encoding="utf-8")
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "already passes before any change" in out
+    assert not list(box.root.glob("tabularium/t-1/proposal-*"))

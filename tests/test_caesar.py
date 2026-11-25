@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+import tomllib
 from pathlib import Path
 
 import pytest
@@ -394,3 +395,50 @@ def test_a_one_sided_change_is_committed_after_the_gate_accepted_it(tmp_path: Pa
     assert commit.status == "made", commit.reason
     assert git(project, "show", "--stat", "--oneline", "HEAD").splitlines()[0]
     assert "two and a half" in git(project, "show", "HEAD:src/app.py")
+
+
+def test_a_task_with_a_reproduction_is_read_and_written_back(tmp_path: Path) -> None:
+    """The repro is task data: it must survive the snapshot a dispatch freezes."""
+    from harness import augustus
+
+    path = tmp_path / "T2.toml"
+    path.write_text(
+        'schema_version = 1\nid = "T2"\npaths = ["src/**"]\n'
+        'repro = ["python", "-c", "raise SystemExit(1)"]\n',
+        encoding="utf-8",
+    )
+    task = augustus.read_task(path)
+    assert task.repro == ("python", "-c", "raise SystemExit(1)")
+    text = augustus.task_text(task)
+    assert 'repro = ["python", "-c", "raise SystemExit(1)"]' in text
+
+    path.write_text(
+        'schema_version = 1\nid = "T2"\npaths = ["src/**"]\nrepro = []\n', encoding="utf-8"
+    )
+    assert augustus.read_task(path).repro == ()
+    path.write_text(
+        'schema_version = 1\nid = "T2"\npaths = ["src/**"]\nrepro = ["python"]\n',
+        encoding="utf-8",
+    )
+    with pytest.raises(boxes.HarnessError, match="at least the executable"):
+        augustus.read_task(path)
+
+
+def test_the_reproduction_becomes_a_check_beside_the_policy(tmp_path: Path) -> None:
+    """A defect task's input runs as a check: the policy stays data, the check is appended."""
+    from harness import augustus
+
+    project = tmp_path / "proj"
+    (project / ".trajan").mkdir(parents=True)
+    (project / ".trajan" / "policy.toml").write_text(
+        'name = "probe"\n\n[budget]\nmax_checks = 3\n', encoding="utf-8"
+    )
+    policy = augustus._policy_with_repro(
+        project, ("python", "-c", "print(1)"), tmp_path / "out"
+    )
+    data = tomllib.loads(policy.read_text(encoding="utf-8"))
+    assert data["name"] == "probe"
+    assert data["budget"]["max_checks"] == 3
+    assert [check["id"] for check in data["checks"]] == ["repro"]
+    assert data["checks"][0]["argv"] == ["python", "-c", "print(1)"]
+    assert "when_paths" not in data["checks"][0]
