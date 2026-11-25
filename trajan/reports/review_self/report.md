@@ -32,7 +32,7 @@
 |---|---|
 | Model | `deepseek-flash` |
 | Diff | `208612dc9d32` |
-| Files reviewed | 7 |
+| Files shown | 7 |
 | Proposed | 4 |
 | Confirmed by the anchor | 4 |
 | Unverified | 0 |

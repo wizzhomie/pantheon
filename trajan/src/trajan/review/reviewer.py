@@ -23,7 +23,7 @@ from ..llm.base import LLMClient, LLMRequest, Message
 from .cache import ReviewCache
 from .contracts import ProposedFinding, ProposedReview, ReviewerConfig, ReviewOutcome
 from .diff import Diff, normalise_path
-from .prompt import SECOND_LOOK, build_user_message, second_look_message, system_message
+from .prompt import SECOND_LOOK, render_question, second_look_message, system_message
 
 MAX_REPO_FILES = 50_000
 
@@ -44,9 +44,10 @@ async def review_diff(
     not happen.
     """
     started = time.monotonic()
-    user_message = build_user_message(
+    question = render_question(
         diff, max_bytes=config.max_diff_bytes, requirements=requirements
     )
+    user_message = question.text
     request = LLMRequest(
         model=config.model,
         messages=[
@@ -79,7 +80,8 @@ async def review_diff(
             status="failed",
             model=config.model,
             diff_digest=diff.digest(),
-            files_reviewed=len(diff.files),
+            files_reviewed=len(question.shown),
+            truncated=diff.truncated,
             error=f"{type(exc).__name__}: {exc}"[:400],
             spent_seconds=round(time.monotonic() - started, 3),
         )
@@ -91,7 +93,7 @@ async def review_diff(
             status="failed",
             model=response.model,
             diff_digest=diff.digest(),
-            files_reviewed=len(diff.files),
+            files_reviewed=len(question.shown),
             prompt_tokens=response.prompt_tokens,
             completion_tokens=response.completion_tokens,
             error=f"unparseable review answer: {exc}"[:400],
@@ -125,7 +127,8 @@ async def review_diff(
         status="ok",
         model=response.model,
         diff_digest=diff.digest(),
-        files_reviewed=len(diff.files),
+        files_reviewed=len(question.shown),
+        truncated=diff.truncated,
         proposed=len(findings),
         confirmed=sum(1 for finding in findings if finding.status == "confirmed"),
         unverified=sum(1 for finding in findings if finding.status == "unverified"),

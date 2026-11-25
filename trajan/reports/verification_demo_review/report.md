@@ -53,7 +53,7 @@ Path-scoped checks run only when the change touches the paths they guard; a run 
 |---|---|
 | Model | `deepseek-flash` |
 | Diff | `ba3287847ebd` |
-| Files reviewed | 1 |
+| Files shown | 1 |
 | Proposed | 1 |
 | Confirmed by the anchor | 1 |
 | Unverified | 0 |

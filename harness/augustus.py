@@ -1311,21 +1311,41 @@ def _unknowns(result: Dispatch) -> list[str]:
                 "the reviewer was asked and failed: the change was not read "
                 f"({review.error or 'no reason recorded'})"
             )
-        elif review.cost_cents is None and not review.cached:
-            unknown.append(
-                "the reviewer did not report what it cost: the reading is not accounted for in "
-                "any budget"
-            )
-        elif (
-            review.cost_cents is not None
-            and result.review_cap is not None
-            and review.cost_cents > result.review_cap
-        ):
-            unknown.append(
-                f"the reading cost {review.cost_cents:.2f} cents, more than the "
-                f"{result.review_cap:g} the box declared: the call had already happened, so it "
-                "is recorded as a gap rather than refused"
-            )
+        else:
+            # What the reading did not cover, and what it cost: two different gaps. One must
+            # not hide the other — a cut reading whose bill crossed the ceiling is both.
+            if review.truncated:
+                unknown.append(
+                    "the change was cut before the reviewer saw it: the reading covers a part "
+                    "of the change, not all of it, and the count of files says nothing about "
+                    "the rest"
+                )
+            elif (
+                review.files_reviewed is not None
+                and result.attempt is not None
+                and result.attempt.paths
+                and review.files_reviewed < len(result.attempt.paths)
+            ):
+                unknown.append(
+                    f"the reviewer was shown {review.files_reviewed} of the "
+                    f"{len(result.attempt.paths)} changed files: the rest did not fit the "
+                    "reading budget, so a finding about them could not have been confirmed"
+                )
+            if review.cost_cents is None and not review.cached:
+                unknown.append(
+                    "the reviewer did not report what it cost: the reading is not accounted "
+                    "for in any budget"
+                )
+            elif (
+                review.cost_cents is not None
+                and result.review_cap is not None
+                and review.cost_cents > result.review_cap
+            ):
+                unknown.append(
+                    f"the reading cost {review.cost_cents:.2f} cents, more than the "
+                    f"{result.review_cap:g} the box declared: the call had already happened, "
+                    "so it is recorded as a gap rather than refused"
+                )
         if result.verify.status != "pass":
             unknown.append(f"the verdict is {result.verify.status}, not pass")
     if result.attempt is not None and result.attempt.applied and "verify" not in result.stages:

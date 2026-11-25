@@ -52,7 +52,7 @@ Path-scoped checks run only when the change touches the paths they guard; a run 
 |---|---|
 | Model | `scripted (no model call)` |
 | Diff | `ba3287847ebd` |
-| Files reviewed | 1 |
+| Files shown | 1 |
 | Proposed | 0 |
 | Confirmed by the anchor | 0 |
 | Unverified | 0 |

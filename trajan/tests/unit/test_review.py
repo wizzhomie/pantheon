@@ -29,6 +29,7 @@ from trajan.review import (
     anchor,
     build_user_message,
     parse_diff,
+    render_question,
     review_diff,
 )
 from trajan.verify import VerificationRequest
@@ -639,6 +640,45 @@ def test_the_byte_ceiling_counts_bytes_not_characters() -> None:
     text = "diff --git a/ф.py b/ф.py\n--- a/ф.py\n+++ b/ф.py\n@@ -1 +1 @@\n-я\n+я\n" + "я" * 200
 
     assert parse_diff(text, max_bytes=300).truncated
+
+
+def _wide_file(name: str, lines: int = 4000) -> str:
+    body = "\n".join(f"+{number:05d} " + "x" * 30 for number in range(lines))
+    return (
+        f"diff --git a/{name} b/{name}\n"
+        f"--- a/{name}\n"
+        f"+++ b/{name}\n"
+        f"@@ -1,0 +1,{lines} @@\n"
+        + body
+        + "\n"
+    )
+
+
+def test_a_file_that_does_not_fit_is_named_and_not_counted_as_shown(tmp_path: Path) -> None:
+    """The prompt ceiling drops the second file; the outcome must not call it reviewed."""
+    diff = parse_diff(MODIFIED_DIFF + _wide_file("big.py"))
+    assert [change.path for change in diff.files] == ["app.py", "big.py"]
+
+    question = render_question(diff, max_bytes=120_000)
+    assert question.shown == ("app.py",)
+    assert "big.py: not shown, the diff budget ran out" in question.text
+
+    outcome = asyncio.run(
+        review_diff(diff, repo(tmp_path), FakeClient([answer()]), ReviewerConfig(model="r"))
+    )
+    assert outcome.files_reviewed == 1
+    assert outcome.truncated is False
+
+
+def test_a_change_larger_than_the_parser_ceiling_says_so(tmp_path: Path) -> None:
+    diff = parse_diff(_wide_file("big.py", lines=7000))
+    assert diff.truncated is True
+
+    outcome = asyncio.run(
+        review_diff(diff, repo(tmp_path), FakeClient([answer()]), ReviewerConfig(model="r"))
+    )
+    assert outcome.files_reviewed == 0
+    assert outcome.truncated is True
 
 
 def test_a_path_with_a_dot_prefix_still_anchors(tmp_path: Path) -> None:

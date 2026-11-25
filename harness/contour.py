@@ -102,6 +102,12 @@ class Review:
     cached: bool = False
     """Served from the review cache: the same diff was read before, so this run paid nothing."""
 
+    files_reviewed: int | None = None
+    """How many files the reviewer was actually shown; ``None`` when the report did not say."""
+
+    truncated: bool = False
+    """The change was cut before the reviewer saw it: the reading is partial, not empty."""
+
     @property
     def read(self) -> bool:
         """A reader answered. A failed review is a reader that was asked and could not answer."""
@@ -438,6 +444,8 @@ def _remember(
             "calls": result.review.calls,
             "cost_cents": result.review.cost_cents,
             "cached": result.review.cached,
+            "files_reviewed": result.review.files_reviewed,
+            "truncated": result.review.truncated,
             "error": result.review.error,
         },
     }
@@ -612,6 +620,10 @@ def _read_review(section: object) -> Review | None:
         cost_cents=None,
         error=section.get("error") if isinstance(section.get("error"), str) else None,
         cached=section.get("cached") is True,
+        files_reviewed=_int(section.get("files_reviewed"))
+        if "files_reviewed" in section
+        else None,
+        truncated=section.get("truncated") is True,
     )
 
 
@@ -709,6 +721,8 @@ def result_json(result: VerifyResult, project: Path, box: str) -> dict[str, obje
             "calls": result.review.calls,
             "cost_cents": result.review.cost_cents,
             "cached": result.review.cached,
+            "files_reviewed": result.review.files_reviewed,
+            "truncated": result.review.truncated,
             "error": result.review.error,
         },
         "exit_code": result.exit_code,

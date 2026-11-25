@@ -291,13 +291,18 @@ def _review_section(review: ReviewOutcome | None) -> str:
         "|---|---|",
         f"| Model | {model} |",
         f"| Diff | `{review.diff_digest[:12]}` |",
-        f"| Files reviewed | {review.files_reviewed} |",
+        f"| Files shown | {review.files_reviewed} |",
         f"| Proposed | {review.proposed} |",
         f"| Confirmed by the anchor | {review.confirmed} |",
         f"| Unverified | {review.unverified} |",
         f"| Tokens | {tokens} |",
         f"| Time | {review.spent_seconds:.1f}s |",
     ]
+    if review.truncated:
+        lines.append(
+            "| Diff cut | the change was larger than the reading budget, so the review saw "
+            "a part of it |"
+        )
     if review.second_look != "off":
         fate = (
             f"{review.refuted} claim(s) dropped"

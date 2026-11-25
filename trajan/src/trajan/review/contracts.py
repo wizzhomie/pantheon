@@ -88,4 +88,8 @@ class ReviewOutcome(StrictModel):
         default=False,
         description="served from the review cache; the tokens were paid on the original call",
     )
+    truncated: bool = Field(
+        default=False,
+        description="the diff was cut before the reviewer saw it, so the reading is partial",
+    )
     error: str | None = Field(default=None, description="why the review did not happen")

@@ -26,7 +26,7 @@ from .contracts import (
     ReviewStatus,
 )
 from .diff import Diff, DiffLine, FileChange, FileStatus, parse_diff
-from .prompt import build_user_message, system_message
+from .prompt import Question, build_user_message, render_question, system_message
 from .reviewer import anchor, review_diff
 
 __all__ = [
@@ -38,12 +38,14 @@ __all__ = [
     "ProposedKind",
     "ProposedReview",
     "ProposedSeverity",
+    "Question",
     "ReviewOutcome",
     "ReviewStatus",
     "ReviewerConfig",
     "anchor",
     "build_user_message",
     "parse_diff",
+    "render_question",
     "review_diff",
     "system_message",
 ]

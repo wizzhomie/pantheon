@@ -16,8 +16,8 @@ from pathlib import Path
 
 import pytest
 
+from harness import augustus, caesar, container, contour
 from harness import box as boxes
-from harness import container, contour
 from harness.cli import main
 
 PASSING = """\
@@ -410,3 +410,102 @@ def test_a_reading_above_the_declared_ceiling_is_named(
     payload = json.loads(capsys.readouterr().out)
     assert payload["review_cap"] == 0.01
     assert any("more than the 0.01 the box declared" in item for item in payload["unknowns"])
+
+
+def _reviewed(
+    tmp_path: Path,
+    *,
+    files_reviewed: int | None,
+    truncated: bool = False,
+    attempt_paths: tuple[str, ...] | None = None,
+    cost_cents: float | None = 0.1,
+) -> augustus.Dispatch:
+    task = augustus.Task(
+        path=tmp_path / "t.toml",
+        id="t",
+        goal=None,
+        kind="bugfix",
+        paths=("src/**",),
+        expected=None,
+        change=None,
+        forbidden=(),
+        budget={},
+    )
+    review = contour.Review(
+        model="m",
+        status="ok",
+        proposed=0,
+        confirmed=0,
+        prompt_tokens=10,
+        completion_tokens=1,
+        calls=1,
+        cost_cents=cost_cents,
+        files_reviewed=files_reviewed,
+        truncated=truncated,
+    )
+    verify = contour.VerifyResult(
+        run=tmp_path,
+        report=tmp_path / "report.json",
+        run_id="r",
+        status="pass",
+        reasons=(),
+        findings=0,
+        blocking=0,
+        checks=1,
+        exit_code=0,
+        reviewed=True,
+        review=review,
+    )
+    attempt = (
+        None
+        if attempt_paths is None
+        else caesar.Attempt(
+            task="t", number=1, status="applied", reason="", paths=attempt_paths
+        )
+    )
+    return augustus.Dispatch(
+        task=task, state="closed", stages=("verify",), attempt=attempt, verify=verify
+    )
+
+
+def test_a_reading_that_saw_one_file_of_four_names_the_rest(tmp_path: Path) -> None:
+    """A reviewer shown a part of the change must not read as "found nothing in it"."""
+    result = _reviewed(
+        tmp_path,
+        files_reviewed=1,
+        attempt_paths=("src/a.py", "src/b.py", "src/c.py", "src/d.py"),
+    )
+
+    gaps = augustus._unknowns(result)
+
+    assert any("shown 1 of the 4 changed files" in item for item in gaps)
+    assert any("did not fit the reading budget" in item for item in gaps)
+
+
+def test_a_cut_reading_over_the_ceiling_names_both(tmp_path: Path) -> None:
+    """Two different gaps: the reading was cut and it cost more than the box declared."""
+    from dataclasses import replace
+
+    result = _reviewed(
+        tmp_path,
+        files_reviewed=0,
+        truncated=True,
+        attempt_paths=("src/a.py",),
+        cost_cents=2.0,
+    )
+
+    gaps = augustus._unknowns(replace(result, review_cap=1.0))
+
+    assert any("cut before the reviewer saw it" in item for item in gaps)
+    assert any("more than the 1 the box declared" in item for item in gaps)
+
+
+def test_a_cut_change_is_named_even_without_a_file_count(tmp_path: Path) -> None:
+    result = _reviewed(
+        tmp_path, files_reviewed=0, truncated=True, attempt_paths=("src/a.py",)
+    )
+
+    gaps = augustus._unknowns(result)
+
+    assert any("cut before the reviewer saw it" in item for item in gaps)
+    assert not any("changed files" in item for item in gaps), "a cut count means nothing"

@@ -12,6 +12,7 @@ hash of the request: an accidental change to whitespace is a changed experiment.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 from .contracts import ProposedFinding
 from .diff import Diff
@@ -63,9 +64,28 @@ MAX_REQUIREMENTS = 20
 """How many promises the prompt shows; the rest are counted, not pasted."""
 
 
+@dataclass(frozen=True, slots=True)
+class Question:
+    """The prompt the reviewer gets, and which files it actually shows.
+
+    A change above the ceiling is not shown whole, and the files that did not fit are the
+    difference between "the reviewer found nothing" and "the reviewer was not shown".
+    """
+
+    text: str
+    shown: tuple[str, ...]
+
+
 def build_user_message(
     diff: Diff, *, max_bytes: int, requirements: Sequence[tuple[str, str]] = ()
 ) -> str:
+    """The rendered question; ``render_question`` is the same text plus what it shows."""
+    return render_question(diff, max_bytes=max_bytes, requirements=requirements).text
+
+
+def render_question(
+    diff: Diff, *, max_bytes: int, requirements: Sequence[tuple[str, str]] = ()
+) -> Question:
     """Render the diff as numbered lines, stopping at the prompt's byte ceiling.
 
     Approved requirements come first: they are the vocabulary a finding uses to say *why*
@@ -87,6 +107,7 @@ def build_user_message(
         ]
     )
     body: list[str] = []
+    shown: list[str] = []
     used = sum(len(line) + 1 for line in header)
     for change in diff.files:
         block = [f"--- {change.path} ({change.status}, removed {change.removed})"]
@@ -96,10 +117,11 @@ def build_user_message(
         size = sum(len(line) + 1 for line in block)
         if used + size > max_bytes:
             body.append(f"--- {change.path}: not shown, the diff budget ran out")
-            break
+            continue
         body.extend(block)
         used += size
-    return "\n".join(header + body)
+        shown.append(change.path)
+    return Question(text="\n".join(header + body), shown=tuple(shown))
 
 
 def system_message(instructions: str) -> str:
