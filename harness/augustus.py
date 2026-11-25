@@ -21,7 +21,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 
-from . import aurelius, caesar, contour, executor, frame, records
+from . import aurelius, caesar, contour, executor, frame, rails, records
 from . import box as boxes
 from . import context as context_pack
 
@@ -40,6 +40,8 @@ TASK_KEYS = frozenset(
         "mode",
         "role",
         "records",
+        "milestone",
+        "outside_plan",
     }
 )
 MODES = ("manual", "auto")
@@ -81,6 +83,12 @@ class Task:
     records: tuple[str, ...] = ()
     """Digest addresses the task names itself: history its paths would not have found."""
 
+    milestone: str | None = None
+    """The milestone the work serves; a change either names one or says why it stands out."""
+
+    outside_plan: str | None = None
+    """Why this task is outside the plan, when the owner decided it is."""
+
 
 @dataclass(frozen=True, slots=True)
 class Dispatch:
@@ -109,6 +117,9 @@ class Dispatch:
 
     frame: frame.Standing | None = None
     """The architecture basis this dispatch rested on: approved, changed, never, or empty."""
+
+    rails: rails.Check | None = None
+    """The milestone this change serves, or why it stands outside the plan."""
 
     context: context_pack.Pack | None = None
     """What the model was told about the box before it was asked for a change."""
@@ -186,6 +197,16 @@ def read_task(path: Path) -> Task:
             f"{path}: mode {mode!r} is not one of {', '.join(MODES)}: an unknown mode would be "
             "a rule nothing obeys"
         )
+    milestone = data.get("milestone")
+    outside_plan = data.get("outside_plan")
+    for key, value in (("milestone", milestone), ("outside_plan", outside_plan)):
+        if value is not None and not isinstance(value, str):
+            raise boxes.HarnessError(f"{path}: {key} must be a string")
+    if _text(milestone) is not None and _text(outside_plan) is not None:
+        raise boxes.HarnessError(
+            f"{path}: a task either names a milestone or says why it stands outside the plan, "
+            "not both"
+        )
     return Task(
         path=path,
         id=identifier,
@@ -199,6 +220,8 @@ def read_task(path: Path) -> Task:
         mode=str(mode),
         role=str(role),
         records=record_addresses(data.get("records", []), str(path)),
+        milestone=_text(milestone),
+        outside_plan=_text(outside_plan),
     )
 
 
@@ -321,6 +344,18 @@ def dispatch(
             notes=[blocked],
             exit_code=1,
         )
+    rail = rails.check(box, milestone=task.milestone, outside=task.outside_plan)
+    if rail.refusal is not None:
+        _event(box.root, stamp, "task.refused", task, rail.refusal)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[rail.refusal],
+            exit_code=1,
+            rails=rail,
+        )
     stages, extended = _with_write_gate(route(task, routes), task)
     notes: list[str] = []
     if resumed_from is not None:
@@ -369,6 +404,7 @@ def dispatch(
                 ),
                 stamp,
                 began,
+                rail=rail,
             )
 
     proposal: executor.Proposal | None = None
@@ -417,6 +453,7 @@ def dispatch(
                         ),
                         stamp,
                         began,
+                        rail=rail,
                     )
                 if no_repeat is not None and proposal.patch is not None:
                     digest = _proposal_digest(box.project, proposal.patch)
@@ -443,6 +480,7 @@ def dispatch(
                             ),
                             stamp,
                             began,
+                            rail=rail,
                         )
                 patch = proposal.patch
         if patch is not None:
@@ -472,6 +510,7 @@ def dispatch(
                     ),
                     stamp,
                     began,
+                    rail=rail,
                 )
             # The change the gate applied is the change a reader must read: a task that
             # carried its patch and a task whose executor proposed one are the same fact here.
@@ -526,6 +565,7 @@ def dispatch(
         ),
         stamp,
         began,
+        rail=rail,
     )
 
 
@@ -560,6 +600,10 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
         lines.append(f"mode = {_quote(task.mode)}")
     if task.role != "executor":
         lines.append(f"role = {_quote(task.role)}")
+    if task.milestone is not None:
+        lines.append(f"milestone = {_quote(task.milestone)}")
+    if task.outside_plan is not None:
+        lines.append(f"outside_plan = {_quote(task.outside_plan)}")
     if change is not None:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:
@@ -613,6 +657,18 @@ def resume(
             "file existed cannot be continued — run the task again."
         )
     task = read_task(snapshot)
+    rail = rails.check(box, milestone=task.milestone, outside=task.outside_plan)
+    if rail.refusal is not None:
+        _event(box.root, stamp, "task.refused", task, rail.refusal)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[rail.refusal],
+            exit_code=1,
+            rails=rail,
+        )
     if budget:
         task = replace(task, budget={**task.budget, **budget})
     config = executor_config or executor.read_config(box.root / executor.PROFILE_FILE)
@@ -746,6 +802,7 @@ def resume(
                 ),
                 stamp,
                 began,
+                rail=rail,
             )
 
     reader, skipped = _reader_for(review, patch, notes)
@@ -790,6 +847,7 @@ def resume(
         ),
         stamp,
         began,
+        rail=rail,
     )
 
 
@@ -918,6 +976,10 @@ def _context_line(pack: context_pack.Pack | None) -> str:
 
 def _frame_line(standing: frame.Standing | None) -> str:
     return "not read" if standing is None else standing.line()
+
+
+def _rails_line(check: rails.Check | None) -> str:
+    return "not recorded" if check is None else check.line()
 
 
 def _commit_line(commit: caesar.Commit | None) -> str:
@@ -1123,6 +1185,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
         f"stages     {' -> '.join(result.stages) or 'none'}",
         f"frame      {_frame_line(result.frame)}",
+        f"rails      {_rails_line(result.rails)}",
         f"arch       {_arch_line(result.arch)}",
         f"executor   {_executor_line(result.proposal)}",
         f"reading    {_reading_line(result.proposal)}",
@@ -1183,6 +1246,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         },
         "commit": None if result.commit is None else caesar.commit_json(result.commit),
         "frame": None if result.frame is None else result.frame.json(),
+        "rails": None if result.rails is None else result.rails.json(),
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
         "review_cap": result.review_cap,
@@ -1258,7 +1322,12 @@ def _write_contract(box_root: Path, task: Task) -> Path:
 
 
 def _finish(
-    box: boxes.Box, task: Task, result: Dispatch, when: datetime, began: float
+    box: boxes.Box,
+    task: Task,
+    result: Dispatch,
+    when: datetime,
+    began: float,
+    rail: rails.Check | None = None,
 ) -> Dispatch:
     record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
     outbox = box.root / "acta" / f"{when:%Y-%m-%d}-{task.id}.md"
@@ -1272,6 +1341,9 @@ def _finish(
         arch=result.arch,
         commit=result.commit,
         frame=frame.standing(box),
+        rails=rail
+        if rail is not None
+        else rails.check(box, milestone=task.milestone, outside=task.outside_plan),
         outbox=outbox,
         directory=result.directory,
         notes=result.notes,
@@ -1347,6 +1419,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         "",
         "## what ran",
         f"- frame: {_frame_line(result.frame)}",
+        f"- rails: {_rails_line(result.rails)}",
         f"- architecture: {_arch_line(result.arch)}",
         f"- executor: {_executor_line(result.proposal)}",
         f"- context: {_context_line(result.context)}",
@@ -1388,6 +1461,10 @@ def _unknowns(result: Dispatch) -> list[str]:
     task = result.task
     if result.frame is not None:
         gap = result.frame.gap()
+        if gap is not None:
+            unknown.append(gap)
+    if result.rails is not None:
+        gap = result.rails.gap()
         if gap is not None:
             unknown.append(gap)
     if result.arch is not None and result.arch.status != "ok":

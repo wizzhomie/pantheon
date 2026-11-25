@@ -16,13 +16,14 @@ afterthought here; it is the part that already works, and it is where the projec
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
 | **Augustus** — orchestration inside the box | **works with a declared executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, has the box's executor produce the change when the task carries none, forces every change through the write gate, calls the contours, and writes the record, the events in `fasti/`, one `acta/` summary and the task's state in `status` — including what the run did not check. A run that stopped before its verdict — the executor killed, the budget spent, the machine rebooted — is continued by `pantheon resume`, which reuses the recorded change instead of asking the model again and refuses to verify a tree that no longer holds it |
 | **Executor** — the command that produces the change | **works**: the box declares `persona/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the `acta/` summary. `bin/pantheon-executor-container` asks the agent inside the box; `bin/pantheon-executor` is the host adapter for an OpenAI-compatible endpoint, kept as a fallback for a box without an agent. A subscription CLI adapter is the next one |
-| **Rails** — the owner's frame: brief, goals, milestones, metrics, principles | **works up to the task**: `.pantheon/rails.toml` says what the project serves, `pantheon rails` shows it and names every part that is not filled, and `pantheon rails --approve` writes a record carrying the digest the owner accepted and the questions he left to the box. A task does not name a milestone yet, and no gate refuses work outside the plan |
+| **Rails** — the owner's frame: brief, goals, milestones, metrics, principles | **works**: `.pantheon/rails.toml` says what the project serves, `pantheon rails` shows it and names every part that is not filled, and `pantheon rails --approve` writes a record carrying the digest the owner accepted and the questions he left to the box. Once the frame is approved, a task names the milestone it serves: no milestone and an unknown one are refused before anything runs, `outside_plan = "why"` records a decision to stand out, and the dispatch record and `acta/` carry the answer. A project that never wrote rails still runs — the verdict names that no milestone holds it |
 
 The table is the honest status, not a roadmap promise: six rows are running code today, and the
 box's container now runs its own agent with a profile and a model. The rails are new: the frame is
-recorded and can be accepted, but it does not yet hold a task — that is the next part. The change
-is still produced as a proposal and applied on the host through Caesar: the project is read-only
-inside the container, so the boundary is a mount, not an instruction.
+recorded and accepted, and a task now names the milestone it serves; revisions with a risk note
+are the next part. The change is still produced as a proposal and applied on the host through
+Caesar: the project is read-only inside the container, so the boundary is a mount, not an
+instruction.
 
 ## Using the box
 

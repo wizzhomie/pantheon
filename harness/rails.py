@@ -181,6 +181,45 @@ class Standing:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class Check:
+    """How one task stands against the rails: the milestone it serves, or why it stands out."""
+
+    standing: Standing
+    milestone: Milestone | None = None
+    outside: str | None = None
+    refusal: str | None = None
+
+    def line(self) -> str:
+        """The answer as one line, for the acta and the record."""
+        if self.refusal is not None:
+            return f"refused — {self.refusal}"
+        if self.milestone is not None:
+            return (
+                f"milestone {self.milestone.id} — {self.milestone.title} "
+                f"({self.milestone.state})"
+            )
+        if self.outside is not None:
+            return f"outside the plan — {self.outside}"
+        gap = self.standing.gap()
+        return f"no milestone — {gap}" if gap is not None else "no milestone"
+
+    def gap(self) -> str | None:
+        """What this task's verdict does not cover: the rails it rested on were not accepted."""
+        if self.standing.state != "approved":
+            return self.standing.gap()
+        return None
+
+    def json(self) -> dict[str, object]:
+        return {
+            "state": self.standing.state,
+            "milestone": None if self.milestone is None else self.milestone.id,
+            "title": None if self.milestone is None else self.milestone.title,
+            "outside": self.outside,
+            "refusal": self.refusal,
+        }
+
+
 def read(project: Path) -> Rails | None:
     """Read the rails; ``None`` when none are declared, an error when they cannot be read."""
     path = project / RAILS_FILE
@@ -356,6 +395,43 @@ def standing(box: boxes.Box) -> Standing:
     if approval.digest != current.digest:
         return Standing("changed", current.digest, approval)
     return Standing("approved", current.digest, approval)
+
+
+def check(box: boxes.Box, *, milestone: str | None, outside: str | None) -> Check:
+    """Admit a task by the rails, or say why it does not start.
+
+    Only an approved frame refuses: without one the task runs and the gap says that no milestone
+    holds it. A frame with a milestone opens the task only to the milestone it names; a reason
+    for standing outside the plan is an explicit decision and is recorded as one.
+    """
+    how = standing(box)
+    if how.state != "approved":
+        return Check(how)
+    current = read(box.project)
+    if current is None:
+        return Check(how)
+    if outside is not None:
+        return Check(how, outside=outside)
+    if not milestone:
+        return Check(
+            how,
+            refusal=(
+                "the rails are approved and this task names no milestone: a change either serves "
+                'a milestone (`milestone = "M3"`) or says why it stands outside the plan '
+                '(`outside_plan = "why"`)'
+            ),
+        )
+    found = current.milestone(milestone)
+    if found is None:
+        known = ", ".join(item.id for item in current.milestones) or "none"
+        return Check(
+            how,
+            refusal=(
+                f"the task names milestone {milestone!r}, which the frame does not declare; "
+                f"known milestones: {known}"
+            ),
+        )
+    return Check(how, milestone=found)
 
 
 def render(standing: Standing, current: Rails | None) -> list[str]:

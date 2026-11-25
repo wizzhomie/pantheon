@@ -12,8 +12,8 @@ from pathlib import Path
 
 import pytest
 
+from harness import augustus, rails
 from harness import box as boxes
-from harness import rails
 from harness.cli import main
 
 FRAME = """\
@@ -263,3 +263,102 @@ def test_rails_show_renders_the_frame_and_the_approval(
         {"name": "drift", "direction": "down", "threshold": "zero tasks outside the plan"}
     ]
     assert answer["approved"]["by"] == "owner"
+
+
+def write_task(tmp_path: Path, body: str) -> Path:
+    path = tmp_path / "t-rails.toml"
+    path.write_text(body, encoding="utf-8")
+    return path
+
+
+TASK = """\
+schema_version = 1
+id = "t-rails"
+kind = "docs"
+paths = ["docs/**"]
+"""
+
+
+def test_a_task_naming_a_milestone_is_admitted(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    check = rails.check(box, milestone="M1", outside=None)
+    assert check.refusal is None
+    assert check.milestone is not None and check.milestone.id == "M1"
+    assert check.line().startswith("milestone M1 — rails")
+    assert check.gap() is None
+
+
+def test_a_task_naming_no_milestone_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    check = rails.check(box, milestone=None, outside=None)
+    assert check.refusal is not None and "names no milestone" in check.refusal
+    assert check.milestone is None
+
+
+def test_a_task_naming_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    check = rails.check(box, milestone="M9", outside=None)
+    assert check.refusal is not None and "M9" in check.refusal
+    assert "M1" in check.refusal, "the refusal names the milestones that do exist"
+
+
+def test_a_task_outside_the_plan_keeps_its_reason(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    check = rails.check(box, milestone=None, outside="the owner asked for it by name")
+    assert check.refusal is None
+    assert check.outside == "the owner asked for it by name"
+    assert "outside the plan" in check.line()
+
+
+def test_rails_that_are_not_approved_do_not_refuse_but_leave_a_gap(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    check = rails.check(box, milestone=None, outside=None)
+    assert check.refusal is None, "an unapproved frame cannot refuse: there is nothing to cite"
+    gap = check.gap()
+    assert gap is not None and "never approved" in gap
+
+
+def test_a_task_cannot_name_a_milestone_and_stand_outside_the_plan(tmp_path: Path) -> None:
+    path = write_task(
+        tmp_path,
+        TASK + 'milestone = "M1"\noutside_plan = "because"\n',
+    )
+    with pytest.raises(boxes.HarnessError, match="not both"):
+        augustus.read_task(path)
+
+
+def test_the_task_file_carries_the_milestone(tmp_path: Path) -> None:
+    path = write_task(tmp_path, TASK + 'milestone = "M5"\n')
+    task = augustus.read_task(path)
+    assert task.milestone == "M5" and task.outside_plan is None
+
+
+def test_dispatch_refuses_a_task_that_serves_no_milestone(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    task = augustus.read_task(write_task(tmp_path, TASK))
+    result = augustus.dispatch(
+        box,
+        task,
+        routes=augustus.DEFAULT_ROUTES,
+        trajan_root=Path("."),
+        trajan_python=Path("."),
+    )
+    assert result.state == "refused"
+    assert result.exit_code == 1
+    assert any("names no milestone" in note for note in result.notes)
+    assert result.rails is not None and result.rails.standing.state == "approved"
+    assert result.stages == (), "nothing ran: the rails stopped the task before any contour"
+    events = list((box.root / "fasti").glob("*.jsonl"))
+    last = json.loads(events[-1].read_text(encoding="utf-8").splitlines()[-1])
+    assert last["type"] == "task.refused" and "milestone" in last["reason"]
