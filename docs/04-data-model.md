@@ -28,10 +28,11 @@
 | `Retry` | разрешён/стоп и одна причина: причина вердикта, потолок попыток, бюджет, записанная остановка | код | вычисляется для `pantheon campaign` и `step --retry` |
 | `Run` | прогон кампании раннером: попытки по порядку, что закрылось, стоимость, причина остановки, вердикт, отпечаток плана | код (пишет), человек читает | `tabularium/expeditio/<id>/run-<время>.json` |
 | `CampaignVerdict` | `ready` / `in progress` / `incomplete` / `complete` / `over budget`, причины | код | вычисляется из плана и состояния |
-| `Task` | `t-<дата>-<слаг>`, цель, объявленный объём (пути + тип), критерий готовности, бюджет (`max_cents` — сумма на всю задачу, не на попытку; `max_seconds` — на вызов), потолок вызовов (`max_steps`), названные записи (`records`), воспроизведение (`repro` — вход задачи как отдельная проверка, модель его не видит), видимая проверка (`self_check` — то, что модель читает; вердикт не выносит), форма изменения (`shape` — patch/file/multi, задаёт потолок ответа) | Augustus | `mandata/<id>.toml` |
+| `Task` | `t-<дата>-<слаг>`, цель, объявленный объём (пути + тип), критерий готовности, бюджет (`max_cents` — сумма на всю задачу, не на попытку; `max_seconds` — на вызов), потолок вызовов (`max_steps`), названные записи (`records`), воспроизведение (`repro` — вход задачи как отдельная проверка, модель его не видит), видимая проверка (`self_check` — то, что модель читает; вердикт не выносит), форма изменения (`shape` — patch/file/multi, задаёт масштаб правки: `max_changed_lines`, `max_files`; комнату вызова коробка считает из бюджета) | Augustus | `mandata/<id>.toml` |
 | `Contract` | task id, разрешённые пути, запрещённые действия, инструменты, таймаут, бюджет, ожидаемый результат, нужно ли одобрение | Caesar | `mandata/<id>.contract.toml` |
 | `Attempt` | `<task>/<n>`, исполнитель, старт/финиш, код, стоимость, артефакты; `self-check.json` — результат видимой проверки рядом с попыткой | Caesar | `tabularium/<task>/<n>/` |
 | `Step` (движок) | `turn` (номер вызова в задаче), статус (`applied`/`refused`/`done`/`failed`/`out-of-shape`/`repeated`), номер попытки, `check` (статус, код, хвост видимой проверки), причина отказа | Augustus | `tabularium/<task>/proposal-<n>/step.json` |
+| `Call` (ответ исполнителя) | `status` (`ok`/`failed`/`truncated`/`incomplete`/`insufficient-budget`/`over-budget`/`done`), `finish_reason`, `billing_status` (`billed`/`not_billed`/`unknown`), `max_tokens` (комната вызова), `truncated`, `usage` (`prompt_tokens`, `completion_tokens`, `reasoning_tokens`, `answer_tokens`, `cost_cents`, `seconds`) | executor (адаптер), Augustus | `tabularium/<task>/proposal-<n>/proposal.json` |
 | `Reverted` | номера попыток, откатанных перед повтором `resume --retry`, и номер последнего шага (`after_turn`): ниже них попытки не коммитятся и не проверяются, а шаги не попадают в историю нового прогона | Augustus | `tabularium/<task>/reverted.json` |
 | `Change` | дайджест диффа, базовый коммит, затронутые пути | Caesar (из попытки) | `tabularium/<task>/<n>/change.json` |
 | `VerificationRun` | id прогона, план, проверки, находки, вердикт, дайджесты политики/контекста/модели | Trajan (trajan) | `tabularium/<task>/verify-<id>/` |
@@ -41,7 +42,7 @@
 | `Approval` | отпечаток рамки, файлы, кто и зачем принял, базовый коммит | человек | `tabularium/forma/approval-<at>.json` + событие `frame.approved` |
 | `RecordDigest` | отпечаток, счёт, записи (задача, адрес `<задача>/<время>`, вид, вердикт, тронутые пути), что не вошло | код (пишет), человек читает | `tabularium/commentarii/digest.json` |
 | `ContextPack` | рамка с отпечатком, отобранные записи и причины (пути или адрес), указатели, бюджет символов, что осталось за бортом | код (пишет), исполнитель читает | `tabularium/<task>/fascis-<at>.json` |
-| `Budget` | потолок попытки/задачи/коробки, потрачено | Caesar | `castrum.toml` + события |
+| `Budget` | потолок задачи/коробки (`max_cents` — сумма, `max_seconds`), потрачено по записям; комната вызова — производная от остатка и цены модели | Augustus | `castrum.toml` + события |
 | `Event` | `e-<дата>-<номер>`, тип, время, ссылки, действующее лицо | все (пишут), читает Август | `fasti/<дата>.jsonl` |
 | `OutboxEntry` | задача, вердикт, решения, открытые вопросы, стоимость | Augustus | `acta/<дата>-<task>.md` |
 

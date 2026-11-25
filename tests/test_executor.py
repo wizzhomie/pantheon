@@ -406,7 +406,7 @@ def test_an_answer_cut_at_the_cap_is_recorded_not_applied(
     project, box, _script, task = probe(tmp_path, ANSWER_CUT)
     assert dispatch(box, task) == 1
     out = capsys.readouterr().out
-    assert "cut at the token cap" in out
+    assert "cut at the room" in out
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
     assert not list(box.root.glob("tabularium/t-1/verify-*"))
     proposal = json.loads(
@@ -740,15 +740,23 @@ def test_an_answer_cut_before_any_text_says_so(
     def fake_post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
         return {
             "choices": [{"message": {"content": ""}, "finish_reason": "length"}],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 8192},
+            "usage": {
+                "prompt_tokens": 10,
+                "completion_tokens": 8192,
+                "completion_tokens_details": {"reasoning_tokens": 8192},
+            },
         }
 
     monkeypatch.setattr(deepseek, "_post", fake_post)
     assert deepseek.main() == 1
     answer = json.loads(capsys.readouterr().out)
     assert "cut before any text" in answer["error"]
-    assert any("raise" in note for note in answer["notes"])
+    assert any("retry once" in note for note in answer["notes"])
     assert answer["usage"]["completion_tokens"] == 8192
+    assert answer["usage"]["reasoning_tokens"] == 8192
+    assert answer["usage"]["answer_tokens"] == 0
+    assert answer["billing_status"] == "billed"
+    assert answer["finish_reason"] == "length"
 
 
 def test_a_diff_that_hit_the_cap_is_marked_truncated(
@@ -770,7 +778,7 @@ def test_a_diff_that_hit_the_cap_is_marked_truncated(
     answer = json.loads(capsys.readouterr().out)
     assert answer["truncated"] is True
     assert answer["patch"] == DIFF
-    assert any("token cap" in note for note in answer["notes"])
+    assert any("hit the room" in note for note in answer["notes"])
 
 
 def test_a_reproduction_that_already_passes_stops_the_task_before_the_model(
@@ -878,41 +886,84 @@ def test_a_narrow_scope_gets_the_layout_not_the_file_inventory(tmp_path: Path) -
     assert "src/pkg/app.py" in whole.text
 
 
-def test_the_box_sizes_the_answer_by_the_shape_of_the_change(tmp_path: Path) -> None:
-    """A patch gets a patch's room, a whole file gets more: one cap for all is waste or a cut.
+def test_the_box_holds_a_change_to_the_shape_it_declared(tmp_path: Path) -> None:
+    """A shape says what the change may touch; the room of the call comes from the budget.
 
-    The shape is declared by the task and priced by the box, like the budget: a task may ask
-    for a smaller shape, never for a bigger one than the box allows for it.
+    The old shape carried the answer's token room, which made a technical cap decide what a
+    task could do. The shape now names the scope only: the number of files and changed lines.
     """
     path = tmp_path / "executor.toml"
     path.write_text(
         'schema_version = 1\ncommand = "/bin/true"\n'
-        "[shapes.patch]\nmax_answer_tokens = 4096\nmax_cents = 2\n"
-        "[shapes.file]\nmax_answer_tokens = 16384\nmax_cents = 5\n",
+        "[shapes.patch]\nmax_changed_lines = 40\nmax_files = 1\n"
+        "[shapes.file]\nmax_changed_lines = 2000\nmax_files = 1\n",
         encoding="utf-8",
     )
     config = executor.read_config(path)
     patch, reason = executor.shape_for(config, "patch")
-    assert patch is not None and patch.max_answer_tokens == 4096 and patch.max_cents == 2
-    assert "4096 answer tokens" in reason
+    assert patch is not None and patch.max_changed_lines == 40 and patch.max_files == 1
+    assert "at most 40 changed line(s)" in reason
     assert executor.shape_for(config, None) == (
         None,
-        "the task declared no shape: the box's own cap applies",
+        "the task declared no shape: the change's size is its own declaration",
     )
     missing, why = executor.shape_for(config, "multi")
     assert missing is None and "declares no limits for it" in why
 
     for text, match in (
-        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.huge]\nmax_answer_tokens = 1\n',
+        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.huge]\nmax_files = 1\n',
          "is not one of"),
         ('schema_version = 1\ncommand = "/bin/true"\n[shapes.patch]\nmax_cents = 2\n',
-         "max_answer_tokens"),
+         "unknown key"),
         ('schema_version = 1\ncommand = "/bin/true"\n'
-         "[shapes.patch]\nmax_answer_tokens = 1\nprice = 2\n", "unknown key"),
+         "[shapes.patch]\nmax_answer_tokens = 1\n", "unknown key"),
     ):
         path.write_text(text, encoding="utf-8")
         with pytest.raises(boxes.HarnessError, match=match):
             executor.read_config(path)
+
+
+def test_the_room_comes_from_the_money_and_never_exceeds_the_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The room is the rest of the task's money at the model's rate, capped by the provider.
+
+    A patch does not get a patch's room: the same task may need 17 000 thinking tokens for a
+    one-line fix, and a cheaper call is not a smaller call. The prompt is paid from the reserve,
+    and a budget that cannot buy a useful answer is a refusal, not a random small room.
+    """
+    monkeypatch.delenv("PANTHEON_MODEL_PRICE_IN", raising=False)
+    monkeypatch.delenv("PANTHEON_MODEL_PRICE_OUT", raising=False)
+    directory = tmp_path / "tabularium" / "t-1" / "proposal-1"
+    directory.mkdir(parents=True)
+    config = executor.ExecutorConfig(path=tmp_path / "executor.toml", max_output_tokens=32768)
+    choice = executor.ModelChoice("m", 0.27, 1.10, 32768)
+
+    room, why = executor.room_for(config, 5.0, choice, steps=True, directory=directory)
+    assert room == 32768
+    assert "32768 token(s)" in why
+
+    room, why = executor.room_for(config, 2.0, choice, steps=True, directory=directory)
+    assert room == 13_636, "1.5 cents of answer at $1.10 per million"
+    assert "1.50 cents" in why
+
+    none_room, why = executor.room_for(config, 0.4, choice, steps=True, directory=directory)
+    assert none_room is None and "no room" in why
+
+    small = executor.ModelChoice("m", 0.27, 1.10, 8192)
+    assert executor.room_for(config, 5.0, small, steps=False, directory=directory)[0] == 8192
+
+    no_price, why = executor.room_for(
+        config, 5.0, executor.ModelChoice("m"), steps=False, directory=directory
+    )
+    assert no_price == 32768 and "no price" in why
+
+    older = directory.parent / "proposal-0"
+    older.mkdir()
+    (older / "proposal.json").write_text(
+        json.dumps({"usage": {"prompt_tokens": 200_000}}), encoding="utf-8"
+    )
+    assert executor.room_for(config, 1.0, choice, steps=True, directory=directory)[0] is None
 
 
 def test_the_request_carries_the_answer_room_and_the_adapter_uses_it(tmp_path: Path) -> None:
@@ -931,8 +982,9 @@ def test_the_request_carries_the_answer_room_and_the_adapter_uses_it(tmp_path: P
     )
     directory = box.root / "tabularium" / "t-1" / "proposal-1"
     directory.mkdir(parents=True)
-    shape = executor.Shape("file", 16384, 5.0)
-    request = executor._request(task, box, directory, 1, "m", 60, 2.0, shape=shape)
+    request = executor._request(
+        task, box, directory, 1, "m", 60, 2.0, room_tokens=16384
+    )
     seen = cast(dict[str, Any], request["task"])
     assert seen["shape"] == "file"
     limits = cast(dict[str, Any], request["limits"])
@@ -960,12 +1012,12 @@ def test_a_task_declaring_a_shape_the_box_does_not_price_is_refused_before_the_c
 
     (box.root / "persona" / "executor.toml").write_text(
         (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
-        + '\n[shapes.multi]\nmax_answer_tokens = 32768\nmax_cents = 6\n',
+        + '\n[shapes.multi]\nmax_changed_lines = 4000\nmax_files = 20\n',
         encoding="utf-8",
     )
     assert dispatch(box, task) == 0, "the fake change passes its checks: the run closes"
     out = capsys.readouterr().out
-    assert "shape      multi — 32768 answer tokens, 6 cents" in out
+    assert "shape      multi — at most 4000 changed line(s), at most 20 file(s)" in out
 
 
 BIG_ANSWER = """\
@@ -1003,7 +1055,7 @@ def test_an_answer_out_of_shape_is_not_applied_and_the_retry_is_told(
     _longer_project(box)
     (box.root / "persona" / "executor.toml").write_text(
         (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
-        + "\n[shapes.patch]\nmax_answer_tokens = 4096\nmax_changed_lines = 1\nmax_files = 1\n",
+        + "\n[shapes.patch]\nmax_changed_lines = 1\nmax_files = 1\n",
         encoding="utf-8",
     )
     text = task.read_text(encoding="utf-8")
@@ -1029,12 +1081,12 @@ def test_an_answer_inside_the_shape_goes_through_the_gate(
     _longer_project(box)
     (box.root / "persona" / "executor.toml").write_text(
         (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
-        + "\n[shapes.file]\nmax_answer_tokens = 16384\nmax_changed_lines = 100\nmax_files = 1\n",
+        + "\n[shapes.file]\nmax_changed_lines = 100\nmax_files = 1\n",
         encoding="utf-8",
     )
     text = task.read_text(encoding="utf-8")
     task.write_text(text.replace("kind = ", 'shape = "file"\nkind = '), encoding="utf-8")
     assert dispatch(box, task) == 0
     out = capsys.readouterr().out
-    assert "shape      file — 16384 answer tokens" in out
+    assert "shape      file — at most 100 changed line(s), at most 1 file(s)" in out
     assert (box.project / "src" / "app.py").read_text() == "one!\ntwo!\nthree!\n"

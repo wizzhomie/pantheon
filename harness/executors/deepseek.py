@@ -15,7 +15,7 @@ Configuration is environment, never a file in the repository:
 * ``PANTHEON_MODEL_KEY`` (or ``DEEPSEEK_API_KEY``) — the key;
 * ``PANTHEON_MODEL_URL`` — default ``https://api.deepseek.com/chat/completions``;
 * ``PANTHEON_MODEL`` — the model, unless the task's executor profile names one;
-* ``PANTHEON_MODEL_MAX_TOKENS`` — the answer's cap, default 4096;
+* ``PANTHEON_MODEL_MAX_TOKENS`` — the cap when no box computes a room, default 4096;
 * ``PANTHEON_MODEL_PRICE_IN`` / ``PANTHEON_MODEL_PRICE_OUT`` — dollars per million tokens.
   Without them the answer carries no money, and the box records "cost not reported" instead
   of inventing a number.
@@ -72,16 +72,18 @@ def main() -> int:
     try:
         raw: object = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError as error:
-        return _fail(f"the request is not JSON: {error}")
+        return _fail(f"the request is not JSON: {error}", billing="not_billed")
     if not isinstance(raw, dict):
-        return _fail("the request is not a JSON object")
+        return _fail("the request is not a JSON object", billing="not_billed")
     request = {str(key): value for key, value in raw.items()}
     key = os.environ.get(KEY_ENV) or os.environ.get(FALLBACK_KEY_ENV)
     if not key:
-        return _fail(f"no model key: set {KEY_ENV} (or {FALLBACK_KEY_ENV})")
+        return _fail(
+            f"no model key: set {KEY_ENV} (or {FALLBACK_KEY_ENV})", billing="not_billed"
+        )
     task = request.get("task")
     if not isinstance(task, dict):
-        return _fail("the request carries no task")
+        return _fail("the request carries no task", billing="not_billed")
     project = _project_path(request)
     model = str(request.get("model") or os.environ.get(MODEL_ENV) or DEFAULT_MODEL)
     read_chars = _read_chars(request)
@@ -105,7 +107,8 @@ def main() -> int:
     ):
         return _fail(
             f"the declared read budget of {read_chars} chars fits none of the files in scope: "
-            "nothing was read, so the task was not sent; raise max_read_chars"
+            "nothing was read, so the task was not sent; raise max_read_chars",
+            billing="not_billed",
         )
     started = time.monotonic()
     try:
@@ -123,32 +126,45 @@ def main() -> int:
             },
         )
     except ApiError as error:
-        return _fail(str(error))
+        # The request was sent; whether the provider billed it cannot be known from here.
+        return _fail(str(error), billing="unknown")
     elapsed = round(time.monotonic() - started, 1)
     try:
         text, reported_model, finish = _content(answer)
     except ApiError as error:
-        return _fail(str(error))
+        return _fail(str(error), billing="unknown")
     notes: list[str] = []
     usage = answer.get("usage")
     table: dict[str, Any] = usage if isinstance(usage, dict) else {}
     prompt_tokens = _int(table.get("prompt_tokens"))
     completion_tokens = _int(table.get("completion_tokens"))
+    details = table.get("completion_tokens_details")
+    reasoning = _int(details.get("reasoning_tokens")) if isinstance(details, dict) else None
+    answer_tokens = (
+        completion_tokens - reasoning
+        if completion_tokens is not None and reasoning is not None
+        else None
+    )
     cost = _cost(prompt_tokens, completion_tokens)
+    spend: dict[str, object] = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "reasoning_tokens": reasoning,
+        "answer_tokens": answer_tokens,
+        "cost_cents": cost,
+    }
     if text.strip().upper() == "DONE":
         print(
             json.dumps(
                 {
                     "done": True,
                     "model": reported_model or model,
-                    "usage": {
-                        "prompt_tokens": prompt_tokens,
-                        "completion_tokens": completion_tokens,
-                        "cost_cents": cost,
-                    },
+                    "usage": spend,
                     "duration_ms": int(elapsed * 1000),
                     "notes": notes,
                     "reading": prompt.reading,
+                    "finish_reason": finish,
+                    "billing_status": "billed",
                 }
             )
         )
@@ -157,39 +173,46 @@ def main() -> int:
     if diff is None:
         problem = _error_line(text)
         if not text.strip() and finish == "length":
+            room = _max_tokens(request)
             return _fail(
-                "the answer was cut before any text: the model spent its token budget on "
-                "reasoning and returned nothing",
-                notes=[f"finish_reason=length; raise {MAX_TOKENS_ENV} and ask again"],
-                usage=_usage_payload(answer),
+                "the answer was cut before any text: the model spent the whole room on "
+                "thinking and returned nothing",
+                notes=[
+                    f"finish_reason=length; the room was {room} tokens"
+                    + ("" if reasoning is None else f", all {reasoning} of it thinking")
+                    + "; the box can retry once with a larger room"
+                ],
+                usage=spend,
                 model=reported_model or model,
+                finish_reason=finish,
+                billing="billed",
             )
         return _fail(
             problem or "the model answered without a unified diff",
             notes=[text[:400]],
-            usage=_usage_payload(answer),
+            usage=spend,
             model=reported_model or model,
+            finish_reason=finish,
+            billing="billed",
         )
     if cost is None:
         notes.append(
             "no price is configured: the box will record the tokens and say the cost is unknown"
         )
     if finish == "length":
-        notes.append("the answer hit the token cap: the diff may be incomplete")
+        notes.append("the answer hit the room: the diff may be incomplete")
     print(
         json.dumps(
             {
                 "patch": diff,
                 "model": reported_model or model,
-                "usage": {
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
-                    "cost_cents": cost,
-                },
+                "usage": spend,
                 "duration_ms": int(elapsed * 1000),
                 "truncated": finish == "length",
                 "notes": notes,
                 "reading": prompt.reading,
+                "finish_reason": finish,
+                "billing_status": "billed",
             }
         )
     )
@@ -482,10 +505,10 @@ def _content(answer: dict[str, Any]) -> tuple[str, str | None, str | None]:
 
 
 def _max_tokens(request: dict[str, object] | None = None) -> int:
-    """The answer's room: the task's shape decides, then the box, then the built-in default.
+    """The answer's room: the box's computed allowance, else the run's own, else the default.
 
-    The shape is the box's own declaration of how big this change is (patch, file, several
-    files), so the cap follows the work rather than one number for every task.
+    The box computes the room from the money the task has left, so a call is not sized by a
+    guess about the change. The environment default exists for a direct call without a box.
     """
     limits = request.get("limits") if isinstance(request, dict) else None
     if isinstance(limits, dict):
@@ -534,8 +557,13 @@ def _fail(
     notes: list[str] | None = None,
     usage: dict[str, object] | None = None,
     model: str | None = None,
+    *,
+    finish_reason: str | None = None,
+    billing: str = "billed",
 ) -> int:
-    payload: dict[str, object] = {"error": message}
+    payload: dict[str, object] = {"error": message, "billing_status": billing}
+    if finish_reason is not None:
+        payload["finish_reason"] = finish_reason
     if notes:
         payload["notes"] = notes
     if usage is not None:
@@ -554,9 +582,18 @@ def _usage_payload(answer: dict[str, object]) -> dict[str, object] | None:
     table: dict[str, object] = {str(key): value for key, value in usage.items()}
     prompt_tokens = _int(table.get("prompt_tokens"))
     completion_tokens = _int(table.get("completion_tokens"))
+    details = table.get("completion_tokens_details")
+    reasoning = _int(details.get("reasoning_tokens")) if isinstance(details, dict) else None
+    answer_tokens = (
+        completion_tokens - reasoning
+        if completion_tokens is not None and reasoning is not None
+        else None
+    )
     return {
         "prompt_tokens": prompt_tokens,
         "completion_tokens": completion_tokens,
+        "reasoning_tokens": reasoning,
+        "answer_tokens": answer_tokens,
         "cost_cents": _cost(prompt_tokens, completion_tokens),
     }
 

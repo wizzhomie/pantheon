@@ -269,6 +269,30 @@ def test_spent_counts_unknown_prices_at_the_ceiling(tmp_path: Path) -> None:
     assert spend.cents == pytest.approx(0.5 + 2.0 + 0.2 + 0.3)
 
 
+def test_a_call_that_never_left_the_box_is_not_spend(tmp_path: Path) -> None:
+    """No key is not a paid call: charging it at the ceiling let one mistake eat the budget."""
+    root = tmp_path / "box"
+    directory = root / "tabularium" / "t-1"
+    (directory / "proposal-1").mkdir(parents=True)
+    (directory / "proposal-1" / "proposal.json").write_text(
+        json.dumps({"billing_status": "not_billed", "usage": None}), encoding="utf-8"
+    )
+    (directory / "proposal-2").mkdir()
+    (directory / "proposal-2" / "proposal.json").write_text(
+        json.dumps({"billing_status": "billed", "usage": {"cost_cents": 0.5}}),
+        encoding="utf-8",
+    )
+    (directory / "proposal-3").mkdir()
+    (directory / "proposal-3" / "proposal.json").write_text(
+        json.dumps({"billing_status": "unknown", "usage": {"cost_cents": None}}),
+        encoding="utf-8",
+    )
+    spend = augustus.spent(root, "t-1", ceiling=2.0)
+    assert spend.calls == 2
+    assert spend.unpriced == 1
+    assert spend.cents == pytest.approx(0.5 + 2.0)
+
+
 def with_steps(text: str, value: str) -> str:
     """The task with a step ceiling: the key belongs before the ``[budget]`` table."""
     return text.replace('expected = "the value is two"', f'expected = "x"\nmax_steps = {value}')

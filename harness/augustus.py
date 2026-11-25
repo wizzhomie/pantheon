@@ -626,7 +626,6 @@ def _run_steps(
             box,
             when=when,
             context=context,
-            shape=shape,
             budget_cents=guard.cents,
             previous=previous,
             turn=turn,
@@ -651,6 +650,12 @@ def _run_steps(
             _write_step(directory, proposal, step)
             steps.append(step)
             terminal = f"step {turn} produced no usable change: {proposal.reason}"
+            if proposal.truncated:
+                notes.append(
+                    "the room the task's money bought was spent to the last token: a larger "
+                    "room is a budget decision (raise the task's max_cents), not a retry the box "
+                    "can pay for out of the same budget"
+                )
             notes.append(terminal)
             break
         if proposal.patch is not None:
@@ -908,20 +913,11 @@ def dispatch(
                     if shape is None
                     else {
                         "name": shape.name,
-                        "max_answer_tokens": shape.max_answer_tokens,
-                        "max_cents": shape.max_cents,
                         "max_changed_lines": shape.max_changed_lines,
                         "max_files": shape.max_files,
                     }
                 )
-                notes.append(
-                    f"shape: {shape_reason}"
-                    + (
-                        ""
-                        if shape is None or shape.max_cents is None
-                        else f", {shape.max_cents:g} cents"
-                    )
-                )
+                notes.append(f"shape: {shape_reason}")
                 engine_name, engine_reason = executor.engine_for(config, task.kind)
                 notes.append(f"engine: {engine_reason}")
                 if engine_name == "steps" and executor.step_ceiling(task, config) is None:
@@ -1115,13 +1111,18 @@ def dispatch(
                         when=stamp,
                         context=context_pack.payload(pack),
                         previous=previous,
-                        shape=shape,
                         budget_cents=guard.cents,
                         engine=engine_name,
                         engine_choice=engine_reason,
                     )
                     notes.extend(proposal.notes)
                     _event(box.root, stamp, "task.executed", task, proposal.line, proposal.data())
+                    if proposal.truncated and not proposal.usable:
+                        notes.append(
+                            "the room the task's money bought was spent to the last token: a "
+                            "larger room is a budget decision (raise max_cents), not a retry the "
+                            "box can pay for out of the same budget"
+                        )
                     if not proposal.usable:
                         notes.append(
                             f"the executor did not produce a usable change: {proposal.reason}"
@@ -1957,12 +1958,12 @@ class Spend:
 
 
 def spent(box_root: Path, task_id: str, *, ceiling: float | None = None) -> Spend:
-    """The money a task's records already show, and the calls that made it.
+    """The money a task's records already show, and the billable calls that made it.
 
-    A call that reported no price is not free: it is counted at the box's ceiling when one is
-    declared, because the only honest number for "unknown" is the most it could have been. The
-    count of such calls is kept too, so a stop can say the sum is a lower bound when the box
-    declares no ceiling at all.
+    A call that was certainly never sent (no key, a local refusal) is not spend and not a call:
+    charging it at the ceiling would let one infrastructure mistake eat the task's budget. A
+    call whose fate is unknown is still not free: it is counted at the box's ceiling when one
+    is declared, because the only honest number for "unknown" is the most it could have been.
     """
     directory = box_root / "tabularium" / task_id
     cents = 0.0
@@ -1970,6 +1971,9 @@ def spent(box_root: Path, task_id: str, *, ceiling: float | None = None) -> Spen
     unpriced = 0
     for record in sorted(directory.glob("proposal-*/proposal.json")):
         data = _read_json(record)
+        billing = data.get("billing_status")
+        if billing == "not_billed":
+            continue
         calls += 1
         usage = data.get("usage")
         cost = usage.get("cost_cents") if isinstance(usage, dict) else None
@@ -2859,12 +2863,15 @@ def _shape_problem(shape: executor.Shape, patch: Path) -> str | None:
 
 def _shape_line(shape: dict[str, object] | None) -> str:
     if shape is None:
-        return "not declared — the box's own answer cap applies"
-    room = f"{shape.get('max_answer_tokens')} answer tokens"
-    cents = shape.get("max_cents")
-    if isinstance(cents, (int, float)):
-        room += f", {cents:g} cents"
-    return f"{shape.get('name')} — {room}"
+        return "not declared — the change's size is its own declaration"
+    bits: list[str] = []
+    lines = shape.get("max_changed_lines")
+    if isinstance(lines, int):
+        bits.append(f"at most {lines} changed line(s)")
+    files = shape.get("max_files")
+    if isinstance(files, int):
+        bits.append(f"at most {files} file(s)")
+    return f"{shape.get('name')} — " + (", ".join(bits) if bits else "no size limit declared")
 
 
 def _own_check_line(check: dict[str, object] | None, declared: tuple[str, ...]) -> str:

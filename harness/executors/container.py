@@ -38,19 +38,22 @@ def main() -> int:
     try:
         raw: object = json.loads(sys.stdin.read() or "{}")
     except json.JSONDecodeError as error:
-        return _fail(f"the request is not JSON: {error}")
+        return _fail(f"the request is not JSON: {error}", billing="not_billed")
     if not isinstance(raw, dict):
-        return _fail("the request is not a JSON object")
+        return _fail("the request is not a JSON object", billing="not_billed")
     request = {str(key): value for key, value in raw.items()}
     task = request.get("task")
     box = request.get("box")
     if not isinstance(task, dict) or not isinstance(box, dict):
-        return _fail("the request carries no task or no box")
+        return _fail("the request carries no task or no box", billing="not_billed")
     root = Path(str(box.get("root", "")))
     name = str(box.get("name", ""))
     compose = root / "compose.yaml"
     if not name or not compose.is_file():
-        return _fail(f"the box {name or '?'} has no compose file: `pantheon up` starts the agent")
+        return _fail(
+            f"the box {name or '?'} has no compose file: `pantheon up` starts the agent",
+            billing="not_billed",
+        )
     limits = request.get("limits")
     seconds = int(limits.get("max_seconds", 300)) if isinstance(limits, dict) else 300
     model = str(request.get("model") or DEFAULT_MODEL)
@@ -92,18 +95,24 @@ def main() -> int:
             command, capture_output=True, text=True, check=False, timeout=float(seconds)
         )
     except subprocess.TimeoutExpired:
-        return _fail(f"the agent did not answer within {seconds} s")
+        return _fail(f"the agent did not answer within {seconds} s", billing="unknown")
     except (OSError, subprocess.SubprocessError) as error:
-        return _fail(f"the container could not be asked: {error}")
+        return _fail(f"the container could not be asked: {error}", billing="unknown")
     if done.returncode != 0:
         detail = (done.stderr or done.stdout).strip().splitlines()
         return _fail(
-            "the agent in the container failed: " + ("; ".join(detail[-3:]) or "no message")
+            "the agent in the container failed: " + ("; ".join(detail[-3:]) or "no message"),
+            billing="unknown",
         )
     notes = ["executor: hermes in the box's container"]
     usage = _usage(usage_file)
     if done.stdout.strip().upper() == "DONE":
-        answer: dict[str, object] = {"done": True, "model": model, "notes": notes}
+        answer: dict[str, object] = {
+            "done": True,
+            "model": model,
+            "notes": notes,
+            "billing_status": "billed",
+        }
         if usage is not None:
             answer["usage"] = usage
         print(json.dumps(answer))
@@ -112,12 +121,14 @@ def main() -> int:
     if diff is None:
         problem = _error_line(done.stdout)
         return _fail(
-            problem or "the agent answered without a unified diff", notes=[done.stdout[:400]]
+            problem or "the agent answered without a unified diff",
+            notes=[done.stdout[:400]],
+            billing="billed",
         )
     cached = _cached_tokens(usage_file)
     if cached:
         notes.append(f"cache read {cached} tokens")
-    answer = {"patch": diff, "model": model, "notes": notes}
+    answer = {"patch": diff, "model": model, "notes": notes, "billing_status": "billed"}
     if usage is not None:
         answer["usage"] = usage
     print(json.dumps(answer))
@@ -269,8 +280,8 @@ def _error_line(text: str) -> str | None:
     return None
 
 
-def _fail(message: str, notes: list[str] | None = None) -> int:
-    payload: dict[str, object] = {"error": message}
+def _fail(message: str, notes: list[str] | None = None, *, billing: str = "unknown") -> int:
+    payload: dict[str, object] = {"error": message, "billing_status": billing}
     if notes:
         payload["notes"] = notes
     print(json.dumps(payload))

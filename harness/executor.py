@@ -8,15 +8,18 @@ other patch, and the record keeps the answer, not a promise about it.
 
 Four rules make the answer usable:
 
-* **A budget is a limit, not a wish.** ``max_seconds`` stops the command; an answer that
-  claims more cents than the budget allows is recorded and not applied.
+* **Money is the budget; the room follows it.** The token room of a call is computed from the
+  task's remaining cents and the model's output rate, capped by the provider's ceiling. The
+  shape of the change says what it may touch, never how much a call may generate.
 * **Usage is reported, never assumed.** A command that says nothing about tokens produces a
-  record that says "unknown", because zero is a number and "nobody counted" is not.
+  record that says "unknown", because zero is a number and "nobody counted" is not; a call
+  that never left the box is recorded as not billed, not charged at the ceiling.
 * **The command proposes; it does not write.** The project is read before and after the call:
   a direct change is caught and the dispatch returns instead of closing on an unguarded tree.
-* **A cut answer is not a change.** An answer that hit the token cap is recorded with its
-  price and not applied: a diff that stops at the cap can still apply cleanly and pass the
-  checks while half the fix is missing, so it is refused as incomplete rather than trusted.
+* **A cut answer is not a change.** An answer that spent the whole room on thinking is
+  recorded with its finish reason, its thinking and its price, and not applied. A cut means
+  the task's money bought that much room; a larger room is a budget decision, not a retry the
+  box can pay for out of the same budget.
 
 A box without ``persona/executor.toml`` has no executor. Then a task must carry its own patch,
 and the record says that too — the same honesty as before this module existed.
@@ -51,6 +54,7 @@ CONFIG_KEYS = frozenset(
         "models",
         "max_seconds",
         "max_cents",
+        "max_output_tokens",
         "max_steps",
         "shapes",
     }
@@ -72,7 +76,9 @@ different rooms to answer in; one cap for all three is either waste or a cut-off
 declares what each shape may spend, the task names its shape, and a change that does not fit
 the declared shape is an estimate to correct, not a wasted attempt.
 """
-USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "cost_cents"})
+USAGE_KEYS = frozenset(
+    {"prompt_tokens", "completion_tokens", "reasoning_tokens", "answer_tokens", "cost_cents"}
+)
 ANSWER_KEYS = frozenset(
     {
         "patch",
@@ -86,8 +92,27 @@ ANSWER_KEYS = frozenset(
         "error",
         "reading",
         "done",
+        "finish_reason",
+        "billing_status",
     }
 )
+BILLING = ("billed", "not_billed", "unknown")
+"""What the box knows about the money of a call: paid, certainly not paid, or not knowable."""
+DEFAULT_OUTPUT_TOKENS = 32768
+"""The provider's output ceiling when neither the box nor the model table declares one.
+
+32 768 is the largest room the pilot endpoint accepted (measured), so it is a ceiling the box
+can actually get, not a number the provider would refuse. It is a safety bound, not a plan:
+the room of a call is computed from the money the task has left.
+"""
+MIN_OUTPUT_TOKENS = 1024
+"""Below this, a call has no room to say anything: the box stops instead of asking into a void."""
+RESERVE_STEPS = 0.25
+"""The share of the remaining money kept for the next step and the next prompt."""
+RESERVE_ONE_SHOT = 0.10
+"""A one-shot has no next step, so it keeps only enough for the prompt and the closing."""
+RESERVE_FLOOR_CENTS = 0.5
+"""Even a tiny budget keeps this much, because the prompt itself is paid before the answer."""
 READING_KEYS = frozenset(
     {"files", "chars", "tokens_estimate", "cap_chars", "declared_chars", "left_out"}
 )
@@ -124,14 +149,23 @@ EXAMPLE = """\
 # model = "deepseek-flash"
 # max_seconds = 300
 # max_cents = 5
+# max_output_tokens = 32768
 #
 # A kind of task may ask for another model: the table is the box's decision, and the
 # record says which entry was taken. A kind without an entry uses `model`.
-# The rate card is per entry, in dollars per million tokens: the box declares what a
-# model costs, so the bill of a model chosen here is not priced by another model's rate.
+# The rate card is per entry, in dollars per million tokens: the box needs the output rate
+# to turn the task's money into a room, and the output ceiling so the room never asks the
+# provider for more than it serves. A model without a rate gets the provider's ceiling as its
+# room, and the record says the cost could not be bounded before the call.
 # [models]
-# docs = { model = "deepseek-chat", price_in = 0.15, price_out = 0.60 }
+# docs = { model = "deepseek-chat", price_in = 0.15, price_out = 0.60, max_output_tokens = 32768 }
 # security = { model = "deepseek-reasoner" }
+#
+# A shape declares only the scope of the change: how many files and changed lines the answer
+# may touch. The room of the call is computed from the task's budget, not from the shape.
+# [shapes.patch]
+# max_changed_lines = 40
+# max_files = 1
 #
 # How a kind of task is run: `one-shot` asks once; `steps` asks again after applying the
 # answer and running the visible check, up to `max_steps` calls. The engine is the box's
@@ -187,18 +221,29 @@ class TaskView(Protocol):
 class _Malformed(Exception):
     """The command answered, but not in the declared shape: a record, not a traceback."""
 
-    def __init__(self, message: str, usage: Usage | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        usage: Usage | None = None,
+        *,
+        finish_reason: str | None = None,
+        billing: str | None = "unknown",
+    ) -> None:
         super().__init__(message)
         self.usage = usage
+        self.finish_reason = finish_reason
+        self.billing = billing
 
 
 @dataclass(frozen=True, slots=True)
 class ModelChoice:
-    """One model the box may ask for, with the rate the box declares for it."""
+    """One model the box may ask for, with the rate and the output ceiling the box declares."""
 
     model: str
     price_in: float | None = None
     price_out: float | None = None
+    max_output_tokens: int | None = None
+    """The provider's own output ceiling for this model; the room never exceeds it."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +255,8 @@ class ExecutorConfig:
     model: str | None = None
     max_seconds: int = DEFAULT_SECONDS
     max_cents: float | None = None
+    max_output_tokens: int | None = None
+    """The default provider output ceiling; a model entry may declare its own for its kind."""
     max_steps: int | None = None
     """How many calls a task may make in this box: the ceiling a task can only lower."""
     engine: str = "one-shot"
@@ -229,11 +276,14 @@ class ExecutorConfig:
 
 @dataclass(frozen=True, slots=True)
 class Shape:
-    """What one shape of change may spend: the answer's room and the call's ceiling."""
+    """The scope of one shape of change: how many files and lines it may touch, nothing more.
+
+    The room of an answer is not a property of its shape: a one-line fix can need more thinking
+    than a mechanical rewrite, and the endpoint counts thinking in the same tokens as the answer.
+    The shape says what the change may touch; the task's money says how much room the call gets.
+    """
 
     name: str
-    max_answer_tokens: int
-    max_cents: float | None = None
     max_changed_lines: int | None = None
     max_files: int | None = None
 
@@ -247,6 +297,10 @@ class Usage:
     completion_tokens: int | None
     cost_cents: float | None
     seconds: float
+    reasoning_tokens: int | None = None
+    """How much of ``completion_tokens`` the model spent thinking, when the provider says."""
+    answer_tokens: int | None = None
+    """The completion minus the thinking, when both are reported; never a guess."""
 
     @property
     def total_tokens(self) -> int | None:
@@ -276,6 +330,14 @@ class Proposal:
     """Which engine the box ran for this call: the declared table's decision, not the model's."""
     engine_choice: str | None = None
     """Why this engine, as the box decided it: a kind entry or the profile's default."""
+    finish_reason: str | None = None
+    """Why the provider stopped: ``stop``, ``length``, or whatever it said."""
+    billing_status: str | None = None
+    """``billed``, ``not_billed`` or ``unknown``: the money fact the budget is built on."""
+    max_tokens: int | None = None
+    """The room this call was given, so a cut can be read against what it was allowed."""
+    truncated: bool = False
+    """The answer was cut at the room; a cut answer is recorded, never applied."""
 
     @property
     def usable(self) -> bool:
@@ -317,6 +379,8 @@ class Proposal:
             "model": self.model,
             "prompt_tokens": None if usage is None else usage.prompt_tokens,
             "completion_tokens": None if usage is None else usage.completion_tokens,
+            "reasoning_tokens": None if usage is None else usage.reasoning_tokens,
+            "answer_tokens": None if usage is None else usage.answer_tokens,
             "cost_cents": None if usage is None else usage.cost_cents,
             "seconds": None if usage is None else usage.seconds,
             "proposal": f"proposal-{self.number}",
@@ -325,6 +389,10 @@ class Proposal:
             "engine": self.engine,
             "engine_choice": self.engine_choice,
             "done": self.done,
+            "finish_reason": self.finish_reason,
+            "billing_status": self.billing_status,
+            "max_tokens": self.max_tokens,
+            "truncated": self.truncated,
         }
 
 
@@ -336,7 +404,13 @@ def tokens_line(usage: Usage) -> str:
     """Tokens as reported, or the fact that nobody counted."""
     if usage.prompt_tokens is None or usage.completion_tokens is None:
         return "tokens not reported"
-    return f"{usage.prompt_tokens} in / {usage.completion_tokens} out tokens"
+    text = f"{usage.prompt_tokens} in / {usage.completion_tokens} out tokens"
+    if usage.reasoning_tokens is not None:
+        text += f" ({usage.reasoning_tokens} thinking"
+        if usage.answer_tokens is not None:
+            text += f", {usage.answer_tokens} answer"
+        text += ")"
+    return text
 
 
 def proposal_json(proposal: Proposal) -> dict[str, object]:
@@ -353,6 +427,8 @@ def proposal_json(proposal: Proposal) -> dict[str, object]:
         else {
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
+            "answer_tokens": usage.answer_tokens,
             "cost_cents": usage.cost_cents,
             "seconds": usage.seconds,
         },
@@ -363,6 +439,10 @@ def proposal_json(proposal: Proposal) -> dict[str, object]:
         "engine": proposal.engine,
         "engine_choice": proposal.engine_choice,
         "done": proposal.done,
+        "finish_reason": proposal.finish_reason,
+        "billing_status": proposal.billing_status,
+        "max_tokens": proposal.max_tokens,
+        "truncated": proposal.truncated,
     }
 
 
@@ -417,6 +497,12 @@ def read_config(path: Path) -> ExecutorConfig:
         if isinstance(steps_raw, bool) or not isinstance(steps_raw, int) or steps_raw <= 0:
             raise boxes.HarnessError(f"{path}: max_steps must be a positive whole number")
         steps = steps_raw
+    output_raw = data.get("max_output_tokens")
+    output: int | None = None
+    if output_raw is not None:
+        if isinstance(output_raw, bool) or not isinstance(output_raw, int) or output_raw <= 0:
+            raise boxes.HarnessError(f"{path}: max_output_tokens must be a positive whole number")
+        output = output_raw
     return ExecutorConfig(
         path=path,
         command=command,
@@ -427,6 +513,7 @@ def read_config(path: Path) -> ExecutorConfig:
         engines=engines,
         max_seconds=seconds,
         max_cents=cents,
+        max_output_tokens=output,
         max_steps=steps,
     )
 
@@ -468,7 +555,7 @@ def _models(path: Path, raw: object) -> dict[str, ModelChoice]:
             raise boxes.HarnessError(
                 f"{path}: models.{kind} must be a table with a non-empty model"
             )
-        extra = set(entry) - {"model", "price_in", "price_out"}
+        extra = set(entry) - {"model", "price_in", "price_out", "max_output_tokens"}
         if extra:
             raise boxes.HarnessError(
                 f"{path}: models.{kind} has unknown key(s) {', '.join(sorted(extra))}"
@@ -480,21 +567,29 @@ def _models(path: Path, raw: object) -> dict[str, ModelChoice]:
                 f"{path}: models.{kind} declares one half of a rate: name both price_in and "
                 "price_out, or neither"
             )
-        table[kind.strip()] = ModelChoice(name.strip(), price_in, price_out)
+        output = entry.get("max_output_tokens")
+        if output is not None and (
+            isinstance(output, bool) or not isinstance(output, int) or output <= 0
+        ):
+            raise boxes.HarnessError(
+                f"{path}: models.{kind}.max_output_tokens must be a positive whole number"
+            )
+        table[kind.strip()] = ModelChoice(name.strip(), price_in, price_out, output)
     return table
 
 
 def _shapes(path: Path, raw: object) -> dict[str, Shape]:
-    """The shape table: each shape declares the room its answer needs, and may declare its price.
+    """The shape table: each shape declares the scope of its change, never the room of a call.
 
     An unknown shape is a refusal rather than an entry: a task naming a shape nobody defined
-    would otherwise get the box's default cap and look like a small task.
+    would otherwise look like a task with no declared scope. A shape may declare no size limits
+    at all: then it names the kind of change and leaves the size to the gate.
     """
     if raw is None:
         return {}
     if not isinstance(raw, dict):
         raise boxes.HarnessError(
-            f"{path}: shapes must be a table of shape = {{ max_answer_tokens = N }} entries"
+            f"{path}: shapes must be a table of shape = {{ max_changed_lines = N, max_files = N }}"
         )
     table: dict[str, Shape] = {}
     for name, entry in raw.items():
@@ -504,28 +599,14 @@ def _shapes(path: Path, raw: object) -> dict[str, Shape]:
             )
         if not isinstance(entry, dict):
             raise boxes.HarnessError(f"{path}: shapes.{name} must be a table")
-        extra = set(entry) - {"max_answer_tokens", "max_cents", "max_changed_lines", "max_files"}
+        extra = set(entry) - {"max_changed_lines", "max_files"}
         if extra:
             raise boxes.HarnessError(
                 f"{path}: shapes.{name} has unknown key(s) {', '.join(sorted(extra))}"
             )
-        tokens = entry.get("max_answer_tokens")
-        if isinstance(tokens, bool) or not isinstance(tokens, int) or tokens <= 0:
-            raise boxes.HarnessError(
-                f"{path}: shapes.{name}.max_answer_tokens must be a positive whole number"
-            )
-        cents = entry.get("max_cents")
-        if cents is not None and (
-            isinstance(cents, bool) or not isinstance(cents, (int, float)) or cents <= 0
-        ):
-            raise boxes.HarnessError(
-                f"{path}: shapes.{name}.max_cents must be a positive number"
-            )
         lines = _size_limit(path, name, entry.get("max_changed_lines"), "max_changed_lines")
         files = _size_limit(path, name, entry.get("max_files"), "max_files")
-        table[name] = Shape(
-            name, tokens, None if cents is None else float(cents), lines, files
-        )
+        table[name] = Shape(name, lines, files)
     return table
 
 
@@ -606,14 +687,13 @@ def _environment(choice: ModelChoice | None) -> dict[str, str] | None:
 
 
 def shape_for(config: ExecutorConfig, shape: str | None) -> tuple[Shape | None, str]:
-    """The room this task's answer gets, and the reason it is that room.
+    """The scope this task's change is held to, and the reason it is that scope.
 
-    A task that declares no shape keeps the box's own cap: the same cap as before, and the
-    record says the shape was not declared. A task that declares one gets that shape's room,
-    and a box that declares no such shape refuses the task instead of sizing it by default.
+    The shape no longer sizes the answer's room: it says what the change may touch. The room is
+    computed from the task's money, because a room is a resource and the shape is a contract.
     """
     if shape is None:
-        return None, "the task declared no shape: the box's own cap applies"
+        return None, "the task declared no shape: the change's size is its own declaration"
     found = config.shapes.get(shape)
     if found is None:
         return None, (
@@ -621,7 +701,17 @@ def shape_for(config: ExecutorConfig, shape: str | None) -> tuple[Shape | None, 
             f"declare [shapes.{shape}] in persona/executor.toml, or the answer is sized by "
             "guesswork"
         )
-    return found, f"declared shape {shape}: {found.max_answer_tokens} answer tokens"
+    return found, f"declared shape {shape}: {_scope_words(found)}"
+
+
+def _scope_words(shape: Shape) -> str:
+    """What a shape allows the change to touch, in words a record can keep."""
+    bits: list[str] = []
+    if shape.max_changed_lines is not None:
+        bits.append(f"at most {shape.max_changed_lines} changed line(s)")
+    if shape.max_files is not None:
+        bits.append(f"at most {shape.max_files} file(s)")
+    return ", ".join(bits) if bits else "no size limit declared"
 
 
 def limits(config: ExecutorConfig, budget: dict[str, int]) -> tuple[int, float | None]:
@@ -634,6 +724,98 @@ def limits(config: ExecutorConfig, budget: dict[str, int]) -> tuple[int, float |
         asked = float(budget["max_cents"])
         cents = asked if cents is None else min(cents, asked)
     return seconds, cents
+
+
+def _prices(choice: ModelChoice | None) -> tuple[float | None, float | None]:
+    """The rate of the chosen model: the table's, else the run's own declaration."""
+    if choice is not None and choice.price_in is not None and choice.price_out is not None:
+        return choice.price_in, choice.price_out
+    raw_in = os.environ.get("PANTHEON_MODEL_PRICE_IN")
+    raw_out = os.environ.get("PANTHEON_MODEL_PRICE_OUT")
+    try:
+        price_in = float(raw_in) if raw_in else None
+        price_out = float(raw_out) if raw_out else None
+    except ValueError:
+        return None, None
+    if price_in is None or price_out is None or price_in < 0 or price_out < 0:
+        return None, None
+    return price_in, price_out
+
+
+def output_ceiling(config: ExecutorConfig, choice: ModelChoice | None) -> int:
+    """The provider's own output ceiling: the model's, the box's, or the pilot's known maximum."""
+    if choice is not None and choice.max_output_tokens is not None:
+        return choice.max_output_tokens
+    if config.max_output_tokens is not None:
+        return config.max_output_tokens
+    return DEFAULT_OUTPUT_TOKENS
+
+
+def _last_prompt_tokens(directory: Path) -> int | None:
+    """The prompt size of the last call on this task, the best evidence the next prompt's cost."""
+    base = directory.parent
+    found: int | None = None
+    for path in sorted(base.glob("proposal-*/proposal.json"), key=lambda item: item.name):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        usage = data.get("usage")
+        tokens = usage.get("prompt_tokens") if isinstance(usage, dict) else None
+        if isinstance(tokens, int) and not isinstance(tokens, bool) and tokens >= 0:
+            found = tokens
+    return found
+
+
+def room_for(
+    config: ExecutorConfig,
+    budget_cents: float | None,
+    chosen: ModelChoice | None,
+    *,
+    steps: bool,
+    directory: Path,
+) -> tuple[int | None, str]:
+    """How many tokens this call may generate, from the money the task has left.
+
+    The money is the budget; the room is its translation at the model's output rate. The input
+    prompt is paid from a reserve, the next step keeps its share, and the provider's ceiling is
+    a hard border no budget can cross. A room too small to say anything is a refusal, not a
+    call into the void.
+    """
+    ceiling = output_ceiling(config, chosen)
+    price_in, price_out = _prices(chosen)
+    if budget_cents is None:
+        return ceiling, (
+            f"no money budget is declared: the room is the provider's ceiling of {ceiling} "
+            "tokens, so the call's cost is not bounded before it is made"
+        )
+    if price_out is None:
+        return ceiling, (
+            f"no price is declared for the model: the room is the provider's ceiling of "
+            f"{ceiling} tokens, so the call's cost is not bounded before it is made"
+        )
+    prompt = _last_prompt_tokens(directory)
+    input_cost = (
+        0.0 if prompt is None or price_in is None else prompt * price_in / 10_000
+    )
+    share = RESERVE_STEPS if steps else RESERVE_ONE_SHOT
+    reserve = max(share * budget_cents, input_cost + 0.2, RESERVE_FLOOR_CENTS)
+    generation = budget_cents - reserve
+    if generation <= 0:
+        return None, (
+            f"the task has {budget_cents:.2f} cents left, and the prompt and the reserve need "
+            f"{reserve:.2f}: there is no room for a useful answer"
+        )
+    room = min(ceiling, int(generation * 10_000 / price_out))
+    if room < MIN_OUTPUT_TOKENS:
+        return None, (
+            f"the task has {budget_cents:.2f} cents left, which buys {room} answer token(s) "
+            f"after the reserve: below the {MIN_OUTPUT_TOKENS} a useful answer needs"
+        )
+    return room, (
+        f"the room is {room} token(s): {generation:.2f} cents for the answer after a "
+        f"{reserve:.2f}-cent reserve (input ~{input_cost:.2f} cents)"
+    )
 
 
 def describe(config: ExecutorConfig) -> str:
@@ -675,7 +857,6 @@ def propose(
     when: datetime | None = None,
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
-    shape: Shape | None = None,
     budget_cents: float | None = None,
     turn: int | None = None,
     turns: tuple[dict[str, object], ...] = (),
@@ -684,9 +865,9 @@ def propose(
 ) -> Proposal:
     """Ask the declared command for a change, and record the answer with its price.
 
-    ``budget_cents`` is what is left of the task's total: a call may spend no more than the
-    task has remaining, whatever the box and the shape would otherwise allow. The record keeps
-    the ceiling the call was given, so "it cost 0.6 of 1.4 left" is a fact after the run.
+    ``budget_cents`` is what is left of the task's total: the room of the call is computed from
+    it, not from the shape of the change. The record keeps the room and the money it was given,
+    so "it used 17 402 of 32 000 thinking tokens" is a fact after the run.
 
     ``turn`` and ``turns`` are the step's place and the facts of the steps before it. A one-shot
     call is turn 1 with nothing before it; a step gets the same facts a retry does, plus what
@@ -702,12 +883,33 @@ def propose(
     seconds, cents = limits(config, task.budget)
     if budget_cents is not None:
         cents = budget_cents if cents is None else min(cents, budget_cents)
-    if shape is not None and shape.max_cents is not None:
-        # The shape's price is a ceiling like the box's: a patch may not spend a file's money.
-        cents = shape.max_cents if cents is None else min(cents, shape.max_cents)
     read_chars = task.budget.get("max_read_chars")
     chosen, reason = model_for(config, task.kind)
     model = chosen.model if chosen is not None else None
+    room, room_reason = room_for(
+        config,
+        cents,
+        chosen,
+        steps=engine == "steps",
+        directory=directory,
+    )
+    if room is None:
+        return _record(
+            directory,
+            task,
+            number,
+            "insufficient-budget",
+            room_reason,
+            None,
+            None,
+            model,
+            stamp,
+            [],
+            choice=reason,
+            engine=engine,
+            engine_choice=engine_choice,
+            billing="not_billed",
+        )
     request = _request(
         task,
         box,
@@ -719,12 +921,12 @@ def propose(
         context,
         previous,
         read_chars,
-        shape,
         turn=turn,
         turns=turns,
         ceiling=step_ceiling(task, config),
         engine=engine,
         engine_choice=engine_choice,
+        room_tokens=room,
     )
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -759,6 +961,8 @@ def propose(
             choice=reason,
             engine=engine,
             engine_choice=engine_choice,
+            billing="unknown",
+            max_tokens=room,
         )
     except (OSError, subprocess.SubprocessError) as error:
         _write_call(directory, "", "")
@@ -776,19 +980,30 @@ def propose(
             choice=reason,
             engine=engine,
             engine_choice=engine_choice,
+            billing="not_billed",
+            max_tokens=room,
         )
     elapsed = time.monotonic() - started
     _write_call(directory, done.stdout, done.stderr)
     try:
-        patch, usage, answer_model, answer_notes, reading, truncated, declared_done = _read_answer(
-            done, directory, elapsed, model
-        )
+        (
+            patch,
+            usage,
+            answer_model,
+            answer_notes,
+            reading,
+            truncated,
+            declared_done,
+            finish,
+            billing,
+        ) = _read_answer(done, directory, elapsed, model)
     except _Malformed as error:
+        cut = error.finish_reason == "length"
         return _record(
             directory,
             task,
             number,
-            "failed",
+            "truncated" if cut else "failed",
             str(error),
             None,
             error.usage,
@@ -798,6 +1013,10 @@ def propose(
             choice=reason,
             engine=engine,
             engine_choice=engine_choice,
+            finish_reason=error.finish_reason,
+            billing=error.billing,
+            max_tokens=room,
+            truncated=cut,
         )
     notes = list(answer_notes)
     if model is not None and reason is not None:
@@ -824,6 +1043,9 @@ def propose(
             choice=reason,
             engine=engine,
             engine_choice=engine_choice,
+            finish_reason=finish,
+            billing=billing,
+            max_tokens=room,
         )
     if declared_done:
         return _record(
@@ -842,6 +1064,9 @@ def propose(
             engine=engine,
             engine_choice=engine_choice,
             done=True,
+            finish_reason=finish,
+            billing=billing,
+            max_tokens=room,
         )
     if truncated:
         return _record(
@@ -849,8 +1074,8 @@ def propose(
             task,
             number,
             "incomplete",
-            "the answer was cut at the token cap: the diff is incomplete, so it was recorded "
-            "and not applied — raise the answer cap or narrow the task",
+            "the answer was cut at the room: the diff is incomplete, so it was recorded and "
+            "not applied — a bigger room or a narrower task is the next question",
             patch,
             usage,
             answer_model,
@@ -860,6 +1085,10 @@ def propose(
             choice=reason,
             engine=engine,
             engine_choice=engine_choice,
+            finish_reason=finish,
+            billing=billing,
+            max_tokens=room,
+            truncated=True,
         )
     if cents is not None and usage is not None and usage.cost_cents is not None:
         if usage.cost_cents > cents:
@@ -876,8 +1105,11 @@ def propose(
                 stamp,
                 notes,
                 choice=reason,
-            engine=engine,
-            engine_choice=engine_choice,
+                engine=engine,
+                engine_choice=engine_choice,
+                finish_reason=finish,
+                billing=billing,
+                max_tokens=room,
             )
     elif usage is not None and usage.cost_cents is None and cents is not None:
         notes.append(
@@ -899,6 +1131,11 @@ def propose(
         notes,
         reading=reading,
         choice=reason,
+        engine=engine,
+        engine_choice=engine_choice,
+        finish_reason=finish,
+        billing=billing,
+        max_tokens=room,
     )
 
 
@@ -1002,20 +1239,21 @@ def _request(
     context: dict[str, object] | None = None,
     previous: dict[str, object] | None = None,
     read_chars: int | None = None,
-    shape: Shape | None = None,
     *,
     turn: int | None = None,
     turns: tuple[dict[str, object], ...] = (),
     ceiling: int | None = None,
     engine: str | None = None,
     engine_choice: str | None = None,
+    room_tokens: int | None = None,
 ) -> dict[str, object]:
     """The task as the command receives it: declared facts, paths, the limits, and context.
 
     ``turn`` is the call's place in the task (the one-shot call is turn 1), and ``turns`` the
     steps that came before it: what the gate did with each answer and what the visible check
     said. Both are facts from the box's records, so the model sees what happened, not a
-    paraphrase of it.
+    paraphrase of it. ``room_tokens`` is the generation room the box computed from the money
+    that is left; it is a resource allowance, not a property of the change's shape.
     """
     return {
         "schema_version": SCHEMA_VERSION,
@@ -1047,7 +1285,7 @@ def _request(
             "max_seconds": seconds,
             "max_cents": cents,
             "max_read_chars": read_chars,
-            "max_answer_tokens": None if shape is None else shape.max_answer_tokens,
+            "max_answer_tokens": room_tokens,
             "max_steps": ceiling,
         },
     }
@@ -1058,12 +1296,23 @@ def _read_answer(
     directory: Path,
     elapsed: float,
     model: str | None,
-) -> tuple[Path | None, Usage, str | None, tuple[str, ...], dict[str, object] | None, bool, bool]:
+) -> tuple[
+    Path | None,
+    Usage,
+    str | None,
+    tuple[str, ...],
+    dict[str, object] | None,
+    bool,
+    bool,
+    str | None,
+    str | None,
+]:
     """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore.
 
-    The last two flags are ``truncated`` and ``done``: an answer cut at the cap is not a change,
-    and an answer that says "the work is finished" carries no diff by design. A caller that
-    wants one and gets the other records it instead of guessing which was meant.
+    The tuple ends with the two facts the budget is built on: ``finish_reason`` (why the
+    provider stopped) and ``billing_status`` (whether the call was paid, certainly not paid, or
+    unknowable). A cut answer and a logical failure both carry a price, and the record must be
+    able to tell them apart.
     """
     text = done.stdout.strip()
     if not text:
@@ -1085,9 +1334,22 @@ def _read_answer(
     if reported is not None and not isinstance(reported, str):
         raise _Malformed("the executor's answer: model must be a string")
     answer_model = reported if isinstance(reported, str) else model
+    finish = data.get("finish_reason")
+    if finish is not None and not isinstance(finish, str):
+        raise _Malformed("the executor's answer: finish_reason must be a string")
+    billing = data.get("billing_status", "billed")
+    if billing not in BILLING:
+        raise _Malformed(
+            f"the executor's answer: billing_status must be one of {', '.join(BILLING)}"
+        )
     if "error" in data:
         usage = _usage(data.get("usage"), elapsed, answer_model)
-        raise _Malformed(f"the executor failed: {data['error']}", usage=usage)
+        raise _Malformed(
+            f"the executor failed: {data['error']}",
+            usage=usage,
+            finish_reason=finish,
+            billing=str(billing),
+        )
     if done.returncode != 0:
         detail = (done.stderr.strip().splitlines() or ["no message"])[-1]
         raise _Malformed(f"the executor exited {done.returncode}: {detail}")
@@ -1100,9 +1362,17 @@ def _read_answer(
                 "the executor's answer says done and carries a patch: one of the two"
             )
         usage = _usage(data.get("usage"), elapsed, answer_model)
-        return None, usage, answer_model, _notes(data.get("notes")), _reading(
-            data.get("reading")
-        ), bool(data.get("truncated", False)), True
+        return (
+            None,
+            usage,
+            answer_model,
+            _notes(data.get("notes")),
+            _reading(data.get("reading")),
+            bool(data.get("truncated", False)),
+            True,
+            finish,
+            str(billing),
+        )
     patch = _patch_file(data, directory)
     usage = _usage(data.get("usage"), elapsed, answer_model)
     notes = _notes(data.get("notes"))
@@ -1110,7 +1380,7 @@ def _read_answer(
     truncated = data.get("truncated", False)
     if not isinstance(truncated, bool):
         raise _Malformed("the executor's answer: truncated must be true or false")
-    return patch, usage, answer_model, notes, reading, truncated, False
+    return patch, usage, answer_model, notes, reading, truncated, False, finish, str(billing)
 
 
 def _reading(raw: object) -> dict[str, object] | None:
@@ -1190,6 +1460,8 @@ def _usage(raw: object, elapsed: float, model: str | None) -> Usage:
         completion_tokens=_count(table.get("completion_tokens"), "completion_tokens"),
         cost_cents=_money(table.get("cost_cents")),
         seconds=round(elapsed, 1),
+        reasoning_tokens=_count(table.get("reasoning_tokens"), "reasoning_tokens"),
+        answer_tokens=_count(table.get("answer_tokens"), "answer_tokens"),
     )
 
 
@@ -1239,6 +1511,10 @@ def _record(
     done: bool = False,
     engine: str | None = None,
     engine_choice: str | None = None,
+    finish_reason: str | None = None,
+    billing: str | None = "billed",
+    max_tokens: int | None = None,
+    truncated: bool = False,
 ) -> Proposal:
     """Every outcome gets a record: a failed call is part of the task's history too."""
     digest = hashlib.sha256(patch.read_bytes()).hexdigest() if patch is not None else None
@@ -1256,6 +1532,8 @@ def _record(
         else {
             "prompt_tokens": usage.prompt_tokens,
             "completion_tokens": usage.completion_tokens,
+            "reasoning_tokens": usage.reasoning_tokens,
+            "answer_tokens": usage.answer_tokens,
             "cost_cents": usage.cost_cents,
             "seconds": usage.seconds,
         },
@@ -1265,6 +1543,10 @@ def _record(
         "done": done,
         "engine": engine,
         "engine_choice": engine_choice,
+        "finish_reason": finish_reason,
+        "billing_status": billing,
+        "max_tokens": max_tokens,
+        "truncated": truncated,
     }
     (directory / "proposal.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return Proposal(
@@ -1281,6 +1563,10 @@ def _record(
         done=done,
         engine=engine,
         engine_choice=engine_choice,
+        finish_reason=finish_reason,
+        billing_status=billing,
+        max_tokens=max_tokens,
+        truncated=truncated,
     )
 
 

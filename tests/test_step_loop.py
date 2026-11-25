@@ -109,6 +109,16 @@ elif mode == "refuse-first":
         patch("--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n-value = 1\\n+value = 3\\n")
     else:
         patch("--- a/docs/note.txt\\n+++ b/docs/note.txt\\n@@ -1 +1 @@\\n-a\\n+b\\n")
+elif mode == "cut":
+    print(json.dumps({
+        "error": "the answer was cut before any text: the model spent the whole room on "
+                 "thinking and returned nothing",
+        "usage": {"prompt_tokens": 100, "completion_tokens": 20,
+                  "reasoning_tokens": 20, "answer_tokens": 0, "cost_cents": 0.1},
+        "finish_reason": "length",
+        "billing_status": "billed",
+        "model": "fake-model",
+    }))
 else:
     patch(f"--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n"
           f"-value = {current}\\n+value = {fixed}\\n")
@@ -426,3 +436,57 @@ def test_the_call_ceiling_is_the_lower_of_the_task_and_the_box(tmp_path: Path) -
     assert executor.step_ceiling(_FakeTask(max_steps=2), config) == 2
     assert executor.step_ceiling(_FakeTask(max_steps=9), config) == 4
     assert executor.step_ceiling(_FakeTask(), config) == 4
+
+
+@requires_trajan
+def test_a_cut_answer_is_recorded_with_its_reasoning_and_the_budget_decision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A cut at the room is a fact with a cause: record the thinking and name the budget.
+
+    The box does not retry a cut inside the same budget: the room was the money's maximum, so a
+    retry would buy less, not more. The record says what the room was and how much of it was
+    thinking, and the next step is the owner's budget decision.
+    """
+    project = make_project(tmp_path)
+    box = boxes.new_box(tmp_path / "castra", project)
+    write_profile(box, write_executor(tmp_path))
+    monkeypatch.setenv("FAKE_STEP_MODE", "cut")
+    assert dispatch(box, write_task(tmp_path, task(repro=FIXED))) == 1
+    capsys.readouterr()
+    assert calls(tmp_path) == 1
+    record_path = sorted((box.root / "tabularium" / "t-1").glob("proposal-*/proposal.json"))[0]
+    proposal = json.loads(record_path.read_text(encoding="utf-8"))
+    assert proposal["status"] == "truncated"
+    assert proposal["finish_reason"] == "length"
+    assert proposal["billing_status"] == "billed"
+    assert proposal["truncated"] is True
+    assert proposal["usage"]["reasoning_tokens"] == 20
+    assert proposal["max_tokens"] == 32768, "no price: the provider ceiling is the room"
+    notes = "\n".join(cast(list[str], record(box)["notes"]))
+    assert "budget decision" in notes
+    step = json.loads((record_path.parent / "step.json").read_text(encoding="utf-8"))
+    assert step["status"] == "truncated"
+
+
+@requires_trajan
+def test_the_room_in_the_request_is_computed_from_the_task_money(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two cents buy 13 636 tokens at $1.10 per million: the request carries that number."""
+    monkeypatch.setenv("PANTHEON_MODEL_PRICE_IN", "0.27")
+    monkeypatch.setenv("PANTHEON_MODEL_PRICE_OUT", "1.10")
+    project = make_project(tmp_path)
+    box = boxes.new_box(tmp_path / "castra", project)
+    write_profile(box, write_executor(tmp_path))
+    monkeypatch.setenv("FAKE_STEP_MODE", "fix-first")
+    text = task(repro=FIXED).replace("max_cents = 6", "max_cents = 2")
+    assert dispatch(box, write_task(tmp_path, text)) == 0
+    limits = cast(dict[str, object], requests(tmp_path)[0]["limits"])
+    assert limits["max_answer_tokens"] == 13_636
+    proposal = json.loads(
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "proposal.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert proposal["max_tokens"] == 13_636
