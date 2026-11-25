@@ -1,0 +1,1 @@
+{"case":"c-p1","mode":"B","started":"2026-11-25T01:50:30Z","base_commit":"06fc5a1","verdict":"pass","confirmed":0,"false_alarms":0,"blocks":0,"interventions":0,"cost_cents":0.50,"tokens_in":22376,"tokens_out":2807,"seconds":93,"repeat_same":null,"notes":"executor returned one appended bullet; make check green; committed 2db0083 in the copy"}

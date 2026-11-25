@@ -4,7 +4,7 @@
 schema_version = 1
 id = "c-p3"
 repo = "https://github.com/wizzhomie/pantheon"
-base_commit = "1fb3ea4"
+base_commit = "06fc5a1"
 kind = "docs"
 paths = ["docs/**"]
 cost_bound_cents = 3

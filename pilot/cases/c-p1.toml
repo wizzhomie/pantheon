@@ -1,11 +1,11 @@
 # Case P1 — a documentation change. The cheapest case in the set: it exercises routing
-# (docs -> verify), the checks plan by paths, and the reading of a change that cannot
+# (bugfix -> gate, verify), the checks plan by paths, and the reading of a change that cannot
 # break code. A reader that invents a finding here is a false alarm.
 schema_version = 1
 id = "c-p1"
 repo = "https://github.com/wizzhomie/pantheon"
-base_commit = "1fb3ea4"
-kind = "docs"
+base_commit = "06fc5a1"
+kind = "bugfix"
 paths = ["docs/**"]
 cost_bound_cents = 3
 goal = "В docs/09-evaluation.md, в конце раздела «Что считается успехом», добавь отдельным пунктом одну фразу: «Отчёт о прогоне публикуется и тогда, когда Пантеон ошибся.» Больше ничего в файле не меняй."

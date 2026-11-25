@@ -5,7 +5,7 @@
 schema_version = 1
 id = "c-p2"
 repo = "https://github.com/wizzhomie/pantheon"
-base_commit = "1fb3ea4"
+base_commit = "06fc5a1"
 kind = "bugfix"
 paths = ["harness/cli.py", "harness/records.py", "tests/test_records.py"]
 cost_bound_cents = 5
