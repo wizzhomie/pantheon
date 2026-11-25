@@ -1,0 +1,16 @@
+# Case F1 — the first foreign repository: pallets/click, a src-layout project with its own
+# 2 628-test suite. A docs edit, so the case tests the pipeline on an unfamiliar structure
+# before it tests the model: the box must find the declared file, keep the rest untouched,
+# and leave click's own suite green.
+schema_version = 1
+id = "c-f1"
+repo = "https://github.com/pallets/click"
+base_commit = "08b803c"
+kind = "docs"
+paths = ["docs/design-opinions.md"]
+cost_bound_cents = 3
+goal = "В конец docs/design-opinions.md добавь отдельным пунктом фразу: «Хорошее умолчание лучше обязательного аргумента.» Больше ничего в файле не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Правка текста не может сломать click: честный вердикт — pass без находок, набор из 2 628 тестов зелёный, остальные файлы не тронуты."

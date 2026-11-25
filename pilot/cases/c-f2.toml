@@ -1,0 +1,15 @@
+# Case F2 — a test-only change in a foreign repository. The suite is declared on
+# tests/**, so this case is the first foreign change where the checks actually run:
+# the box must add one regression test in click's own style and leave 2 628 green.
+schema_version = 1
+id = "c-f2"
+repo = "https://github.com/pallets/click"
+base_commit = "08b803c"
+kind = "bugfix"
+paths = ["tests/test_utils/test_echo.py"]
+cost_bound_cents = 3
+goal = "В tests/test_utils/test_echo.py добавь регрессионный тест: click.echo(\"no newline\", nl=False) печатает ровно этот текст без перевода строки. Используй фикстуру capsys, стиль — как у соседних тестов. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Новый тест на существующее поведение не меняет библиотеку; набор click остаётся зелёным, находок нет."
