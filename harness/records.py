@@ -34,7 +34,9 @@ from . import box as boxes
 SCHEMA_VERSION = 1
 RECORDS = Path("tabularium") / "commentarii"
 DIGEST_FILE = "digest.json"
-RESERVED = frozenset({"commentarii", "forma", "expeditio", "aurelius", "fluxus"})
+RESERVED = frozenset(
+    {"commentarii", "forma", "expeditio", "aurelius", "fluxus", "studia"}
+)
 """Directories under ``tabularium/`` that are records of other things, not tasks."""
 MAX_ENTRIES = 200
 MAX_PATHS = 5

@@ -32,6 +32,7 @@ from . import (
     records,
     reviewer,
     runner,
+    study,
 )
 from . import box as boxes
 
@@ -208,6 +209,27 @@ def _parser() -> argparse.ArgumentParser:
     flow_parser.add_argument("--executor", default=None, help="the command producing the change")
     flow_parser.add_argument("--json", action="store_true", help="the answer as one JSON object")
     flow_parser.set_defaults(handler=_flow)
+
+    study_parser = commands.add_parser(
+        "study",
+        help="the R&D cycle: question, experiments, numbers, a decision by code",
+        description=(
+            "A study is a file in the project: one question, when it counts as closed, and "
+            "experiments that declare a hypothesis, metrics with a threshold and a pattern, and "
+            "runs with a parameter matrix. `study` lists them; `--run` runs the next experiment, "
+            "aggregates the numbers, gives the hypothesis its verdict, and follows the "
+            "confirmed/refuted decision the file declares."
+        ),
+    )
+    study_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    study_parser.add_argument(
+        "--run", default=None, metavar="RESEARCH", help="run the next experiment of a research"
+    )
+    study_parser.add_argument(
+        "--experiment", default=None, help="run this experiment instead of the next one"
+    )
+    study_parser.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    study_parser.set_defaults(handler=_study)
 
     ledger_parser = commands.add_parser(
         "records",
@@ -746,6 +768,30 @@ def _delegation(value: str) -> rails.Delegation:
             f"--delegate {value!r} is not QUESTION=DEFAULT: a delegation needs both sides"
         )
     return rails.Delegation(question=question.strip(), default=default.strip())
+
+
+def _study(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    if args.experiment is not None and args.run is None:
+        raise boxes.HarnessError(
+            "--experiment chooses what --run runs: pass `--run <research>` with it"
+        )
+    if args.run is None:
+        if args.json:
+            print(json.dumps(study.payload(box), indent=2, ensure_ascii=False))
+        else:
+            print("\n".join(study.render_all(box)))
+        return 0
+    research = study.read(box.project, args.run)
+    experiment = study.next_experiment(
+        research, study.latest(box, research.id), args.experiment
+    )
+    outcome = study.run_experiment(box, research, experiment)
+    if args.json:
+        print(json.dumps(study.outcome_json(outcome), indent=2, ensure_ascii=False))
+    else:
+        print("\n".join(study.render(outcome)))
+    return 0
 
 
 def _flow(args: argparse.Namespace, root: Path) -> int:
