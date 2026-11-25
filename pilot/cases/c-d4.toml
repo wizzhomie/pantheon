@@ -1,0 +1,24 @@
+# Case D4 — the shape c-d3 pointed at, plus the missing piece: the task carries its own
+# reproduction. c-d3 showed a green suite can pass a broken fix because no test covers the
+# defect's input; here that input is a check, so the box must see it fail before the change
+# and pass after it.
+#
+# Defect: pallets/click#2847, reproduced by hand: `_COMPLETE=bash_complete` on
+# `prog --color=a` returns `auto`, `always`; the shell replaces the whole word and `--color=`
+# disappears. The same Python path feeds bash and zsh.
+#
+# Prediction, recorded before the run: the box edits src/click/shell_completion.py, the
+# reproduction goes from failing to passing, the 2 629-test suite stays green, verdict pass,
+# about a quarter of a cent.
+schema_version = 1
+id = "c-d4"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py так, чтобы для незавершённого слова с «=» каждое предложенное значение несло часть до «=» включительно (и для пустого значения тоже), одинаково для bash и zsh; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Форма «названная функция» дала верный ответ на c-d3, а проверка-воспроизведение закрывает слепое пятно набора: вердикт теперь зависит от самого входа задачи, а не только от чужих тестов."
