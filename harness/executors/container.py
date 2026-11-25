@@ -31,7 +31,7 @@ HERMES = "/opt/hermes/.venv/bin/hermes"
 SERVICE = "augustus"
 USAGE_PATH = "/opt/data/.cache/executor-usage.json"
 """Where the agent writes its own bill; read back from the box's state directory."""
-USAGE_IN_BOX = Path("state") / ".cache" / "executor-usage.json"
+USAGE_IN_BOX = Path("cella") / ".cache" / "executor-usage.json"
 
 
 def main() -> int:
@@ -128,7 +128,7 @@ ERROR: <чего не хватает>.
 
 CONTEXT_HEAD = (
     "Контекст, собранный коробкой (пути записей — от корня коробки; "
-    "в контейнере артефакты лежат в /work/artifacts):"
+    "в контейнере артефакты лежат в /work/tabularium):"
 )
 PREVIOUS_HEAD = (
     "Предыдущая попытка не прошла. Ответь на эти факты, а не повторяй их:"

@@ -1,7 +1,7 @@
 """The executor: the declared command that proposes a change, and what it cost.
 
 The box's agent is not built — the container runs a sleep, and ``status`` says so — so a
-change comes from a command the box declares in ``profile/executor.toml``. The command gets
+change comes from a command the box declares in ``persona/executor.toml``. The command gets
 the task as JSON on stdin, may read the project, and answers with one unified diff and what
 it spent. Everything after that is unchanged: the diff goes through Caesar's gate like any
 other patch, and the record keeps the answer, not a promise about it.
@@ -15,7 +15,7 @@ Three rules make the answer usable:
 * **The command proposes; it does not write.** The project is read before and after the call:
   a direct change is caught and the dispatch returns instead of closing on an unguarded tree.
 
-A box without ``profile/executor.toml`` has no executor. Then a task must carry its own patch,
+A box without ``persona/executor.toml`` has no executor. Then a task must carry its own patch,
 and the record says that too — the same honesty as before this module existed.
 """
 
@@ -36,8 +36,8 @@ from typing import Protocol
 from . import box as boxes
 
 SCHEMA_VERSION = 1
-PROFILE_FILE = Path("profile") / "executor.toml"
-EXAMPLE_FILE = Path("profile") / "executor.toml.example"
+PROFILE_FILE = Path("persona") / "executor.toml"
+EXAMPLE_FILE = Path("persona") / "executor.toml.example"
 CONFIG_KEYS = frozenset(
     {"schema_version", "command", "model", "models", "max_seconds", "max_cents"}
 )
@@ -68,7 +68,7 @@ PATCH_LIMIT = 5 * 1024 * 1024
 """A patch bigger than this is refused instead of read into memory and half-recorded."""
 
 EXAMPLE = """\
-# To give this box an executor, copy this file to `profile/executor.toml`.
+# To give this box an executor, copy this file to `persona/executor.toml`.
 #
 # The command gets the task as JSON on stdin, may read the project, and answers with one
 # unified diff plus what it spent. The diff still goes through the write gate; the command
@@ -443,7 +443,7 @@ def propose(
         raise boxes.HarnessError("the box declares no executor: there is nothing to ask")
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     number = _next_number(box.root, task.id)
-    directory = box.root / "artifacts" / task.id / f"proposal-{number}"
+    directory = box.root / "tabularium" / task.id / f"proposal-{number}"
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
     read_chars = task.budget.get("max_read_chars")
@@ -854,7 +854,7 @@ def _record(
 
 
 def _next_number(box_root: Path, task: str) -> int:
-    base = box_root / "artifacts" / task
+    base = box_root / "tabularium" / task
     if not base.is_dir():
         return 1
     numbers = [

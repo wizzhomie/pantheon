@@ -64,7 +64,7 @@ def make_project(tmp_path: Path) -> Path:
 
 def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text(
         container.render_compose(box, "nousresearch/hermes-agent@sha256:" + "3e9f" * 16),
         encoding="utf-8",
@@ -97,7 +97,7 @@ def write_task(tmp_path: Path, text: str, name: str = "t-1.toml") -> Path:
 
 def outbox(box: boxes.Box, capsys: pytest.CaptureFixture[str]) -> str:
     capsys.readouterr()
-    latest = max((box.root / "outbox").glob("*.md"), key=lambda item: item.stat().st_mtime)
+    latest = max((box.root / "acta").glob("*.md"), key=lambda item: item.stat().st_mtime)
     return latest.read_text(encoding="utf-8")
 
 
@@ -128,7 +128,7 @@ def test_a_checks_only_verdict_says_nobody_read_the_change(
     patch = make_patch(tmp_path, project)
     task = write_task(tmp_path, with_change(patch))
     code = main(
-        ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
+        ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
     )
     payload = json.loads(capsys.readouterr().out)
     assert code == 0 and payload["state"] == "closed"
@@ -149,9 +149,9 @@ def test_a_reused_verdict_says_the_checks_did_not_run(
             'paths = ["src/**"]', 'paths = ["src/**"]'
         ),
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     capsys.readouterr()
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "reused from" in out
     text = outbox(box, capsys)
@@ -166,7 +166,7 @@ def test_an_unchecked_architecture_is_named(
     patch = make_patch(tmp_path, project)
     text = with_change(patch, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
     task = write_task(tmp_path, text)
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     body = outbox(box, capsys)
     assert "the architecture was not confirmed (unchecked)" in body
 
@@ -181,7 +181,7 @@ def test_a_task_without_a_budget_is_named(
         'schema_version = 1\nid = "t-1"\ngoal = "look"\nkind = "docs"\npaths = ["src/**"]\n'
         'expected = "the checks pass"\n',
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     body = outbox(box, capsys)
     assert "the task declared no budget" in body
 
@@ -193,9 +193,9 @@ def test_status_shows_what_the_newest_dispatch_did_not_check(
     project, box = make_box(tmp_path)
     patch = make_patch(tmp_path, project)
     task = write_task(tmp_path, with_change(patch))
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     capsys.readouterr()
-    assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
+    assert main(["--castra", str(box.root.parent), "status", box.name]) == 0
     out = capsys.readouterr().out
     assert "unknown    no reviewer read the change" in out
 
@@ -212,11 +212,11 @@ def test_a_reviewed_dispatch_names_the_reader_and_drops_the_gap(
     task = write_task(tmp_path, with_change(patch))
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
     code = main(
-        ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--review"]
+        ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--review"]
     )
     capsys.readouterr()
     assert code == 0
-    records = (box.root / "artifacts" / "t-1").glob("dispatch-*.json")
+    records = (box.root / "tabularium" / "t-1").glob("dispatch-*.json")
     payload = json.loads(max(records, key=lambda item: item.name).read_text(encoding="utf-8"))
     assert payload["verify"]["reviewed"] is True
     assert payload["verify"]["review"]["status"] == "ok"
@@ -243,18 +243,14 @@ def test_a_reading_from_the_review_cache_is_free_not_unaccounted(
     patch = make_patch(tmp_path, project)
     task = write_task(tmp_path, with_change(patch))
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
-    assert (
-        main(
-            ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--review"]
-        )
-        == 0
-    )
+    argv = ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]
+    assert main([*argv, "--review"]) == 0
     capsys.readouterr()
     (project / "notes.txt").write_text("unrelated to the change\n", encoding="utf-8")
     assert (
         main(
             [
-                "--boxes",
+                "--castra",
                 str(box.root.parent),
                 "dispatch",
                 box.name,
@@ -292,7 +288,7 @@ def test_a_review_without_a_bill_is_named(
     assert (
         main(
             [
-                "--boxes",
+                "--castra",
                 str(box.root.parent),
                 "dispatch",
                 box.name,
@@ -320,7 +316,7 @@ def test_a_failed_review_is_named(
     assert (
         main(
             [
-                "--boxes",
+                "--castra",
                 str(box.root.parent),
                 "dispatch",
                 box.name,
@@ -337,7 +333,7 @@ def test_a_failed_review_is_named(
 
 
 def declare_reader(box: boxes.Box, text: str = "schema_version = 1\nenabled = true\n") -> None:
-    path = box.root / "profile" / "reviewer.toml"
+    path = box.root / "persona" / "reviewer.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
 
@@ -351,7 +347,7 @@ def test_a_box_that_declares_reading_reads_without_a_flag(
     task = write_task(tmp_path, with_change(patch))
     declare_reader(box)
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     body = outbox(box, capsys)
     assert "read by deepseek-flash" in body
     assert "no reviewer read the change" not in body
@@ -369,7 +365,7 @@ def test_no_review_wins_over_the_declared_reader(
     assert (
         main(
             [
-                "--boxes",
+                "--castra",
                 str(box.root.parent),
                 "dispatch",
                 box.name,
@@ -394,7 +390,7 @@ def test_a_reading_above_the_declared_ceiling_is_named(
     patch = make_patch(tmp_path, project)
     task = write_task(tmp_path, with_change(patch))
     declare_reader(box, 'schema_version = 1\nenabled = true\nmax_cents = 0.01\n')
-    bill = box.root / "state" / ".cache" / "review-usage.json"
+    bill = box.root / "cella" / ".cache" / "review-usage.json"
     bill.parent.mkdir(parents=True, exist_ok=True)
     bill.write_text(
         json.dumps({"input_tokens": 900, "output_tokens": 60, "estimated_cost_usd": 0.004}),
@@ -403,7 +399,7 @@ def test_a_reading_above_the_declared_ceiling_is_named(
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
     assert (
         main(
-            ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
+            ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
         )
         == 0
     )

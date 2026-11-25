@@ -72,7 +72,7 @@ def write_contract(tmp_path: Path, text: str = CONTRACT) -> Path:
 
 def make_box(tmp_path: Path) -> tuple[Path, Path]:
     project = make_project(tmp_path)
-    boxes_root = tmp_path / "boxes"
+    boxes_root = tmp_path / "castra"
     box = boxes.new_box(boxes_root, project)
     return project, box.root
 
@@ -120,17 +120,17 @@ def test_a_change_outside_the_scope_is_refused_and_written_down(
     project, box_root = make_box(tmp_path)
     patch = make_patch(tmp_path, project, {"README.md": "changed\n"})
     contract = write_contract(tmp_path)
-    assert main(["--boxes", str(box_root.parent), "run", "probe", "--contract", str(contract),
+    assert main(["--castra", str(box_root.parent), "run", "probe", "--contract", str(contract),
                  "--patch", str(patch)]) == 1
     out = capsys.readouterr().out
     assert "outside-scope" in out and "result     refused" in out
     assert (project / "README.md").read_text() == "readme\n"
-    attempt_dir = box_root / "artifacts" / "T1" / "1"
+    attempt_dir = box_root / "tabularium" / "T1" / "1"
     record = json.loads((attempt_dir / "attempt.json").read_text())
     assert (record["status"], record["violations"][0]["code"]) == ("refused", "outside-scope")
     assert record["paths"] == ["README.md"]
     assert (attempt_dir / "change.diff").is_file()
-    events = (box_root / "ledger" / f"{record['started_at'][:10]}.jsonl").read_text().splitlines()
+    events = (box_root / "fasti" / f"{record['started_at'][:10]}.jsonl").read_text().splitlines()
     assert json.loads(events[-1])["type"] == "attempt.refused"
 
 
@@ -140,13 +140,13 @@ def test_a_change_inside_the_scope_is_applied_and_written_down(
     project, box_root = make_box(tmp_path)
     patch = make_patch(tmp_path, project, {"src/app.py": "value = 2\n"})
     contract = write_contract(tmp_path)
-    assert main(["--boxes", str(box_root.parent), "run", "probe", "--contract", str(contract),
+    assert main(["--castra", str(box_root.parent), "run", "probe", "--contract", str(contract),
                  "--patch", str(patch)]) == 0
     assert "result     applied" in capsys.readouterr().out
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
-    record = json.loads((box_root / "artifacts" / "T1" / "1" / "attempt.json").read_text())
+    record = json.loads((box_root / "tabularium" / "T1" / "1" / "attempt.json").read_text())
     assert record["status"] == "applied"
-    change = json.loads((box_root / "artifacts" / "T1" / "1" / "change.json").read_text())
+    change = json.loads((box_root / "tabularium" / "T1" / "1" / "change.json").read_text())
     assert change["paths"] == ["src/app.py"] and change["digest"].startswith("sha256:")
     assert change["base"]
 
@@ -208,11 +208,11 @@ def test_the_cli_refuses_a_contract_that_does_not_exist(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path)
-    boxes_root = tmp_path / "boxes"
+    boxes_root = tmp_path / "castra"
     boxes.new_box(boxes_root, project)
     capsys.readouterr()
     patch = make_patch(tmp_path, project, {"src/app.py": "value = 2\n"})
-    assert main(["--boxes", str(boxes_root), "run", "probe", "--contract",
+    assert main(["--castra", str(boxes_root), "run", "probe", "--contract",
                  str(tmp_path / "none.toml"), "--patch", str(patch)]) == 2
     assert "no contract" in capsys.readouterr().err
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
@@ -262,7 +262,7 @@ def test_a_project_inside_a_larger_repository_is_written_where_it_lives(
     patch = make_patch(tmp_path, project, {"src/app.py": "value = 2\n"})
     assert "a/sub/src/app.py" in patch.read_text()
     contract = caesar.read_contract(write_contract(tmp_path))
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     attempt = caesar.run_attempt(box.root, project, contract, patch)
     assert attempt.applied, attempt.reason
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
@@ -280,7 +280,7 @@ def test_a_model_style_diff_lands_in_a_project_inside_a_repository(tmp_path: Pat
         encoding="utf-8",
     )
     contract = caesar.read_contract(write_contract(tmp_path))
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     attempt = caesar.run_attempt(box.root, project, contract, patch)
     assert attempt.applied, attempt.reason
     assert (project / "src" / "app.py").read_text() == "value = 2\n"

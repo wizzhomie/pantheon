@@ -75,7 +75,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def write_task(tmp_path: Path, text: str = TASK) -> Path:
@@ -85,7 +85,7 @@ def write_task(tmp_path: Path, text: str = TASK) -> Path:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def trajan_runnable() -> bool:
@@ -118,7 +118,7 @@ def test_an_approval_records_the_digest_of_what_it_accepted(
     assert answer["approved"] == current.digest
     assert answer["by"] == "owner" and answer["at"].endswith("Z")
     record = Path(str(answer["record"]))
-    assert record.is_file() and record.parent == box.root / "artifacts" / "frame"
+    assert record.is_file() and record.parent == box.root / "tabularium" / "forma"
     written = json.loads(record.read_text(encoding="utf-8"))
     assert written["type"] == "frame.approval"
     assert written["digest"] == current.digest
@@ -127,7 +127,7 @@ def test_an_approval_records_the_digest_of_what_it_accepted(
         ".pantheon/architecture.toml",
     }
     assert ".trajan/context.toml" in written["missing"], "a missing file is listed, not ignored"
-    ledger = box.root / "ledger" / f"{written['at'][:10]}.jsonl"
+    ledger = box.root / "fasti" / f"{written['at'][:10]}.jsonl"
     event = json.loads(ledger.read_text(encoding="utf-8").splitlines()[-1])
     assert event["type"] == "frame.approved" and event["actor"] == "owner"
     assert frame.standing(box).state == "approved"
@@ -142,7 +142,7 @@ def test_the_same_frame_approved_twice_is_two_records_not_an_overwrite(
     capsys.readouterr()
     assert run(box, "approve", box.name, "--note", "same bytes, said again") == 0
     capsys.readouterr()
-    records = sorted((box.root / "artifacts" / "frame").glob("approval-*.json"))
+    records = sorted((box.root / "tabularium" / "forma").glob("approval-*.json"))
     assert len(records) == 2
     assert frame.standing(box).state == "approved"
 
@@ -191,7 +191,7 @@ def test_an_unapproved_frame_is_a_visible_gap_not_a_silent_close(
     assert code == 0 and answer["state"] == "closed"
     assert answer["frame"]["state"] == "never"
     assert any("never approved" in str(item) for item in answer["unknowns"])
-    outbox = max((box.root / "outbox").glob("*.md"), key=lambda item: item.stat().st_mtime)
+    outbox = max((box.root / "acta").glob("*.md"), key=lambda item: item.stat().st_mtime)
     assert "never approved" in outbox.read_text(encoding="utf-8")
 
 
@@ -202,7 +202,7 @@ def test_approving_nothing_is_refused(tmp_path: Path, capsys: pytest.CaptureFixt
     assert run(box, "approve", box.name) == 2
     error = capsys.readouterr().err
     assert "no frame to approve" in error
-    assert not (box.root / "artifacts" / "frame").exists()
+    assert not (box.root / "tabularium" / "forma").exists()
 
 
 def test_approving_a_package_that_does_not_parse_is_refused(
@@ -215,7 +215,7 @@ def test_approving_a_package_that_does_not_parse_is_refused(
     error = capsys.readouterr().err
     assert "does not read as a package" in error
     assert "architecture.toml" in error
-    assert not (box.root / "artifacts" / "frame").exists()
+    assert not (box.root / "tabularium" / "forma").exists()
 
 
 def test_status_names_the_frame(
@@ -238,7 +238,7 @@ def test_a_broken_approval_record_stops_the_run(
 ) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    directory = box.root / "artifacts" / "frame"
+    directory = box.root / "tabularium" / "forma"
     directory.mkdir(parents=True)
     (directory / "approval-20260101T000000Z.json").write_text("{not json", encoding="utf-8")
     assert run(box, "status", box.name) == 2

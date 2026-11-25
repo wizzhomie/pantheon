@@ -11,7 +11,7 @@ Caesar, проверку запускает Trajan, запись ведёт Augu
 
 ## Что объявляет коробка
 
-Файл `profile/executor.toml` в коробке:
+Файл `persona/executor.toml` в коробке:
 
 ```toml
 schema_version = 1
@@ -45,7 +45,7 @@ price_out = 0.60
 
 ## Запрос: что команда получает
 
-Задача приходит JSON-объектом на stdin и одновременно лежит в `artifacts/<task>/proposal-<n>/request.json`:
+Задача приходит JSON-объектом на stdin и одновременно лежит в `tabularium/<task>/proposal-<n>/request.json`:
 
 ```json
 {
@@ -54,9 +54,9 @@ price_out = 0.60
   "task": {"id": "t-1", "goal": "…", "kind": "bugfix", "paths": ["src/**"],
            "expected": "…", "forbidden": [], "budget": {"max_cents": 5}},
   "project": {"path": "/home/ubuntu/pantheon/trajan"},
-  "box": {"name": "trajan", "root": "/home/ubuntu/pantheon/boxes/trajan"},
+  "box": {"name": "trajan", "root": "/home/ubuntu/pantheon/castra/trajan"},
   "limits": {"max_seconds": 300, "max_cents": 5, "max_read_chars": null},
-  "record": {"directory": "/home/ubuntu/pantheon/boxes/trajan/artifacts/t-1/proposal-1"},
+  "record": {"directory": "/home/ubuntu/pantheon/castra/trajan/tabularium/t-1/proposal-1"},
   "model": "deepseek-flash",
   "context": {"…": "пакет контекста, если коробка его собрала"},
   "previous": null
@@ -106,17 +106,17 @@ JSON-объект на stdout, ничего больше. Ключи:
    status` печатают, сколько файлов и символов попало в запрос, оценку токенов и что осталось за
    потолком. Не назвала — запись говорит «not reported», а не рисует ноль.
 
-Каждый вызов оставляет каталог `artifacts/<task>/proposal-<n>/`: `request.json`, `stdout.txt`,
+Каждый вызов оставляет каталог `tabularium/<task>/proposal-<n>/`: `request.json`, `stdout.txt`,
 `stderr.txt`, `change.diff`, `proposal.json` (со статусом, ценой и токенами).
 
 ## Где видна стоимость
 
 Критерий приёмки MVP — «стоимость задачи записана». Она записана в трёх местах:
 
-- **событие** в `ledger/<дата>.jsonl` типа `task.executed` с полями `model`, `prompt_tokens`,
+- **событие** в `fasti/<дата>.jsonl` типа `task.executed` с полями `model`, `prompt_tokens`,
   `completion_tokens`, `cost_cents`, `seconds`;
 - **запись** `dispatch-*.json`, блок `executor`, и `proposal.json`;
-- **сводка** в `outbox/`, раздел `## cost`: деньги, токены, модель, время и бюджет задачи.
+- **сводка** в `acta/`, раздел `## cost`: деньги, токены, модель, время и бюджет задачи.
 
 Чтение — отдельная строка `reading` в `dispatch-*.json`, в `proposal.json` и в выводе `pantheon
 dispatch`: файлы, символы, оценка токенов, объявленный потолок и всё, что осталось за ним. Три
@@ -149,24 +149,24 @@ endpoint (DeepSeek по умолчанию). Он читает задачу, к�
 Включение в коробке:
 
 ```bash
-cp ~/pantheon/boxes/trajan/profile/executor.toml.example \
-   ~/pantheon/boxes/trajan/profile/executor.toml
+cp ~/pantheon/castra/trajan/persona/executor.toml.example \
+   ~/pantheon/castra/trajan/persona/executor.toml
 # в файле: command = "/home/ubuntu/pantheon/bin/pantheon-executor"
 PANTHEON_MODEL_KEY=… PANTHEON_MODEL=deepseek-flash \
 PANTHEON_MODEL_PRICE_IN=0.30 PANTHEON_MODEL_PRICE_OUT=1.20 \
-./bin/pantheon dispatch trajan --task tasks/t-2.toml
+./bin/pantheon dispatch trajan --task mandata/t-2.toml
 ```
 
 ## Исполнитель внутри коробки
 
 У коробки есть свой агент: `pantheon up` запускает `gateway run` в контейнере, профиль
-(`profile/SOUL.md`, копируется в `state/` при первом старте) и модель — часть коробки. Тогда
+(`persona/SOUL.md`, копируется в `cella/` при первом старте) и модель — часть коробки. Тогда
 исполнителем становится `bin/pantheon-executor-container`: он переводит задачу в один промпт,
 зовёт `hermes -z` внутри контейнера, забирает диф и **счёт самого агента** (`--usage-file`:
 вход, выход, кэш, оценка стоимости). Проект внутри контейнера смонтирован только на чтение,
 поэтому агент физически не может писать: он предлагает, а применяет Caesar на машине.
 
-Ключ модели — секрет коробки: `state/.env`, режим 600, вне git; `up` записывает его из
+Ключ модели — секрет коробки: `cella/.env`, режим 600, вне git; `up` записывает его из
 окружения вызывающего. В compose-файл ключ не попадает (и не может: `sudo` вычищает окружение).
 
 ## Границы, названные явно

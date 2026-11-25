@@ -2,7 +2,7 @@
 
 The box does not re-implement verification and does not read the verdict out of the exit code
 alone: it runs trajan as a separate process, keeps the run directory inside the box's
-``artifacts/``, and reports the verdict trajan computed. That is the stage 1.2 contract — the
+``tabularium/``, and reports the verdict trajan computed. That is the stage 1.2 contract — the
 answer here must equal the answer of running trajan directly on the same change, and a test
 compares the two instead of trusting the wiring.
 
@@ -341,7 +341,7 @@ def _previous(
     box_root: Path, project: Path, digest_map: dict[str, str]
 ) -> tuple[Path, dict[str, object]] | None:
     """The newest earlier run whose evidence still matches: same tree, policy and checker."""
-    artifacts = box_root / "artifacts"
+    artifacts = box_root / "tabularium"
     if not artifacts.is_dir():
         return None
     target = str(project.resolve())

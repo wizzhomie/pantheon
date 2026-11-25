@@ -85,7 +85,7 @@ def reviewed(
     tmp_path: Path, project: Path, patch: Path, box: boxes.Box | None = None
 ) -> contour.VerifyResult:
     """Run trajan with a scripted reader: the plan is what is under test, not the model."""
-    runs = (box.root / "artifacts") if box is not None else (tmp_path / "runs")
+    runs = (box.root / "tabularium") if box is not None else (tmp_path / "runs")
     runs.mkdir(parents=True, exist_ok=True)
     return contour.run_verify(
         project,
@@ -139,7 +139,7 @@ def test_a_source_change_selects_every_check(tmp_path: Path) -> None:
 def test_the_same_change_is_not_computed_twice(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     patch = docs_change(tmp_path, project)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     first = reviewed(tmp_path, project, patch, box)
     assert first.reused_from is None
     second = reviewed(tmp_path, project, patch, box)
@@ -152,7 +152,7 @@ def test_the_same_change_is_not_computed_twice(tmp_path: Path) -> None:
 def test_a_different_change_over_the_same_tree_is_not_reused(tmp_path: Path) -> None:
     """Same files, same bytes, another diff: the plan answered a different question."""
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     patch = docs_change(tmp_path, project)
     first = reviewed(tmp_path, project, patch, box)
     assert first.reused_from is None
@@ -166,12 +166,12 @@ def test_a_different_change_over_the_same_tree_is_not_reused(tmp_path: Path) -> 
 def test_a_checks_only_answer_is_not_reused_for_a_change(tmp_path: Path) -> None:
     """The same tree, a different question: nobody read that change, so this answer is new."""
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     checks_only = contour.run_verify(
         project,
         root=contour.trajan_root(),
         python=contour.trajan_python(contour.trajan_root()),
-        out=contour.run_directory(box.root / "artifacts", datetime.now(UTC)),
+        out=contour.run_directory(box.root / "tabularium", datetime.now(UTC)),
         box_root=box.root,
     )
     assert checks_only.passed and checks_only.skipped == ()
@@ -185,11 +185,11 @@ def test_a_reused_reading_keeps_its_bill(tmp_path: Path, monkeypatch: pytest.Mon
     """A reuse must not make the dispatch look cheaper than the run that paid for the review."""
     project = make_project(tmp_path)
     patch = docs_change(tmp_path, project)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text(
         "services:\n  augustus:\n    image: test\n", encoding="utf-8"
     )
-    bill = box.root / "state" / ".cache" / "review-usage.json"
+    bill = box.root / "cella" / ".cache" / "review-usage.json"
     bill.parent.mkdir(parents=True, exist_ok=True)
     bill.write_text(
         json.dumps({"input_tokens": 10, "output_tokens": 5, "estimated_cost_usd": 0.003}),
@@ -201,7 +201,7 @@ def test_a_reused_reading_keeps_its_bill(tmp_path: Path, monkeypatch: pytest.Mon
         project,
         root=contour.trajan_root(),
         python=contour.trajan_python(contour.trajan_root()),
-        out=contour.run_directory(box.root / "artifacts", datetime.now(UTC)),
+        out=contour.run_directory(box.root / "tabularium", datetime.now(UTC)),
         diff=patch,
         reviewer=reader.spec,
         reviewer_env=reader.env,
@@ -212,7 +212,7 @@ def test_a_reused_reading_keeps_its_bill(tmp_path: Path, monkeypatch: pytest.Mon
         project,
         root=contour.trajan_root(),
         python=contour.trajan_python(contour.trajan_root()),
-        out=contour.run_directory(box.root / "artifacts", datetime.now(UTC)),
+        out=contour.run_directory(box.root / "tabularium", datetime.now(UTC)),
         diff=patch,
         reviewer=reader.spec,
         reviewer_env=reader.env,
@@ -227,11 +227,11 @@ def test_the_outbox_names_the_checks_the_plan_passed_over(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text(
         "services:\n  augustus:\n    image: test\n", encoding="utf-8"
     )
-    (box.root / "profile" / "reviewer.toml").write_text(
+    (box.root / "persona" / "reviewer.toml").write_text(
         "schema_version = 1\nenabled = true\n", encoding="utf-8"
     )
     patch = docs_change(tmp_path, project)
@@ -243,10 +243,10 @@ def test_the_outbox_names_the_checks_the_plan_passed_over(
         encoding="utf-8",
     )
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
-    assert main(["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "not selected: src-only" in out
-    latest = max((box.root / "outbox").glob("*.md"), key=lambda item: item.stat().st_mtime)
+    latest = max((box.root / "acta").glob("*.md"), key=lambda item: item.stat().st_mtime)
     assert "not selected: src-only" in latest.read_text(encoding="utf-8")
 
 
@@ -257,9 +257,9 @@ def test_a_reading_served_from_the_cache_says_it_costs_nothing_now(
     """Trajan caches a review of the same diff; the box must not call that a missing bill."""
     project = make_project(tmp_path)
     patch = docs_change(tmp_path, project)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text("services:\n  augustus:\n    image: test\n", encoding="utf-8")
-    bill = box.root / "state" / ".cache" / "review-usage.json"
+    bill = box.root / "cella" / ".cache" / "review-usage.json"
     bill.parent.mkdir(parents=True, exist_ok=True)
     bill.write_text(
         json.dumps({"input_tokens": 10, "output_tokens": 5, "estimated_cost_usd": 0.002}),

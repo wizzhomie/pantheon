@@ -208,7 +208,7 @@ def check(
 ) -> Result:
     """Run the boundary tool from the model, keep what it said, and record the event."""
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
-    directory = box_root / "artifacts" / "arch" / stamp.strftime("%Y%m%dT%H%M%SZ")
+    directory = box_root / "tabularium" / "aurelius" / stamp.strftime("%Y%m%dT%H%M%SZ")
     directory.mkdir(parents=True, exist_ok=True)
     config = directory / "importlinter.ini"
     config.write_text(compile_config(model), encoding="utf-8")
@@ -432,7 +432,7 @@ def _write_record(
 
 
 def _append_event(box_root: Path, result: Result, when: datetime) -> None:
-    ledger = box_root / "ledger"
+    ledger = box_root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []

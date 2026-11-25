@@ -102,7 +102,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", make_project(tmp_path))
+    return boxes.new_box(tmp_path / "castra", make_project(tmp_path))
 
 
 def write_campaign(box: boxes.Box, text: str = CAMPAIGN) -> Path:
@@ -113,7 +113,7 @@ def write_campaign(box: boxes.Box, text: str = CAMPAIGN) -> Path:
 
 
 def write_profile(box: boxes.Box, command: Path) -> None:
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 30\n', encoding="utf-8"
     )
 
@@ -137,7 +137,7 @@ def fake_executor(tmp_path: Path, diffs: list[str]) -> Path:
 def step(box: boxes.Box, *extra: str) -> int:
     return main(
         [
-            "--boxes",
+            "--castra",
             str(box.root.parent),
             "step",
             "probe",
@@ -151,7 +151,7 @@ def step(box: boxes.Box, *extra: str) -> int:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def trajan_runnable() -> bool:
@@ -200,7 +200,7 @@ def with_report(
     verdict: str = "hold",
     run: dict[str, object] | None = None,
 ) -> campaign.State:
-    directory = box.root / "artifacts" / "c-1-s1"
+    directory = box.root / "tabularium" / "c-1-s1"
     report = directory / "verify-1" / "report.json"
     report.parent.mkdir(parents=True, exist_ok=True)
     payload: dict[str, object] = {"findings": findings}
@@ -220,7 +220,7 @@ def with_report(
         encoding="utf-8",
     )
     return campaign.State(
-        path=box.root / "artifacts" / "campaign" / "c-1" / "state.json",
+        path=box.root / "tabularium" / "expeditio" / "c-1" / "state.json",
         campaign="c-1",
         steps={
             "s1": campaign.StepState(
@@ -446,10 +446,10 @@ def test_a_retry_that_changes_the_answer_runs_again_and_closes(
     assert second["campaign"]["verdict"]["status"] == "complete"
 
     stored = json.loads(
-        (box.root / "artifacts" / "campaign" / "c-1" / "state.json").read_text(encoding="utf-8")
+        (box.root / "tabularium" / "expeditio" / "c-1" / "state.json").read_text(encoding="utf-8")
     )
     assert stored["steps"]["s1"]["attempts"] == 2
-    ledger = box.root / "ledger"
+    ledger = box.root / "fasti"
     events = [
         json.loads(line)
         for path in ledger.glob("*.jsonl")
@@ -479,9 +479,9 @@ def test_a_retry_that_answers_the_same_change_is_stopped_before_it_is_applied_ag
     assert (box.project / "src" / "app.py").read_text() == "value = 1\n", (
         "the failed draft was reverted, and the same answer was not applied again"
     )
-    assert not (box.root / "artifacts" / "c-1-s1" / "2").exists(), "no second attempt was made"
+    assert not (box.root / "tabularium" / "c-1-s1" / "2").exists(), "no second attempt was made"
     stored = json.loads(
-        (box.root / "artifacts" / "campaign" / "c-1" / "state.json").read_text(encoding="utf-8")
+        (box.root / "tabularium" / "expeditio" / "c-1" / "state.json").read_text(encoding="utf-8")
     )
     assert stored["steps"]["s1"]["attempts"] == 2
     assert "same change" in stored["steps"]["s1"]["stop"]

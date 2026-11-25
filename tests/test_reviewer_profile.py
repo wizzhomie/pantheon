@@ -1,4 +1,4 @@
-"""The reader a box declares: `profile/reviewer.toml`, and the three rules it keeps.
+"""The reader a box declares: `persona/reviewer.toml`, and the three rules it keeps.
 
 The file is the box's own decision, not a default: absent means nothing is read unless asked,
 `enabled = false` means the box thought about it and said no, and a flag wins over both for one
@@ -18,14 +18,14 @@ from harness.cli import main
 
 
 def write(root: Path, text: str) -> Path:
-    path = root / "profile" / "reviewer.toml"
+    path = root / "persona" / "reviewer.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(text, encoding="utf-8")
     return path
 
 
 def test_an_absent_file_is_a_box_that_reads_nothing(tmp_path: Path) -> None:
-    config = reviewer.read_config(tmp_path / "profile" / "reviewer.toml")
+    config = reviewer.read_config(tmp_path / "persona" / "reviewer.toml")
     assert config.declared is False and config.enabled is False
     assert "off" in reviewer.describe(config)
 
@@ -88,10 +88,10 @@ def test_new_hands_a_person_an_example_that_is_off(
     project.mkdir()
     (project / ".trajan").mkdir()
     (project / ".trajan" / "policy.toml").write_text('name = "probe"\n', encoding="utf-8")
-    code = main(["--boxes", str(tmp_path / "boxes"), "new", str(project), "--name", "probe"])
+    code = main(["--castra", str(tmp_path / "castra"), "new", str(project), "--name", "probe"])
     out = capsys.readouterr().out
     assert code == 0
-    example = tmp_path / "boxes" / "probe" / reviewer.EXAMPLE_FILE
+    example = tmp_path / "castra" / "probe" / reviewer.EXAMPLE_FILE
     assert example.is_file()
     assert "enabled = true" in example.read_text(encoding="utf-8")
     assert "reader   off" in out
@@ -103,18 +103,18 @@ def test_status_says_who_reads_by_default(
     project = tmp_path / "probe"
     (project / ".trajan").mkdir(parents=True)
     (project / ".trajan" / "policy.toml").write_text('name = "probe"\n', encoding="utf-8")
-    box = boxes.new_box(tmp_path / "boxes", project)
-    assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
+    box = boxes.new_box(tmp_path / "castra", project)
+    assert main(["--castra", str(box.root.parent), "status", box.name]) == 0
     assert "reviewer   off" in capsys.readouterr().out
     write(box.root, 'schema_version = 1\nenabled = true\nmodel = "deepseek-chat"\n')
-    assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
+    assert main(["--castra", str(box.root.parent), "status", box.name]) == 0
     assert "read by deepseek-chat" in capsys.readouterr().out
     write(
         box.root,
         'schema_version = 1\nenabled = true\nmodel = "deepseek-chat"\n'
         'when_paths = ["src/**"]\n',
     )
-    assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
+    assert main(["--castra", str(box.root.parent), "status", box.name]) == 0
     out = capsys.readouterr().out
     assert "changes touching src/** are read" in out
     assert "other changes are not read" in out
@@ -172,7 +172,7 @@ def test_the_review_flag_ignores_the_declared_paths(
 
     project = tmp_path / "probe"
     project.mkdir()
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     write(box.root, 'schema_version = 1\nenabled = true\nwhen_paths = ["src/**"]\n')
     def build(
         _root: Path,

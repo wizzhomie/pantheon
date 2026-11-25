@@ -172,7 +172,7 @@ def build(
     return Pack(
         task=identifier,
         built_at=moment.isoformat().replace("+00:00", "Z"),
-        path=box.root / "artifacts" / identifier / f"pack-{moment.strftime(STAMP)}.json",
+        path=box.root / "tabularium" / identifier / f"fascis-{moment.strftime(STAMP)}.json",
         frame=standing,
         digest=digest,
         selected=tuple(selected),

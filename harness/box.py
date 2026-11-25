@@ -2,11 +2,11 @@
 
 The box lives outside the project (ADR-001): the project's git carries its promises, the box
 carries the record of working on them, and the only link between the two is the path in
-``box.toml``. That is why ``remove the box`` must leave the project intact — nothing here
+``castrum.toml``. That is why ``remove the box`` must leave the project intact — nothing here
 writes into the project, and ``status`` only reads it.
 
-What this module refuses to pretend: there is no container yet (stage 1.5), so ``up`` and
-``down`` are answered by the CLI with a refusal, not by a state machine that says "running".
+What this module refuses to pretend: ``up`` starts the container and ``status`` asks it how
+it is, so a box is "running" only when the agent answers, never because a state machine says so.
 """
 
 from __future__ import annotations
@@ -19,15 +19,15 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 SCHEMA_VERSION = 1
-"""Bumped when box.toml grows a field that older code cannot read correctly."""
+"""Bumped when castrum.toml grows a field that older code cannot read correctly."""
 
 BOX_DIRS = (
-    "profile",  # SOUL.md, tool ACL, model: whose agent this is
-    "state",  # the agent's volume: sessions, its memory, cache
-    "ledger",  # events, one jsonl per day
-    "artifacts",  # run directories: report.json/md, check logs
-    "tasks",  # tasks and execution contracts
-    "outbox",  # summaries for the owner's own assistant
+    "persona",  # SOUL.md, tool ACL, model: whose agent this is
+    "cella",  # the agent's volume: sessions, its memory, cache
+    "fasti",  # events, one jsonl per day
+    "tabularium",  # run directories: report.json/md, check logs
+    "mandata",  # tasks and execution contracts
+    "acta",  # summaries for the owner's own assistant
 )
 """Every box has these, empty on day one; ``status`` names the ones that are missing."""
 
@@ -56,7 +56,7 @@ class Box:
 
     @property
     def file(self) -> Path:
-        return self.root / "box.toml"
+        return self.root / "castrum.toml"
 
     @property
     def compose(self) -> Path:
@@ -118,7 +118,7 @@ def check_name(name: str) -> str:
     """A box name that is a safe directory and a safe compose project."""
     if not NAME_PATTERN.match(name):
         raise HarnessError(
-            f"box name {name!r} is not usable: lowercase letters, digits and hyphens, "
+            f"castrum name {name!r} is not usable: lowercase letters, digits and hyphens, "
             "starting with a letter or digit, at most 40 characters"
         )
     return name
@@ -141,7 +141,7 @@ def check_image(image: str) -> str:
 
 
 def read_box(path: Path) -> Box:
-    """Load ``box.toml``; an unknown key is an error, because it would be a field nobody reads."""
+    """Load ``castrum.toml``; an unknown key is an error: it would be a field nobody reads."""
     data = tomllib.loads(path.read_text(encoding="utf-8"))
     unknown = set(data) - BOX_KEYS
     if unknown:
@@ -167,7 +167,7 @@ def read_box(path: Path) -> Box:
 
 
 def render_box(box: Box) -> str:
-    """``box.toml`` as a person reads it: the comments say why each field exists."""
+    """``castrum.toml`` as a person reads it: the comments say why each field exists."""
     lines = [
         "# What this box is: which project it serves, which agent image it will run, when it",
         "# was created. Written by `pantheon new`, read by every command, reviewed as data.",
@@ -188,7 +188,7 @@ def render_box(box: Box) -> str:
 def render_compose() -> str:
     """A compose file with an empty service map: no image is pinned yet, so nothing runs.
 
-    `pantheon up` rewrites this file from box.toml once an image is pinned. Writing a
+    `pantheon up` rewrites this file from castrum.toml once an image is pinned. Writing a
     half-configured service here would be worse than an empty map: a file that looks runnable
     and runs nothing is the kind of placeholder this harness exists to avoid.
     """
@@ -214,7 +214,7 @@ def new_box(
     chosen = check_name(name if name is not None else _name_from(project))
     root = (boxes_root.expanduser().resolve()) / chosen
     if root.exists():
-        raise HarnessError(f"box {chosen} already exists at {root}; remove it or pick a name")
+        raise HarnessError(f"castrum {chosen} already exists at {root}; remove it or pick a name")
     box = Box(
         root=root,
         name=chosen,
@@ -224,7 +224,7 @@ def new_box(
     )
     for directory in BOX_DIRS:
         (root / directory).mkdir(parents=True)
-    (root / "profile" / "SOUL.md").write_text(
+    (root / "persona" / "SOUL.md").write_text(
         PROFILE_TEMPLATE.read_text(encoding="utf-8"), encoding="utf-8"
     )
     box.file.write_text(render_box(box), encoding="utf-8")
@@ -233,14 +233,14 @@ def new_box(
 
 
 def list_boxes(boxes_root: Path) -> tuple[Box, ...]:
-    """Every box under ``boxes_root`` that has a readable ``box.toml``, by name."""
+    """Every box under ``boxes_root`` that has a readable ``castrum.toml``, by name."""
     base = boxes_root.expanduser()
     if not base.is_dir():
         return ()
     found: list[Box] = []
     for child in sorted(base.iterdir()):
-        if (child / "box.toml").is_file():
-            found.append(read_box(child / "box.toml"))
+        if (child / "castrum.toml").is_file():
+            found.append(read_box(child / "castrum.toml"))
     return tuple(found)
 
 
@@ -248,21 +248,23 @@ def find_box(boxes_root: Path, name: str | None, cwd: Path) -> Box:
     """The box the caller means: the named one, the one above ``cwd``, or the only one."""
     base = boxes_root.expanduser().resolve()
     if name is not None:
-        path = base / check_name(name) / "box.toml"
+        path = base / check_name(name) / "castrum.toml"
         if not path.is_file():
-            raise HarnessError(f"no box {name!r} under {base}; `pantheon list` shows what is there")
+            raise HarnessError(
+                f"no castrum {name!r} under {base}; `pantheon list` shows what is there"
+            )
         return read_box(path)
     here = cwd.resolve()
     for parent in (here, *here.parents):
-        if parent.parent == base and (parent / "box.toml").is_file():
-            return read_box(parent / "box.toml")
+        if parent.parent == base and (parent / "castrum.toml").is_file():
+            return read_box(parent / "castrum.toml")
     boxes = list_boxes(base)
     if len(boxes) == 1:
         return boxes[0]
     if not boxes:
-        raise HarnessError(f"no boxes under {base}; `pantheon new` creates one")
+        raise HarnessError(f"no castra under {base}; `pantheon new` creates one")
     names = ", ".join(box.name for box in boxes)
-    raise HarnessError(f"several boxes under {base} ({names}); name one: `pantheon status <name>`")
+    raise HarnessError(f"several castra under {base} ({names}); name one: `pantheon status <name>`")
 
 
 def read_project(project: Path) -> ProjectFacts:
@@ -374,11 +376,11 @@ def render_status(report: BoxStatus) -> list[str]:
         else "none"
     )
     layout = "complete" if not report.missing_dirs else "missing " + ", ".join(report.missing_dirs)
-    services = ", ".join(report.compose_services) or "none (stage 1.5 adds Augustus)"
+    services = ", ".join(report.compose_services) or "none (pin an image with `pantheon up`)"
     lines = [
-        f"box        {box.name}  ({box.root})",
+        f"castrum    {box.name}  ({box.root})",
         f"project    {' '.join(project_bits)}",
-        f"image      {box.image or 'not chosen yet (stage 1.5 pins the tag)'}",
+        f"image      {box.image or 'not pinned yet (`pantheon up` pins it)'}",
         f"created    {box.created}",
         f"layout     {layout}",
         f"policy     {project.policy_name or 'no policy'}; checks: {checks}",

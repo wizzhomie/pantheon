@@ -93,7 +93,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def approved_frame(project: Path, box: boxes.Box) -> str:
@@ -104,7 +104,7 @@ def approved_frame(project: Path, box: boxes.Box) -> str:
 
 
 def write_campaign(project: Path, text: str, name: str = "c-1.toml") -> Path:
-    directory = project / ".pantheon" / "campaigns"
+    directory = project / ".pantheon" / "expeditiones"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / name
     path.write_text(text, encoding="utf-8")
@@ -118,7 +118,7 @@ def write_state(
     campaign: str = "c-1",
     folder: str | None = None,
 ) -> None:
-    directory = box.root / "artifacts" / "campaign" / (folder or campaign)
+    directory = box.root / "tabularium" / "expeditio" / (folder or campaign)
     directory.mkdir(parents=True, exist_ok=True)
     data = {
         "schema_version": 1,
@@ -136,7 +136,7 @@ def closed(verdict: str = "pass") -> dict[str, object]:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def check(box: boxes.Box, capsys: pytest.CaptureFixture[str]) -> tuple[int, str]:

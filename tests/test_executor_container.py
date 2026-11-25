@@ -26,7 +26,7 @@ def make_box(tmp_path: Path) -> boxes.Box:
     project = tmp_path / "probe"
     (project / ".trajan").mkdir(parents=True)
     (project / ".trajan" / "policy.toml").write_text('name = "probe"\n', encoding="utf-8")
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text(container.render_compose(box, IMAGE), encoding="utf-8")
     return box
 

@@ -76,7 +76,7 @@ def write_task(tmp_path: Path, text: str = TASK, name: str = "t-1.toml") -> Path
 
 def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
-    return project, boxes.new_box(tmp_path / "boxes", project)
+    return project, boxes.new_box(tmp_path / "castra", project)
 
 
 def trajan_runnable() -> bool:
@@ -128,11 +128,11 @@ def test_a_task_without_a_scope_is_refused_before_anything_runs(
 ) -> None:
     project, box = make_box(tmp_path)
     task = write_task(tmp_path, TASK.replace('paths = ["src/**"]\n', ""))
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
     out = capsys.readouterr().out
     assert "state      refused" in out and "nothing is in scope" in out
-    assert not list((box.root / "outbox").glob("*.md"))
-    events = (box.root / "ledger" / f"{_today()}.jsonl").read_text()
+    assert not list((box.root / "acta").glob("*.md"))
+    events = (box.root / "fasti" / f"{_today()}.jsonl").read_text()
     assert "task.refused" in events
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
 
@@ -144,17 +144,17 @@ def test_a_task_inside_its_scope_is_closed_with_a_report(
     project, box = make_box(tmp_path)
     patch = make_patch(tmp_path, project, "value = 2\n")
     task = write_task(tmp_path, TASK + f'change = "{patch}"\n')
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "state      closed" in out and "verify     pass" in out
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
-    outbox = next((box.root / "outbox").glob("*.md"))
+    outbox = next((box.root / "acta").glob("*.md"))
     text = outbox.read_text()
     assert text.splitlines()[0].endswith("closed")
     assert "## what ran" in text and "verification: pass" in text
-    events = (box.root / "ledger" / f"{_today()}.jsonl").read_text()
-    assert "task.finished" in events and "outbox.written" in events
-    assert (box.root / "tasks" / "t-1.contract.toml").is_file()
+    events = (box.root / "fasti" / f"{_today()}.jsonl").read_text()
+    assert "task.finished" in events and "acta.written" in events
+    assert (box.root / "mandata" / "t-1.contract.toml").is_file()
 
 
 @requires_trajan
@@ -169,10 +169,10 @@ def test_a_change_outside_the_scope_returns_the_task_before_verification(
     git(project, "reset", "-q")
     git(project, "checkout", "--", ".")
     task = write_task(tmp_path, TASK + f'change = "{patch}"\n')
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
     out = capsys.readouterr().out
     assert "state      returned" in out and "outside-scope" in out
-    assert not list((box.root / "artifacts" / "t-1").glob("verify-*"))
+    assert not list((box.root / "tabularium" / "t-1").glob("verify-*"))
 
 
 @requires_trajan
@@ -186,10 +186,10 @@ def test_a_docs_task_does_not_reach_the_write_gate(
             'paths = ["src/**"]', 'paths = ["docs/**"]'
         ),
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "attempt    not run" in out
-    outbox = next((box.root / "outbox").glob("*.md"))
+    outbox = next((box.root / "acta").glob("*.md"))
     assert "write gate: not run" in outbox.read_text()
 
 
@@ -220,7 +220,7 @@ def test_a_broken_architecture_stops_the_change(
     task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
     assert main(
         [
-            "--boxes",
+            "--castra",
             str(box.root.parent),
             "dispatch",
             "probe",
@@ -241,11 +241,11 @@ def test_a_task_without_a_change_says_so_in_the_outbox(
 ) -> None:
     _project, box = make_box(tmp_path)
     task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
-    code = main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)])
+    code = main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)])
     assert code == 0
     out = capsys.readouterr().out
     assert "attempt    not run" in out
-    outbox = next((box.root / "outbox").glob("*.md"))
+    outbox = next((box.root / "acta").glob("*.md"))
     text = outbox.read_text()
     assert "the box declares no executor" in text
     assert "cost: unknown" not in text and "no executor was asked" in text
@@ -256,7 +256,7 @@ def test_the_cli_answers_a_task_in_json(
 ) -> None:
     _project, box = make_box(tmp_path)
     task = write_task(tmp_path, TASK.replace('paths = ["src/**"]\n', ""))
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task),
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task),
                  "--json"]) == 1
     payload = json.loads(capsys.readouterr().out)
     assert (payload["state"], payload["exit_code"]) == ("refused", 1)
@@ -273,12 +273,12 @@ def test_status_shows_the_tasks_newest_state(
 ) -> None:
     _project, box = make_box(tmp_path)
     task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "docs"'))
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
     capsys.readouterr()
-    assert main(["--boxes", str(box.root.parent), "status", "probe"]) == 0
+    assert main(["--castra", str(box.root.parent), "status", "probe"]) == 0
     out = capsys.readouterr().out
     assert "task       t-1  closed" in out
-    assert main(["--boxes", str(box.root.parent), "status", "probe", "--json"]) == 0
+    assert main(["--castra", str(box.root.parent), "status", "probe", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["tasks"][0]["id"] == "t-1"
     assert payload["tasks"][0]["state"] == "closed"
@@ -288,7 +288,7 @@ def test_no_dispatched_tasks_is_said_out_loud(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _project, box = make_box(tmp_path)
-    assert main(["--boxes", str(box.root.parent), "status", "probe"]) == 0
+    assert main(["--castra", str(box.root.parent), "status", "probe"]) == 0
     assert "tasks      none dispatched yet" in capsys.readouterr().out
 
 
@@ -314,7 +314,7 @@ def test_a_declared_change_is_gated_even_when_the_route_has_no_write_stage(
         .replace('paths = ["src/**"]', 'paths = ["docs/**"]')
         + f'change = "{patch}"\n',
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "stages     run -> verify" in out
     assert "attempt    applied" in out
@@ -343,10 +343,10 @@ def test_a_gated_change_outside_the_docs_scope_returns_the_task(
         .replace('paths = ["src/**"]', 'paths = ["docs/**"]')
         + f'change = "{patch}"\n',
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 1
     out = capsys.readouterr().out
     assert "state      returned" in out and "outside-scope" in out
-    assert not list((box.root / "artifacts" / "t-1").glob("verify-*"))
+    assert not list((box.root / "tabularium" / "t-1").glob("verify-*"))
 
 
 @requires_trajan
@@ -364,8 +364,8 @@ def test_a_declared_path_decides_whether_the_change_is_read(
     patch.write_text(git(project, "diff", "--cached"), encoding="utf-8")
     git(project, "reset", "-q")
     git(project, "checkout", "--", ".")
-    (box.root / "profile").mkdir(parents=True, exist_ok=True)
-    (box.root / "profile" / "reviewer.toml").write_text(
+    (box.root / "persona").mkdir(parents=True, exist_ok=True)
+    (box.root / "persona" / "reviewer.toml").write_text(
         "schema_version = 1\nenabled = true\nmax_cents = 1\nwhen_paths = [\"src/**\"]\n",
         encoding="utf-8",
     )
@@ -375,20 +375,20 @@ def test_a_declared_path_decides_whether_the_change_is_read(
         .replace('paths = ["src/**"]', 'paths = ["docs/**"]')
         + f'change = "{patch}"\n',
     )
-    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    assert main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
     out = capsys.readouterr().out
     assert "not read by declaration" in out
     assert "the change touches no path this box reads (declared: src/**)" in out
 
     record = json.loads(
-        next((box.root / "artifacts" / "t-1").glob("dispatch-*.json")).read_text(
+        next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text(
             encoding="utf-8"
         )
     )
     assert record["verify"]["review"] is None
     assert record["review_cap"] is None
     assert "src/**" in record["review_skipped"]
-    outbox = next((box.root / "outbox").glob("*.md")).read_text(encoding="utf-8")
+    outbox = next((box.root / "acta").glob("*.md")).read_text(encoding="utf-8")
     assert "not read by declaration" in outbox
     assert "not read by declaration" in "\n".join(
         line for line in outbox.splitlines() if line.startswith("- ")

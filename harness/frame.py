@@ -32,7 +32,7 @@ FRAME_FILES = (
 )
 """The frame, by name. Missing entries are listed, not ignored: an absent file is a fact."""
 RECORD_TYPE = "frame.approval"
-RECORDS = Path("artifacts") / "frame"
+RECORDS = Path("tabularium") / "forma"
 """Where approvals live in the box: evidence with a date, like every other box record."""
 
 
@@ -315,7 +315,7 @@ def _stamp(when: datetime) -> str:
 
 def _append_event(box: boxes.Box, by: str, note: str, record: Path, when: datetime) -> None:
     """One ledger event per approval: a record the timeline cannot find is half a record."""
-    ledger = box.root / "ledger"
+    ledger = box.root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []

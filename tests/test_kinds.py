@@ -74,7 +74,7 @@ def write_contract(tmp_path: Path, text: str, paths: str) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> Path:
-    return boxes.new_box(tmp_path / "boxes", project).root
+    return boxes.new_box(tmp_path / "castra", project).root
 
 
 def test_code_cannot_write_the_architecture_model(tmp_path: Path) -> None:

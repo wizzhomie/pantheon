@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 EXIT_STOPPED = 2
 """A stop is not a crash: the run did what the plan allowed and says why it went no further."""
 
-RUN_DIR = Path("artifacts") / "campaign"
+RUN_DIR = Path("tabularium") / "expeditio"
 
 
 @dataclass(frozen=True, slots=True)

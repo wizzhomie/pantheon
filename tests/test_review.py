@@ -54,7 +54,7 @@ def make_project(tmp_path: Path) -> Path:
 
 def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     box.compose.write_text(container.render_compose(box, IMAGE), encoding="utf-8")
     return project, box
 
@@ -204,12 +204,12 @@ def test_verify_with_review_puts_a_reader_in_the_report(
     patch = make_patch(tmp_path, project)
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)
     code = main(
-        ["--boxes", str(box.root.parent), "verify", box.name, "--diff", str(patch), "--review"]
+        ["--castra", str(box.root.parent), "verify", box.name, "--diff", str(patch), "--review"]
     )
     out = capsys.readouterr().out
     assert code in (0, 1), out
     assert "review" in out and "deepseek-flash" in out
-    runs = sorted((box.root / "artifacts").glob("verify-*/report.json"))
+    runs = sorted((box.root / "tabularium").glob("verify-*/report.json"))
     report = json.loads(runs[-1].read_text(encoding="utf-8"))
     assert report["request"]["reviewer"] == contour.REVIEW_SPEC
     assert report["review"]["status"] == "ok"

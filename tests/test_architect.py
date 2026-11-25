@@ -76,7 +76,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def make_patch(tmp_path: Path, project: Path) -> Path:
@@ -107,7 +107,7 @@ def write_task(tmp_path: Path, text: str) -> Path:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def dispatch(box: boxes.Box, task: Path) -> int:
@@ -200,7 +200,7 @@ def test_an_architecture_dispatch_is_the_architect_and_commits_the_frame(
     assert answer["role"] == "architect"
     assert answer["commit"]["status"] == "made"
     record = json.loads(
-        next((box.root / "artifacts" / "t-arch").glob("dispatch-*.json")).read_text(
+        next((box.root / "tabularium" / "t-arch").glob("dispatch-*.json")).read_text(
             encoding="utf-8"
         )
     )

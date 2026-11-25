@@ -33,7 +33,7 @@ def make_box(tmp_path: Path) -> boxes.Box:
     git(project, "init", "-q")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def write_record(
@@ -49,9 +49,9 @@ def write_record(
     changed: tuple[str, ...] | None = ("docs/note.md",),
     commit: str | None = "abc123",
 ) -> Path:
-    directory = box.root / "artifacts" / task
+    directory = box.root / "tabularium" / task
     directory.mkdir(parents=True, exist_ok=True)
-    contract = box.root / "tasks" / f"{task}.contract.toml"
+    contract = box.root / "mandata" / f"{task}.contract.toml"
     contract.parent.mkdir(parents=True, exist_ok=True)
     contract.write_text(
         "schema_version = 1\n"
@@ -81,7 +81,7 @@ def write_record(
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def test_a_finished_task_appears_with_its_verdict_and_a_pointer_to_its_record(
@@ -116,7 +116,7 @@ def test_newest_first_and_the_same_records_give_the_same_digest(tmp_path: Path) 
 def test_a_record_that_cannot_be_read_is_listed_not_swallowed(tmp_path: Path) -> None:
     box = make_box(tmp_path)
     write_record(box, "good", "20261124T100000Z")
-    broken = box.root / "artifacts" / "broken" / "dispatch-20261124T110000Z.json"
+    broken = box.root / "tabularium" / "broken" / "dispatch-20261124T110000Z.json"
     broken.parent.mkdir(parents=True)
     broken.write_text("{not json", encoding="utf-8")
     digest = records.build(box)

@@ -32,7 +32,8 @@ from . import (
 )
 from . import box as boxes
 
-DEFAULT_BOXES = Path("~/pantheon/boxes")
+DEFAULT_CASTRA = Path("~/pantheon/castra")
+NAME_HELP = "castrum name (default: the only one)"
 EXIT_REFUSED = 3
 EXIT_CANNOT = 2
 
@@ -50,28 +51,28 @@ def main(argv: Sequence[str] | None = None) -> int:
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pantheon",
-        description="A box per project: create it, describe it, and (one day) start its agent.",
+        description="A castrum per project: create it, describe it, and start its agent.",
     )
     parser.add_argument(
-        "--boxes",
+        "--castra",
         default=None,
-        help="where boxes live (default: $PANTHEON_BOXES, else ~/pantheon/boxes)",
+        help="where castra live (default: $PANTHEON_CASTRA, else ~/pantheon/castra)",
     )
     commands = parser.add_subparsers(dest="command", required=True, metavar="command")
 
-    new = commands.add_parser("new", help="create a box for a project")
+    new = commands.add_parser("new", help="create a castrum for a project")
     new.add_argument("project", nargs="?", default=".", help="path to the project (default: .)")
     new.add_argument("--name", default=None, help="box name (default: from the directory name)")
     new.add_argument("--image", default=None, help="pinned agent image, tag or digest")
     new.set_defaults(handler=_new)
 
-    status = commands.add_parser("status", help="describe a box and its project, reading only")
-    status.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    status = commands.add_parser("status", help="describe a castrum and its project, reading only")
+    status.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     status.add_argument("--json", action="store_true", help="the same facts as one JSON object")
     status.set_defaults(handler=_status)
 
     verify = commands.add_parser("verify", help="run trajan on the project's change")
-    verify.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    verify.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     change = verify.add_mutually_exclusive_group()
     change.add_argument(
         "--since",
@@ -79,7 +80,7 @@ def _parser() -> argparse.ArgumentParser:
         help="review `git diff REV`; needs --review or --reviewer, since a change needs a reader",
     )
     change.add_argument("--diff", default=None, help="a unified diff to review; needs --reviewer")
-    verify.add_argument("--out", default=None, help="run directory (default: box artifacts/)")
+    verify.add_argument("--out", default=None, help="run directory (default: castrum tabularium/)")
     verify.add_argument("--trajan", default=None, help="the trajan checkout to call")
     verify.add_argument("--python", default=None, help="the interpreter that runs trajan")
     verify.add_argument("--reviewer", default=None, help="MODULE:FACTORY, passes --reviewer")
@@ -97,9 +98,9 @@ def _parser() -> argparse.ArgumentParser:
     verify.set_defaults(handler=_verify)
 
     run = commands.add_parser("run", help="gate a change by the task's contract, then apply it")
-    run.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    run.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     run.add_argument(
-        "--contract", required=True, help="tasks/<id>.contract.toml: what this attempt may touch"
+        "--contract", required=True, help="mandata/<id>.contract.toml: what this attempt may touch"
     )
     run.add_argument("--patch", required=True, help="the unified diff the attempt proposes")
     run.add_argument("--json", action="store_true", help="the attempt as one JSON object")
@@ -108,7 +109,7 @@ def _parser() -> argparse.ArgumentParser:
     arch = commands.add_parser(
         "arch", help="Aurelius: check the project against its declared architecture"
     )
-    arch.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    arch.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     arch.add_argument(
         "--model",
         default=None,
@@ -123,7 +124,7 @@ def _parser() -> argparse.ArgumentParser:
     approve = commands.add_parser(
         "approve", help="accept the frame a project declares, as a record in the box"
     )
-    approve.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    approve.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     approve.add_argument(
         "--by", default="owner", help="who accepts the frame: a name in the record"
     )
@@ -136,7 +137,7 @@ def _parser() -> argparse.ArgumentParser:
         help="digest the box's finished tasks into one bounded list of <task>/<stamp> addresses",
     )
     ledger_parser.add_argument(
-        "name", nargs="?", default=None, help="box name (default: the only one)"
+        "name", nargs="?", default=None, help=NAME_HELP
     )
     ledger_parser.add_argument("--json", action="store_true", help="the digest as JSON")
     ledger_parser.set_defaults(handler=_records)
@@ -145,10 +146,12 @@ def _parser() -> argparse.ArgumentParser:
         "campaign", help="a plan in the repository, and the verdict the code computes about it"
     )
     campaign_parser.add_argument(
-        "name", nargs="?", default=None, help="box name (default: the only one)"
+        "name", nargs="?", default=None, help=NAME_HELP
     )
     campaign_parser.add_argument(
-        "--file", default=None, help="one campaign file (default: every .pantheon/campaigns/*.toml)"
+        "--file",
+        default=None,
+        help="one campaign file (default: .pantheon/expeditiones/*.toml)",
     )
     campaign_parser.add_argument(
         "--routes",
@@ -161,7 +164,7 @@ def _parser() -> argparse.ArgumentParser:
     step = commands.add_parser(
         "step", help="run one step of a campaign through the same gates, checks and commit"
     )
-    step.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    step.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     step.add_argument("--campaign", required=True, help="campaign id or path to its file")
     step.add_argument("--step", required=True, help="the step id inside that campaign")
     step.add_argument(
@@ -187,7 +190,7 @@ def _parser() -> argparse.ArgumentParser:
     step.add_argument(
         "--no-review",
         action="store_true",
-        help="do not read the change, whatever profile/reviewer.toml says",
+        help="do not read the change, whatever persona/reviewer.toml says",
     )
     step.add_argument("--review-model", default=None, help="model that reads the change")
     step.add_argument(
@@ -200,7 +203,7 @@ def _parser() -> argparse.ArgumentParser:
         "advance",
         help="run an auto campaign by its own rule: ready steps, retries, a stop with its reason",
     )
-    advance.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    advance.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     advance.add_argument("--campaign", required=True, help="campaign id or path to its file")
     advance.add_argument(
         "--reason",
@@ -220,7 +223,7 @@ def _parser() -> argparse.ArgumentParser:
     advance.add_argument(
         "--no-review",
         action="store_true",
-        help="do not read the changes, whatever profile/reviewer.toml says",
+        help="do not read the changes, whatever persona/reviewer.toml says",
     )
     advance.add_argument("--review-model", default=None, help="model that reads the change")
     advance.add_argument(
@@ -232,8 +235,8 @@ def _parser() -> argparse.ArgumentParser:
     dispatch = commands.add_parser(
         "dispatch", help="Augustus: run a task through the contours its scope routes to"
     )
-    dispatch.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
-    dispatch.add_argument("--task", required=True, help="tasks/<id>.toml: goal, scope, kind")
+    dispatch.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    dispatch.add_argument("--task", required=True, help="mandata/<id>.toml: goal, scope, kind")
     dispatch.add_argument(
         "--routes",
         default=None,
@@ -245,7 +248,7 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument(
         "--executor",
         default=None,
-        help="override the box's executor command for this run (profile/executor.toml)",
+        help="override the box's executor command for this run (persona/executor.toml)",
     )
     dispatch.add_argument(
         "--review",
@@ -255,7 +258,7 @@ def _parser() -> argparse.ArgumentParser:
     dispatch.add_argument(
         "--no-review",
         action="store_true",
-        help="do not read the change, whatever profile/reviewer.toml says",
+        help="do not read the change, whatever persona/reviewer.toml says",
     )
     dispatch.add_argument(
         "--no-commit",
@@ -273,7 +276,7 @@ def _parser() -> argparse.ArgumentParser:
         "resume",
         help="Augustus: continue a task that stopped before its verdict, from its artifacts",
     )
-    resume.add_argument("name", nargs="?", default=None, help="box name (default: the only one)")
+    resume.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     resume.add_argument("--task", required=True, help="the task id whose artifacts to continue")
     resume.add_argument(
         "--retry",
@@ -294,7 +297,7 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument(
         "--executor",
         default=None,
-        help="override the box's executor command for this run (profile/executor.toml)",
+        help="override the box's executor command for this run (persona/executor.toml)",
     )
     resume.add_argument(
         "--review",
@@ -305,7 +308,7 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument(
         "--no-review",
         action="store_true",
-        help="do not read the change, whatever profile/reviewer.toml says",
+        help="do not read the change, whatever persona/reviewer.toml says",
     )
     resume.add_argument(
         "--no-commit",
@@ -324,7 +327,7 @@ def _parser() -> argparse.ArgumentParser:
 
     up = commands.add_parser("up", help="start the box's container (mount only, no agent yet)")
     up.add_argument("name", nargs="?", default=None, help="box name")
-    up.add_argument("--image", default=None, help="pin this image in box.toml, then start")
+    up.add_argument("--image", default=None, help="pin this image in castrum.toml, then start")
     up.set_defaults(handler=_up)
 
     down = commands.add_parser("down", help="stop the box's container, keeping the box's files")
@@ -337,12 +340,12 @@ def _execute(args: argparse.Namespace) -> int:
     handler: object = getattr(args, "handler", None)
     if not callable(handler):
         raise boxes.HarnessError("no command given")
-    result: int = handler(args, _boxes_root(args))
+    result: int = handler(args, _castra_root(args))
     return result
 
 
-def _boxes_root(args: argparse.Namespace) -> Path:
-    chosen = args.boxes or os.environ.get("PANTHEON_BOXES") or str(DEFAULT_BOXES)
+def _castra_root(args: argparse.Namespace) -> Path:
+    chosen = args.castra or os.environ.get("PANTHEON_CASTRA") or str(DEFAULT_CASTRA)
     return Path(chosen).expanduser()
 
 
@@ -355,9 +358,9 @@ def _new(args: argparse.Namespace, root: Path) -> int:
     reader = box.root / reviewer.EXAMPLE_FILE
     if not reader.exists():
         reader.write_text(reviewer.EXAMPLE, encoding="utf-8")
-    print(f"box {box.name} created at {box.root}")
+    print(f"castrum {box.name} created at {box.root}")
     print(f"  project  {box.project}")
-    print(f"  image    {box.image or 'not chosen yet (stage 1.5 pins the tag)'}")
+    print(f"  image    {box.image or 'not pinned yet (`pantheon up` pins it)'}")
     print(f"  executor {executor.describe(executor.read_config(box.root / executor.PROFILE_FILE))}")
     print(f"  example  {example}")
     print(f"  reader   {reviewer.describe(reviewer.read_config(box.root / reviewer.PROFILE_FILE))}")
@@ -517,7 +520,7 @@ def _verify(args: argparse.Namespace, root: Path) -> int:
     out = (
         Path(args.out)
         if args.out
-        else contour.run_directory(box.root / "artifacts", datetime.now(UTC))
+        else contour.run_directory(box.root / "tabularium", datetime.now(UTC))
     )
     reviewer = args.reviewer
     reviewer_env: dict[str, str] | None = None
@@ -810,7 +813,7 @@ def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | No
 def _list(args: argparse.Namespace, root: Path) -> int:
     found = boxes.list_boxes(root)
     if not found:
-        print(f"no boxes under {root}; `pantheon new` creates one")
+        print(f"no castra under {root}; `pantheon new` creates one")
         return 0
     for box in found:
         print(f"{box.name:<20} {box.project}  created {box.created}")

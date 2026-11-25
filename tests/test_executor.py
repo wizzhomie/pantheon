@@ -71,7 +71,7 @@ def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     git(project, "init", "-q")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
-    return project, boxes.new_box(tmp_path / "boxes", project)
+    return project, boxes.new_box(tmp_path / "castra", project)
 
 
 def write_task(tmp_path: Path, text: str = TASK) -> Path:
@@ -88,7 +88,7 @@ def fake_executor(tmp_path: Path, body: str, name: str = "fake-executor.py") -> 
 
 
 def write_profile(box: boxes.Box, command: Path, extra: str = "") -> None:
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 30\n{extra}',
         encoding="utf-8",
     )
@@ -102,11 +102,12 @@ def probe(tmp_path: Path, body: str, extra: str = "") -> tuple[Path, boxes.Box, 
 
 
 def dispatch(box: boxes.Box, task: Path, *extra: str) -> int:
-    return main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task), *extra])
+    argv = ["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task), *extra]
+    return main(argv)
 
 
 def ledger_events(box: boxes.Box) -> list[dict[str, Any]]:
-    path = box.root / "ledger" / f"{datetime.now(UTC):%Y-%m-%d}.jsonl"
+    path = box.root / "fasti" / f"{datetime.now(UTC):%Y-%m-%d}.jsonl"
     lines = path.read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines]
 
@@ -247,12 +248,12 @@ def test_a_declared_kind_model_reaches_the_request_and_the_record(tmp_path: Path
         'model = "cheap"\n[models.bugfix]\nmodel = "clever"\nprice_in = 0.5\nprice_out = 1.0\n',
     )
     task = augustus.read_task(write_task(tmp_path))
-    config = executor.read_config(box.root / "profile" / "executor.toml")
+    config = executor.read_config(box.root / "persona" / "executor.toml")
 
     proposal = executor.propose(config, task, box, when=None)
 
     request = json.loads(
-        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text()
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "request.json").read_text()
     )
     assert request["model"] == "clever"
     assert proposal.model == "fake-model", "the answer's own model still wins the field"
@@ -282,7 +283,7 @@ def test_a_declared_executor_supplies_the_patch_and_the_bill(
     assert payload["budget"] == {"max_cents": 5, "max_seconds": 60}
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
 
-    record = box.root / "artifacts" / "t-1" / "proposal-1"
+    record = box.root / "tabularium" / "t-1" / "proposal-1"
     assert (record / "request.json").is_file()
     assert (record / "stdout.txt").is_file()
     assert (record / "change.diff").read_text() == DIFF
@@ -296,7 +297,7 @@ def test_a_declared_executor_supplies_the_patch_and_the_bill(
     assert executed[0]["data"]["prompt_tokens"] == 123
     assert executed[0]["data"]["cost_cents"] == 0.5
 
-    outbox = next((box.root / "outbox").glob("*.md")).read_text()
+    outbox = next((box.root / "acta").glob("*.md")).read_text()
     assert "0.50 cents" in outbox
     assert "123 in / 45 out tokens" in outbox
     assert "budget declared in the task: 5 cents, 60 s" in outbox
@@ -340,8 +341,8 @@ def test_an_answer_that_is_not_json_is_recorded_and_nothing_is_written(
     out = capsys.readouterr().out
     assert "state      returned" in out and "not JSON" in out
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
-    assert not list((box.root / "artifacts" / "t-1").glob("verify-*"))
-    record = box.root / "artifacts" / "t-1" / "proposal-1" / "proposal.json"
+    assert not list((box.root / "tabularium" / "t-1").glob("verify-*"))
+    record = box.root / "tabularium" / "t-1" / "proposal-1" / "proposal.json"
     proposal = json.loads(record.read_text())
     assert proposal["status"] == "failed" and "not JSON" in proposal["reason"]
 
@@ -358,7 +359,7 @@ def test_an_executor_that_reports_its_own_failure_is_recorded(
     assert dispatch(box, task) == 1
     out = capsys.readouterr().out
     assert "the task needs a human" in out
-    record = box.root / "artifacts" / "t-1" / "proposal-1" / "proposal.json"
+    record = box.root / "tabularium" / "t-1" / "proposal-1" / "proposal.json"
     proposal = json.loads(record.read_text())
     assert proposal["status"] == "failed"
     assert proposal["usage"]["cost_cents"] == 0.5, "a failed call still costs money"
@@ -379,7 +380,7 @@ def test_an_answer_that_costs_more_than_the_budget_is_recorded_not_applied(
     out = capsys.readouterr().out
     assert "over-budget" in out and "9.00 cents" in out
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
-    assert not list(box.root.glob("artifacts/t-1/verify-*"))
+    assert not list(box.root.glob("tabularium/t-1/verify-*"))
 
 
 @requires_trajan
@@ -398,7 +399,7 @@ def test_an_executor_that_writes_to_the_project_behind_the_gate_is_caught(
     assert dispatch(box, task) == 1
     out = capsys.readouterr().out
     assert "unapproved-write" in out and "src/app.py" in out
-    assert not list(box.root.glob("artifacts/t-1/verify-*"))
+    assert not list(box.root.glob("tabularium/t-1/verify-*"))
 
 
 @requires_trajan
@@ -406,13 +407,13 @@ def test_an_executor_that_hangs_is_stopped_at_its_deadline(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _project, box, script, task = probe(tmp_path, "time.sleep(10)\n")
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{script}"\nmax_seconds = 1\n', encoding="utf-8"
     )
     assert dispatch(box, task) == 1
     out = capsys.readouterr().out
     assert "did not answer within 1 s" in out
-    assert not list(box.root.glob("artifacts/t-1/verify-*"))
+    assert not list(box.root.glob("tabularium/t-1/verify-*"))
 
 
 @requires_trajan
@@ -449,7 +450,7 @@ def test_a_patch_file_written_into_the_record_directory_is_accepted(
     project, box, _script, task = probe(tmp_path, body)
     assert dispatch(box, task) == 0
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
-    assert (box.root / "artifacts" / "t-1" / "proposal-1" / "patch-source.txt").is_file()
+    assert (box.root / "tabularium" / "t-1" / "proposal-1" / "patch-source.txt").is_file()
 
 
 @requires_trajan
@@ -468,7 +469,7 @@ def test_status_names_the_executor_and_its_limits(
 ) -> None:
     _project, box, script, _task = probe(tmp_path, "pass\n", extra="max_cents = 5\n")
     capsys.readouterr()
-    assert main(["--boxes", str(box.root.parent), "status", "probe", "--json"]) == 0
+    assert main(["--castra", str(box.root.parent), "status", "probe", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["executor"]["declared"] is True
     assert payload["executor"]["command"] == [str(script)]
@@ -620,7 +621,7 @@ def test_what_the_executor_read_is_recorded_and_printed(
         "left_out": [],
     }
     proposal = json.loads(
-        (box.root / "artifacts" / "t-1" / "proposal-1" / "proposal.json").read_text()
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "proposal.json").read_text()
     )
     assert proposal["reading"]["chars"] == 40
 
@@ -643,7 +644,7 @@ def test_a_task_read_budget_reaches_the_executor(tmp_path: Path) -> None:
     task.write_text(text, encoding="utf-8")
     assert dispatch(box, task) == 0
     request = json.loads(
-        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text()
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "request.json").read_text()
     )
     assert request["limits"]["max_read_chars"] == 400
 
@@ -673,6 +674,6 @@ def test_status_names_what_the_task_read(
     _project, box, _script, task = probe(tmp_path, READING_ANSWER)
     assert dispatch(box, task) == 0
     capsys.readouterr()
-    assert main(["--boxes", str(box.root.parent), "status", "probe"]) == 0
+    assert main(["--castra", str(box.root.parent), "status", "probe"]) == 0
     out = capsys.readouterr().out
     assert "read 2 file(s), 40 chars" in out

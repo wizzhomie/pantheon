@@ -9,7 +9,7 @@ evidence, and the decision belongs to trajan.
 Two rules this module keeps:
 
 * the project is mounted read-only, so the agent cannot "fix" what it was asked to judge;
-* what the call cost is written down next to the box (``state/.cache/review-usage.jsonl``)
+* what the call cost is written down next to the box (``cella/.cache/review-usage.jsonl``)
   and in the answer. An agent that reports no bill leaves a line with ``null``, not a zero:
   a review whose price nobody counted is not a free review.
 
@@ -47,8 +47,8 @@ PLACEHOLDER_MODEL = "reviewer"
 USAGE_PATH = "/opt/data/.cache/review-usage.json"
 """Where the agent writes its own bill inside the container, as the executor already does."""
 
-USAGE_IN_BOX = Path("state") / ".cache" / "review-usage.json"
-LOG_IN_BOX = Path("state") / ".cache" / "review-usage.jsonl"
+USAGE_IN_BOX = Path("cella") / ".cache" / "review-usage.json"
+LOG_IN_BOX = Path("cella") / ".cache" / "review-usage.jsonl"
 """The last call's bill, and the running list of them: the harness reads the pair."""
 
 RULES = (
@@ -69,7 +69,7 @@ def main() -> int:
     if root is None:
         return _fail(f"{BOX_ENV} is not set: the reviewer needs the box it reads for")
     try:
-        box = boxes.read_box(root / "box.toml")
+        box = boxes.read_box(root / "castrum.toml")
     except (OSError, boxes.HarnessError) as error:
         return _fail(f"the box at {root} cannot be read: {error}")
     if not box.compose.is_file():

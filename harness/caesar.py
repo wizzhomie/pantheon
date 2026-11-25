@@ -1,17 +1,16 @@
 """Caesar: the gate a change goes through before it touches the project.
 
-The contract is written down (``tasks/<id>.contract.toml``): what this attempt may change,
+The contract is written down (``mandata/<id>.contract.toml``): what this attempt may change,
 what it must not, and why the work exists at all. Caesar reads the proposed change, refuses
 it when it reaches outside those paths, and only then applies it — so the refusal is the code
 that would have written, not a warning printed before an unchecked write.
 
-What this is not, yet: there is no container and no agent, so "the environment refuses" means
-"the only writer in this box is this module, and it refuses before writing". Once Augustus
-lives in the box (stage 1.5) the same contract is what its write tool enforces, and the
-difference between the two is a mount and a user, not a promise.
+"The environment refuses" means the only writer in this box is this module, and it refuses
+before writing; the agent in the container has no write tool of its own, so the contract is
+enforced by a mount and a user, not by a promise.
 
-Every attempt is recorded, refusals included: ``artifacts/<task>/<n>/`` holds the patch, the
-paths it touched and the verdict about the attempt itself, and ``ledger/<date>.jsonl`` gets
+Every attempt is recorded, refusals included: ``tabularium/<task>/<n>/`` holds the patch, the
+paths it touched and the verdict about the attempt itself, and ``fasti/<date>.jsonl`` gets
 one event. A refusal that is only printed is a refusal nobody can audit.
 """
 
@@ -391,7 +390,7 @@ def run_attempt(
     digest = patch_digest(project, diff)
     problems = violations(contract, paths, change, read_kinds(project))
     number = _next_number(box_root, contract.task)
-    directory = box_root / "artifacts" / contract.task / str(number)
+    directory = box_root / "tabularium" / contract.task / str(number)
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "change.diff").write_text(change, encoding="utf-8")
     if change != diff:
@@ -718,7 +717,7 @@ def _write_commit(
 def _append_commit_event(
     box_root: Path, contract: Contract, attempt: Attempt, commit: Commit, when: datetime
 ) -> None:
-    ledger = box_root / "ledger"
+    ledger = box_root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
@@ -972,7 +971,7 @@ def _reason(problems: tuple[Violation, ...]) -> str:
 
 
 def _next_number(box_root: Path, task: str) -> int:
-    base = box_root / "artifacts" / task
+    base = box_root / "tabularium" / task
     if not base.is_dir():
         return 1
     numbers = [
@@ -1026,7 +1025,7 @@ def _write_records(
 def _append_event(
     box_root: Path, contract: Contract, attempt: Attempt, when: datetime
 ) -> None:
-    ledger = box_root / "ledger"
+    ledger = box_root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []

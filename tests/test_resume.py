@@ -72,7 +72,7 @@ def make_project(tmp_path: Path, name: str = "probe") -> Path:
 
 
 def make_box(tmp_path: Path, project: Path | None = None) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project or make_project(tmp_path))
+    return boxes.new_box(tmp_path / "castra", project or make_project(tmp_path))
 
 
 def with_change(patch: Path, text: str = TASK) -> str:
@@ -131,7 +131,7 @@ def write_killed_executor(tmp_path: Path) -> Path:
 
 
 def write_profile(box: boxes.Box, command: Path, extra: str = "") -> None:
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 60\n{extra}',
         encoding="utf-8",
     )
@@ -139,12 +139,12 @@ def write_profile(box: boxes.Box, command: Path, extra: str = "") -> None:
 
 def dispatch(box: boxes.Box, task: Path, *extra: str) -> int:
     return main(
-        ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task), *extra]
+        ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task), *extra]
     )
 
 
 def resume(box: boxes.Box, *extra: str) -> int:
-    return main(["--boxes", str(box.root.parent), "resume", box.name, "--task", "t-1", *extra])
+    return main(["--castra", str(box.root.parent), "resume", box.name, "--task", "t-1", *extra])
 
 
 def calls(tmp_path: Path) -> int:
@@ -153,7 +153,7 @@ def calls(tmp_path: Path) -> int:
 
 
 def records(box: boxes.Box) -> list[Path]:
-    return sorted((box.root / "artifacts" / "t-1").glob("dispatch-*.json"))
+    return sorted((box.root / "tabularium" / "t-1").glob("dispatch-*.json"))
 
 
 def tree(project: Path) -> dict[str, str]:
@@ -197,7 +197,7 @@ def test_the_task_is_frozen_beside_its_artifacts(
     task = write_task(tmp_path, with_change(make_patch(tmp_path, project)))
     assert dispatch(box, task) == 0
     capsys.readouterr()
-    snapshot = box.root / "artifacts" / "t-1" / SNAPSHOT_FILE
+    snapshot = box.root / "tabularium" / "t-1" / SNAPSHOT_FILE
     frozen = augustus.read_task(snapshot)
     assert frozen.id == "t-1" and frozen.goal == "change the app value"
     assert frozen.change is not None and frozen.change.is_file()
@@ -229,7 +229,7 @@ def test_a_run_that_died_after_the_gate_is_continued_by_verification(
     assert (project / "src" / "app.py").read_text() == "value = 2\n"
     assert calls(tmp_path) == 1, "the model must not be asked again for a change already on disk"
     payload = json.loads(
-        next((box.root / "artifacts" / "t-1").glob("dispatch-*.json")).read_text(encoding="utf-8")
+        next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text(encoding="utf-8")
     )
     assert payload["state"] == "closed" and payload["resumed_from"]
 

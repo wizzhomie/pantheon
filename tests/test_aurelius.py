@@ -82,7 +82,7 @@ def make_tool(tmp_path: Path) -> Path:
 
 def make_box(tmp_path: Path) -> tuple[Path, Path]:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     return project, box.root
 
 
@@ -151,7 +151,7 @@ def test_a_clean_check_is_recorded_with_the_tool_output(
     stdout = (result.directory / "lint.stdout.txt").read_text()
     assert "Contracts: 2 kept, 0 broken." in stdout
     assert f"PYTHONPATH {project / 'src'}" in stdout or str(project) in stdout
-    events = (box_root / "ledger" / f"{record['at'][:10]}.jsonl").read_text().splitlines()
+    events = (box_root / "fasti" / f"{record['at'][:10]}.jsonl").read_text().splitlines()
     assert json.loads(events[-1])["type"] == "arch.checked"
 
 
@@ -167,7 +167,7 @@ def test_a_broken_contract_is_a_failure_with_evidence(
     assert (result.status, result.broken, result.exit_code) == ("broken", 1, 1)
     assert "pkg.domain.service" in (result.directory / "lint.stdout.txt").read_text()
     record = json.loads((result.directory / "result.json").read_text())
-    events = (box_root / "ledger" / f"{record['at'][:10]}.jsonl").read_text()
+    events = (box_root / "fasti" / f"{record['at'][:10]}.jsonl").read_text()
     assert "arch.violated" in events
 
 
@@ -199,7 +199,7 @@ def test_a_missing_tool_says_so_instead_of_passing(
     assert "the boundary tool is not installed" in text
     record = json.loads((result.directory / "result.json").read_text())
     day = record["at"][:10]
-    assert "arch.unchecked" in (box_root / "ledger" / f"{day}.jsonl").read_text()
+    assert "arch.unchecked" in (box_root / "fasti" / f"{day}.jsonl").read_text()
 
 
 def test_the_cli_runs_the_check_and_maps_the_exit_code(
@@ -208,12 +208,12 @@ def test_the_cli_runs_the_check_and_maps_the_exit_code(
     _project, box_root = make_box(tmp_path)
     monkeypatch.setenv(aurelius.TOOL_ENV, str(make_tool(tmp_path)))
     boxes_root = box_root.parent
-    assert main(["--boxes", str(boxes_root), "arch", "probe", "--json"]) == 0
+    assert main(["--castra", str(boxes_root), "arch", "probe", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["status"] == "ok" and payload["kept"] == 2
     monkeypatch.setenv("FAKE_EXIT", "1")
     monkeypatch.setenv("FAKE_BROKEN", "1")
-    assert main(["--boxes", str(boxes_root), "arch", "probe"]) == 1
+    assert main(["--castra", str(boxes_root), "arch", "probe"]) == 1
     assert "result     broken" in capsys.readouterr().out
 
 

@@ -1,4 +1,4 @@
-"""What the box declared about reading its changes: ``profile/reviewer.toml``.
+"""What the box declared about reading its changes: ``persona/reviewer.toml``.
 
 The executor is a command the box names, because producing a change is the box's own business.
 Reading a change is the same kind of decision: a box may declare "my changes are read", name the
@@ -27,13 +27,13 @@ from pathlib import Path
 from . import box as boxes
 
 SCHEMA_VERSION = 1
-PROFILE_FILE = Path("profile") / "reviewer.toml"
-EXAMPLE_FILE = Path("profile") / "reviewer.toml.example"
+PROFILE_FILE = Path("persona") / "reviewer.toml"
+EXAMPLE_FILE = Path("persona") / "reviewer.toml.example"
 CONFIG_KEYS = frozenset({"schema_version", "enabled", "model", "max_cents", "when_paths"})
 
 EXAMPLE = """\
 # To make every dispatch read the change it produced, copy this file to
-# `profile/reviewer.toml` and set `enabled = true`.
+# `persona/reviewer.toml` and set `enabled = true`.
 #
 # Reading is one paid call to the box's own agent, the same container the executor uses.
 # The report, the record and the outbox show the model that read the change and what it

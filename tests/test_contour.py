@@ -118,13 +118,13 @@ def test_a_change_without_a_reader_is_refused_before_any_run(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path, PASSING)
-    boxes_root = tmp_path / "boxes"
-    main(["--boxes", str(boxes_root), "new", str(project)])
+    boxes_root = tmp_path / "castra"
+    main(["--castra", str(boxes_root), "new", str(project)])
     capsys.readouterr()
-    assert main(["--boxes", str(boxes_root), "verify", "probe", "--since", "HEAD"]) == 2
+    assert main(["--castra", str(boxes_root), "verify", "probe", "--since", "HEAD"]) == 2
     message = capsys.readouterr().err
     assert "a change needs a reader" in message
-    assert not list((boxes_root / "probe" / "artifacts").iterdir())
+    assert not list((boxes_root / "probe" / "tabularium").iterdir())
 
 
 def test_a_project_without_a_policy_is_refused(
@@ -132,10 +132,10 @@ def test_a_project_without_a_policy_is_refused(
 ) -> None:
     project = tmp_path / "bare"
     project.mkdir()
-    boxes_root = tmp_path / "boxes"
-    main(["--boxes", str(boxes_root), "new", str(project), "--name", "probe"])
+    boxes_root = tmp_path / "castra"
+    main(["--castra", str(boxes_root), "new", str(project), "--name", "probe"])
     capsys.readouterr()
-    assert main(["--boxes", str(boxes_root), "verify", "probe"]) == 2
+    assert main(["--castra", str(boxes_root), "verify", "probe"]) == 2
     assert "nothing to verify against" in capsys.readouterr().err
 
 
@@ -196,12 +196,12 @@ def test_the_box_answer_is_trajans_answer(
     expected: str,
 ) -> None:
     project = make_project(tmp_path, policy)
-    boxes_root = tmp_path / "boxes"
-    main(["--boxes", str(boxes_root), "new", str(project)])
+    boxes_root = tmp_path / "castra"
+    main(["--castra", str(boxes_root), "new", str(project)])
     capsys.readouterr()
     box_run = tmp_path / "box-run"
     code = main(
-        ["--boxes", str(boxes_root), "verify", "probe", "--json", "--out", str(box_run)]
+        ["--castra", str(boxes_root), "verify", "probe", "--json", "--out", str(box_run)]
     )
     payload = json.loads(capsys.readouterr().out)
     direct_run = tmp_path / "direct-run"

@@ -26,8 +26,8 @@ from . import augustus, caesar, frame
 from . import box as boxes
 
 SCHEMA_VERSION = 1
-CAMPAIGN_DIR = Path(".pantheon") / "campaigns"
-STATE_DIR = Path("artifacts") / "campaign"
+CAMPAIGN_DIR = Path(".pantheon") / "expeditiones"
+STATE_DIR = Path("tabularium") / "expeditio"
 """The file lives in the project, the state in the box: a promise and a record, different places."""
 CAMPAIGN_KEYS = frozenset(
     {"schema_version", "id", "goal", "frame", "acceptance", "budget", "step", "mode", "attempts"}
@@ -1020,7 +1020,7 @@ def _append_event(
     state: StepState,
     when: str,
 ) -> None:
-    ledger = box.root / "ledger"
+    ledger = box.root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when[:10]}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
@@ -1085,7 +1085,7 @@ def _event(
 ) -> None:
     """One ledger line for an action on the project that is not a step outcome."""
     stamp = _stamp(when)
-    ledger = box.root / "ledger"
+    ledger = box.root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{stamp[:10]}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []

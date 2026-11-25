@@ -109,7 +109,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", make_project(tmp_path))
+    return boxes.new_box(tmp_path / "castra", make_project(tmp_path))
 
 
 def write_record(
@@ -121,9 +121,9 @@ def write_record(
     paths: tuple[str, ...] = ("src/**",),
     changed: tuple[str, ...] = ("src/app.py",),
 ) -> None:
-    directory = box.root / "artifacts" / task
+    directory = box.root / "tabularium" / task
     directory.mkdir(parents=True, exist_ok=True)
-    contract = box.root / "tasks" / f"{task}.contract.toml"
+    contract = box.root / "mandata" / f"{task}.contract.toml"
     contract.parent.mkdir(parents=True, exist_ok=True)
     contract.write_text(
         "schema_version = 1\n"
@@ -157,7 +157,7 @@ def write_task(tmp_path: Path) -> Path:
 
 
 def write_profile(box: boxes.Box, command: Path) -> None:
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 30\n', encoding="utf-8"
     )
 
@@ -170,7 +170,7 @@ def fake_executor(tmp_path: Path, body: str) -> Path:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def trajan_runnable() -> bool:
@@ -223,7 +223,7 @@ def test_a_past_record_on_the_declared_paths_is_selected_with_its_reason(
     assert pack.selected[0].reason == "touches src/app.py"
     text = "\n".join(pack.lines)
     assert "t-old" in text and "why" not in text
-    assert "artifacts/t-old/dispatch-20261124T120000Z.json" in text
+    assert "tabularium/t-old/dispatch-20261124T120000Z.json" in text
     assert "frame:" in text
     assert pack.omitted["no_overlap"] == 0
 
@@ -310,14 +310,14 @@ def test_a_dispatch_gives_the_model_the_pack_and_records_what_it_was_told(
     assert Path(pack["path"]).is_file()
 
     request = json.loads(
-        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text(
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "request.json").read_text(
             encoding="utf-8"
         )
     )
     assert any("prior" in line for line in request["context"]["lines"])
 
     assert "the pack was in the request" in payload["executor"]["notes"]
-    outbox = next((box.root / "outbox").glob("*.md")).read_text(encoding="utf-8")
+    outbox = next((box.root / "acta").glob("*.md")).read_text(encoding="utf-8")
     assert "context: 1 past records by paths" in outbox
 
     stored = records.read(box)
@@ -440,7 +440,7 @@ def test_a_bad_address_stops_the_dispatch_before_the_model_is_asked(
     )
     assert run(box, "dispatch", "probe", "--task", str(task)) == 2
     assert "prior/20260101T000000Z" in capsys.readouterr().err
-    assert not (box.root / "artifacts" / "t-1" / "proposal-1").exists()
+    assert not (box.root / "tabularium" / "t-1" / "proposal-1").exists()
 
 
 @requires_trajan
@@ -474,7 +474,7 @@ print(json.dumps({{
     assert payload["context"]["records"]["named"] == ["t-docs/20261124T120000Z"]
     assert payload["context"]["records"]["selected"][0]["reason"] == "named by the task"
     request = json.loads(
-        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text(
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "request.json").read_text(
             encoding="utf-8"
         )
     )

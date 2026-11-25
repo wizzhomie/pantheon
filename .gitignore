@@ -1,7 +1,7 @@
 .venv/
 __pycache__/
 *.pyc
-boxes/
+castra/
 memory/
 .DS_Store
 

@@ -32,10 +32,10 @@ from pathlib import Path
 from . import box as boxes
 
 SCHEMA_VERSION = 1
-RECORDS = Path("artifacts") / "records"
+RECORDS = Path("tabularium") / "commentarii"
 DIGEST_FILE = "digest.json"
-RESERVED = frozenset({"records", "frame", "campaign", "arch"})
-"""Directories under ``artifacts/`` that are records of other things, not tasks."""
+RESERVED = frozenset({"commentarii", "forma", "expeditio", "aurelius"})
+"""Directories under ``tabularium/`` that are records of other things, not tasks."""
 MAX_ENTRIES = 200
 MAX_PATHS = 5
 MAX_GOAL = 160
@@ -143,7 +143,7 @@ def build(box: boxes.Box) -> Digest:
     A directory with no dispatch record (a refused task, an interrupted one) is not a record
     and is not invented here — its absence is visible in the ledger, not in this file.
     """
-    base = box.root / "artifacts"
+    base = box.root / "tabularium"
     entries: list[Entry] = []
     skipped: list[tuple[str, str]] = []
     found = 0
@@ -298,7 +298,7 @@ def _entry(box: boxes.Box, task: str, record: Path) -> Entry:
 
 
 def _contract(box: boxes.Box, task: str) -> dict[str, object] | None:
-    path = box.root / "tasks" / f"{task}.contract.toml"
+    path = box.root / "mandata" / f"{task}.contract.toml"
     if not path.is_file():
         return None
     try:

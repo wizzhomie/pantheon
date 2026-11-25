@@ -4,7 +4,7 @@ A task is a file a person (or, later, an agent) writes: a goal, a declared scope
 criterion, and the change it expects. Augustus does not invent work and does not judge the
 answer — it validates the task, picks contours by the declared fields through a table, calls
 them in order (architecture, the write gate, verification), and writes the projection: one
-record per dispatch, one summary per finished task in ``outbox/``, events in the ledger.
+record per dispatch, one summary per finished task in ``acta/``, events in the ledger.
 
 What is missing is named, not hidden: there is no executor yet, so a task either carries the
 patch it wants applied (``change = "..."``) or explicitly says the change is not the subject
@@ -290,7 +290,7 @@ def dispatch(
     how a retry turns into a loop.
     """
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
-    directory = box.root / "artifacts" / task.id
+    directory = box.root / "tabularium" / task.id
     directory.mkdir(parents=True, exist_ok=True)
     blocked = refusal(task, routes, driven=driven)
     if blocked is not None:
@@ -503,7 +503,7 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
     The change file is copied too: the record must not depend on a file outside the box, and
     editing the original task afterwards must not rewrite what already ran.
     """
-    directory = box.root / "artifacts" / task.id
+    directory = box.root / "tabularium" / task.id
     directory.mkdir(parents=True, exist_ok=True)
     change: Path | None = None
     if task.change is not None:
@@ -571,7 +571,7 @@ def resume(
     tree the applied change is no longer in, or close a task whose verification already ran.
     """
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
-    directory = box.root / "artifacts" / task_id
+    directory = box.root / "tabularium" / task_id
     snapshot = directory / SNAPSHOT_FILE
     if not snapshot.is_file():
         raise boxes.HarnessError(
@@ -1022,7 +1022,7 @@ class TaskSummary:
 
 def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
     """The newest dispatch record per task, oldest first: what ``status`` may say."""
-    base = box_root / "artifacts"
+    base = box_root / "tabularium"
     if not base.is_dir():
         return ()
     found: list[TaskSummary] = []
@@ -1127,7 +1127,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "review_skipped": result.review_skipped,
         "unknowns": _unknowns(result),
         "notes": list(result.notes),
-        "outbox": None if result.outbox is None else str(result.outbox),
+        "acta": None if result.outbox is None else str(result.outbox),
         "exit_code": result.exit_code,
     }
 
@@ -1165,7 +1165,7 @@ def _check_architecture(box: boxes.Box, tool: str | None) -> aurelius.Result:
             broken=0,
             tool="",
             version="",
-            directory=box.root / "artifacts" / "arch",
+            directory=box.root / "tabularium" / "aurelius",
             exit_code=2,
             digest="",
             notes=[f"no {aurelius.MODEL_FILE} in the project: the architecture was not checked"],
@@ -1188,7 +1188,7 @@ def _write_contract(box_root: Path, task: Task) -> Path:
         lines.append("forbidden = [" + ", ".join(_quote(item) for item in task.forbidden) + "]")
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
-    path = box_root / "tasks" / f"{task.id}.contract.toml"
+    path = box_root / "mandata" / f"{task.id}.contract.toml"
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
     return path
@@ -1196,7 +1196,7 @@ def _write_contract(box_root: Path, task: Task) -> Path:
 
 def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dispatch:
     record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
-    outbox = box.root / "outbox" / f"{when:%Y-%m-%d}-{task.id}.md"
+    outbox = box.root / "acta" / f"{when:%Y-%m-%d}-{task.id}.md"
     outbox.parent.mkdir(parents=True, exist_ok=True)
     finished = Dispatch(
         task=result.task,
@@ -1223,7 +1223,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
     outbox.write_text(_summary(finished, when), encoding="utf-8")
     record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
-    _event(box.root, when, "outbox.written", task, str(outbox.relative_to(box.root)))
+    _event(box.root, when, "acta.written", task, str(outbox.relative_to(box.root)))
     # The digest is written after the record, so the task that just ran is in it: a memory that
     # is one run behind would make every dispatch leave a stale index behind it.
     records.write(box)
@@ -1495,7 +1495,7 @@ def _event(
     detail: str,
     data: dict[str, object] | None = None,
 ) -> None:
-    ledger = box_root / "ledger"
+    ledger = box_root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
     existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []

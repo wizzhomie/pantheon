@@ -151,7 +151,7 @@ def write_campaign(
         frame=frame.read_frame(project).digest,
         second=SECOND_STEP if second else "",
     )
-    directory = project / ".pantheon" / "campaigns"
+    directory = project / ".pantheon" / "expeditiones"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "c-auto.toml"
     path.write_text(text, encoding="utf-8")
@@ -168,7 +168,7 @@ def commit_plan(project: Path) -> None:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def advance(box: boxes.Box, *extra: str) -> int:
@@ -176,13 +176,13 @@ def advance(box: boxes.Box, *extra: str) -> int:
 
 
 def state(box: boxes.Box) -> dict[str, object]:
-    path = box.root / "artifacts" / "campaign" / "c-auto" / "state.json"
+    path = box.root / "tabularium" / "expeditio" / "c-auto" / "state.json"
     data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
     return data
 
 
 def run_record(box: boxes.Box) -> dict[str, object]:
-    paths = sorted((box.root / "artifacts" / "campaign" / "c-auto").glob("run-*.json"))
+    paths = sorted((box.root / "tabularium" / "expeditio" / "c-auto").glob("run-*.json"))
     assert paths, "a run writes its own record"
     data: dict[str, object] = json.loads(paths[-1].read_text(encoding="utf-8"))
     return data
@@ -190,7 +190,7 @@ def run_record(box: boxes.Box) -> dict[str, object]:
 
 def ledger(box: boxes.Box, kind: str) -> list[dict[str, object]]:
     found: list[dict[str, object]] = []
-    for path in sorted((box.root / "ledger").glob("*.jsonl")):
+    for path in sorted((box.root / "fasti").glob("*.jsonl")):
         for line in path.read_text(encoding="utf-8").splitlines():
             event = json.loads(line)
             if isinstance(event, dict) and event.get("type") == kind:
@@ -230,9 +230,9 @@ def prepared(
     fails: str = "False",
 ) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     command = fake_executor(tmp_path, breaks=breaks, fails=fails, cost=cost)
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 60\n',
         encoding="utf-8",
     )
@@ -245,7 +245,7 @@ def prepared(
 def test_the_ceiling_is_the_plan_own_sum_and_steps_run_in_their_order(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     write_campaign(project, attempts=2)
-    plan = campaign.read_campaign(project / ".pantheon" / "campaigns" / "c-auto.toml")
+    plan = campaign.read_campaign(project / ".pantheon" / "expeditiones" / "c-auto.toml")
     assert campaign.attempts_allowed(plan) == 4
     assert [item.id for item in plan.steps] == ["s1", "s2"]
     first = campaign.next_step(plan, None)
@@ -327,7 +327,7 @@ def test_a_step_that_wrote_nothing_stops_the_run(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project, box = prepared(tmp_path, second=False)
-    (box.root / "profile" / "executor.toml").unlink()
+    (box.root / "persona" / "executor.toml").unlink()
     capsys.readouterr()
     assert advance(box) == 2
     out = capsys.readouterr().out
@@ -340,8 +340,8 @@ def test_a_closed_plan_without_an_approved_frame_stops_and_says_why(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
-    (box.root / "profile" / "executor.toml").write_text(
+    box = boxes.new_box(tmp_path / "castra", project)
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{fake_executor(tmp_path)}"\nmax_seconds = 60\n',
         encoding="utf-8",
     )
@@ -358,16 +358,16 @@ def test_a_manual_campaign_is_not_run_and_nothing_is_paid(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project = make_project(tmp_path)
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     path = write_campaign(project, second=False)
     path.write_text(path.read_text(encoding="utf-8").replace('mode = "auto"', 'mode = "manual"'))
     capsys.readouterr()
     assert advance(box) == 2
     out = capsys.readouterr().out
     assert "campaign mode is manual" in out
-    assert not (box.root / "artifacts" / "campaign" / "c-auto" / "state.json").exists()
-    assert not (box.root / "artifacts" / "campaign" / "c-auto").exists() or not list(
-        (box.root / "artifacts" / "campaign" / "c-auto").glob("run-*.json")
+    assert not (box.root / "tabularium" / "expeditio" / "c-auto" / "state.json").exists()
+    assert not (box.root / "tabularium" / "expeditio" / "c-auto").exists() or not list(
+        (box.root / "tabularium" / "expeditio" / "c-auto").glob("run-*.json")
     )
 
 
@@ -375,7 +375,7 @@ def test_a_plan_that_cannot_start_runs_nothing(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project, box = prepared(tmp_path, second=False)
-    path = project / ".pantheon" / "campaigns" / "c-auto.toml"
+    path = project / ".pantheon" / "expeditiones" / "c-auto.toml"
     path.write_text(
         path.read_text(encoding="utf-8").replace('kind = "bugfix"', 'kind = "mystery"'),
         encoding="utf-8",
@@ -384,7 +384,7 @@ def test_a_plan_that_cannot_start_runs_nothing(
     assert advance(box) == 2
     out = capsys.readouterr().out
     assert "the plan cannot start" in out and "no route for kind 'mystery'" in out
-    assert not (box.root / "artifacts" / "campaign" / "c-auto" / "state.json").exists()
+    assert not (box.root / "tabularium" / "expeditio" / "c-auto" / "state.json").exists()
 
 @requires_trajan
 def test_a_technical_executor_failure_is_retried_once(
@@ -409,5 +409,5 @@ def test_a_run_refuses_a_dirty_tree_and_names_what_is_uncommitted(
     assert advance(box) == 2
     out = capsys.readouterr().out
     assert "uncommitted changes" in out and "scratch.txt" in out
-    assert not (box.root / "artifacts" / "campaign" / "c-auto").exists()
+    assert not (box.root / "tabularium" / "expeditio" / "c-auto").exists()
     assert not (box.root / "counter").exists(), "nothing was asked and nothing paid"

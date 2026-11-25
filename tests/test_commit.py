@@ -71,7 +71,7 @@ def make_project(tmp_path: Path, policy: str = PASSING) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def make_patch(tmp_path: Path, project: Path) -> Path:
@@ -98,7 +98,7 @@ def write_task(tmp_path: Path, text: str, name: str = "t-1.toml") -> Path:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def dispatch(box: boxes.Box, task: Path, *extra: str) -> int:
@@ -153,10 +153,10 @@ def test_a_green_verdict_becomes_a_commit_that_quotes_it(
     message = git(project, "log", "-1", "--format=%B")
     assert "Verdict: pass" in message
     assert "Pantheon-Task: t-1" in message
-    assert "artifacts/t-1/" in message, "the message names the report the verdict came from"
+    assert "tabularium/t-1/" in message, "the message names the report the verdict came from"
     assert "Pantheon <pantheon@harness.invalid>" in git(project, "log", "-1", "--format=%an <%ae>")
     assert git(project, "status", "--porcelain") == "", "a committed change is a clean tree"
-    record = json.loads((box.root / "artifacts/t-1/1/commit.json").read_text(encoding="utf-8"))
+    record = json.loads((box.root / "tabularium/t-1/1/commit.json").read_text(encoding="utf-8"))
     assert record["status"] == "made" and record["sha"] == sha
     assert record["verdict"] == "pass"
 
@@ -200,7 +200,7 @@ def test_no_commit_is_recorded_instead_of_being_silent(
     assert git(project, "rev-parse", "HEAD").strip() == head, "nothing was committed"
     assert (project / "src" / "app.py").read_text(encoding="utf-8").startswith("value = 2")
     assert any("not in git" in item for item in strings(answer["unknowns"]))
-    outbox = max((box.root / "outbox").glob("*.md"), key=lambda item: item.stat().st_mtime)
+    outbox = max((box.root / "acta").glob("*.md"), key=lambda item: item.stat().st_mtime)
     assert "not in git" in outbox.read_text(encoding="utf-8")
 
 

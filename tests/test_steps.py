@@ -103,7 +103,7 @@ def make_project(tmp_path: Path) -> Path:
 
 
 def make_box(tmp_path: Path, project: Path) -> boxes.Box:
-    return boxes.new_box(tmp_path / "boxes", project)
+    return boxes.new_box(tmp_path / "castra", project)
 
 
 def write_executor(tmp_path: Path) -> Path:
@@ -126,7 +126,7 @@ def write_executor(tmp_path: Path) -> Path:
 
 
 def with_executor(box: boxes.Box, command: Path) -> None:
-    (box.root / "profile" / "executor.toml").write_text(
+    (box.root / "persona" / "executor.toml").write_text(
         f'schema_version = 1\ncommand = "{command}"\nmax_seconds = 60\n', encoding="utf-8"
     )
 
@@ -137,7 +137,7 @@ def approved(project: Path, box: boxes.Box) -> str:
 
 
 def write_campaign(project: Path, text: str) -> Path:
-    directory = project / ".pantheon" / "campaigns"
+    directory = project / ".pantheon" / "expeditiones"
     directory.mkdir(parents=True, exist_ok=True)
     path = directory / "c-1.toml"
     path.write_text(text, encoding="utf-8")
@@ -145,7 +145,7 @@ def write_campaign(project: Path, text: str) -> Path:
 
 
 def run(box: boxes.Box, *args: str) -> int:
-    return main(["--boxes", str(box.root.parent), *args])
+    return main(["--castra", str(box.root.parent), *args])
 
 
 def step(box: boxes.Box, identifier: str, *extra: str) -> int:
@@ -153,7 +153,7 @@ def step(box: boxes.Box, identifier: str, *extra: str) -> int:
 
 
 def state(box: boxes.Box) -> dict[str, object]:
-    path = box.root / "artifacts" / "campaign" / "c-1" / "state.json"
+    path = box.root / "tabularium" / "expeditio" / "c-1" / "state.json"
     data: dict[str, object] = json.loads(path.read_text(encoding="utf-8"))
     return data
 
@@ -247,7 +247,7 @@ def test_a_changed_plan_needs_a_reason_before_the_next_step(
     project, box = prepared(tmp_path)
     capsys.readouterr()
     assert step(box, "s1") == 0
-    path = project / ".pantheon" / "campaigns" / "c-1.toml"
+    path = project / ".pantheon" / "expeditiones" / "c-1.toml"
     path.write_text(path.read_text(encoding="utf-8").replace("bump it a second time", "bump again"),
                     encoding="utf-8")
     capsys.readouterr()
@@ -266,7 +266,7 @@ def test_a_step_that_wrote_nothing_is_recorded_but_not_done(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _project, box = prepared(tmp_path)
-    (box.root / "profile" / "executor.toml").unlink()
+    (box.root / "persona" / "executor.toml").unlink()
     capsys.readouterr()
     assert step(box, "s1") == 1, "a closed verification about no work is not a done step"
     out = capsys.readouterr().out
@@ -284,7 +284,7 @@ def test_a_plan_that_cannot_start_runs_no_step(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     project, box = prepared(tmp_path)
-    path = project / ".pantheon" / "campaigns" / "c-1.toml"
+    path = project / ".pantheon" / "expeditiones" / "c-1.toml"
     path.write_text(
         path.read_text(encoding="utf-8").replace('depends_on = ["s1"]', 'depends_on = ["s2"]'),
         encoding="utf-8",
@@ -292,4 +292,4 @@ def test_a_plan_that_cannot_start_runs_no_step(
     capsys.readouterr()
     assert step(box, "s1") == 2
     assert "the plan cannot start" in capsys.readouterr().err
-    assert not (box.root / "artifacts" / "campaign" / "c-1" / "state.json").exists()
+    assert not (box.root / "tabularium" / "expeditio" / "c-1" / "state.json").exists()

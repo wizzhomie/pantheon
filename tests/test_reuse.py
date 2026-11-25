@@ -70,14 +70,14 @@ def make_project(tmp_path: Path, policy: str = PASSING, name: str = "probe") -> 
 
 def make_box(tmp_path: Path, policy: str = PASSING) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path, policy)
-    return project, boxes.new_box(tmp_path / "boxes", project)
+    return project, boxes.new_box(tmp_path / "castra", project)
 
 
 def verify(
     box: boxes.Box, capsys: pytest.CaptureFixture[str], *extra: str
 ) -> tuple[int, dict[str, object]]:
     """The exit code and the answer: a hold exits 1 and an inconclusive run exits 2."""
-    code = main(["--boxes", str(box.root.parent), "verify", box.name, "--json", *extra])
+    code = main(["--castra", str(box.root.parent), "verify", box.name, "--json", *extra])
     out = capsys.readouterr().out
     payload = json.loads(out)
     assert isinstance(payload, dict)
@@ -85,7 +85,7 @@ def verify(
 
 
 def records(box: boxes.Box) -> list[Path]:
-    return sorted((box.root / "artifacts").rglob(contour.RECORD_FILE))
+    return sorted((box.root / "tabularium").rglob(contour.RECORD_FILE))
 
 
 def trajan_runnable() -> bool:
@@ -155,7 +155,7 @@ def test_a_project_inside_a_repository_digests_its_own_content(
     git(project, "init", "-q")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
     git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
-    box = boxes.new_box(tmp_path / "boxes", project)
+    box = boxes.new_box(tmp_path / "castra", project)
     _, first = verify(box, capsys)
     assert first["reused_from"] is None
     (project / "src" / "app.py").write_text("value = 2\n", encoding="utf-8")
@@ -243,15 +243,15 @@ def test_a_dispatch_reuses_a_verdict_about_the_same_tree(
 ) -> None:
     _project, box = make_box(tmp_path)
     verify(box, capsys)
-    (box.root / "tasks").mkdir(exist_ok=True)
-    task = box.root / "tasks" / "t-docs.toml"
+    (box.root / "mandata").mkdir(exist_ok=True)
+    task = box.root / "mandata" / "t-docs.toml"
     task.write_text(
         'schema_version = 1\nid = "t-docs"\ngoal = "look at the project"\nkind = "docs"\n'
         'paths = ["src/**"]\nexpected = "the checks still pass"\n',
         encoding="utf-8",
     )
     code = main(
-        ["--boxes", str(box.root.parent), "dispatch", box.name, "--task", str(task)]
+        ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]
     )
     out = capsys.readouterr().out
     assert code == 0
