@@ -1,0 +1,20 @@
+# Case T1 — the first holdout: a repository chosen and connected on 2026-11-25 while it was
+# not part of any tuning, and not run before this case. The box-side task carries id c-h1;
+# the pilot case is c-t1 so it does not collide with the speed case c-h1. Nothing was fitted to its test
+# style; the task is the README's own example, asked in the project's own idiom.
+#
+# Prediction, recorded before the run: the box adds one unittest method to
+# tests/test_misc.py, tomli's 17 tests and 744 subtests stay green, the verdict is pass,
+# and the run costs under half a cent.
+schema_version = 1
+id = "c-t1"
+repo = "https://github.com/hukkin/tomli"
+base_commit = "43a86ad"
+kind = "bugfix"
+paths = ["tests/test_misc.py"]
+cost_bound_cents = 3
+goal = "В tests/test_misc.py добавь unittest-тест, повторяющий пример из README: TOML-строка с двумя [[players]] (Lehtinen 26, Numminen 27) парсится в список из двух словарей. Стиль — как у соседних тестов в этом файле. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+why = "Тест на обещанное README поведение не меняет библиотеку; набор tomli остаётся зелёным, находок нет."
