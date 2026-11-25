@@ -96,6 +96,7 @@ def main() -> int:
         turn=request.get("turn"),
         turns=request.get("turns"),
         ceiling=ceiling,
+        steps=request.get("engine") == "steps",
     )
     if (
         read_chars is not None
@@ -251,6 +252,7 @@ def _prompt(
     turn: object = None,
     turns: object = None,
     ceiling: object = None,
+    steps: bool = False,
 ) -> Prompt:
     paths = task.get("paths")
     patterns = [item for item in paths if isinstance(item, str)] if isinstance(paths, list) else []
@@ -291,9 +293,9 @@ def _prompt(
     prior = previous_lines(previous)
     if prior:
         lines += ["", "THE PREVIOUS ATTEMPT DID NOT PASS. Answer these facts:", *prior]
-    steps = turn_lines(turn, turns, ceiling)
-    if steps:
-        lines += ["", *steps]
+    step_lines = turn_lines(turn, turns, ceiling, steps=steps)
+    if step_lines:
+        lines += ["", *step_lines]
     lines += _project_section(files, in_scope)
     block, reading = _scope(project, in_scope, read_chars)
     beyond = len(files) - FILE_LIST_LIMIT if not _narrow(files, in_scope) else 0

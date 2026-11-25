@@ -931,19 +931,37 @@ def previous_lines(previous: object) -> list[str]:
     return lines
 
 
-def turn_lines(turn: object, turns: object, ceiling: object = None) -> list[str]:
+def turn_lines(
+    turn: object, turns: object, ceiling: object = None, *, steps: bool = False
+) -> list[str]:
     """The steps before this one as lines for the prompt: the change's own short history.
 
     A steps run is only worth paying for if the next answer can see what the last one did: the
     gate's verdict on it, and the words of the visible check. These are the box's facts, never
     a retelling, and a step that was refused says so — otherwise the model repeats a change the
-    gate already turned down. A run with no steps before it renders nothing.
+    gate already turned down. Even the first step says it is a step: the loop will apply the
+    answer and come back with what the check said, and a model that knows it can answer small
+    instead of restating a file. A one-shot run with no steps before it renders nothing.
     """
-    if not isinstance(turns, list) or not turns:
+    if not isinstance(turns, list):
         return []
-    heading = "THE STEPS BEFORE THIS ONE."
-    if isinstance(turn, int) and isinstance(ceiling, int):
-        heading = f"STEP {turn} OF AT MOST {ceiling}. THE STEPS BEFORE THIS ONE."
+    if not turns and not steps:
+        return []
+    step = isinstance(turn, int) and isinstance(ceiling, int)
+    if not turns:
+        return [
+            f"STEP {turn} OF AT MOST {ceiling}. THIS IS A STEP, NOT A ONE-SHOT ANSWER."
+            if step
+            else "THIS IS A STEP, NOT A ONE-SHOT ANSWER.",
+            "The box will apply your change, run the check the task shows you, and ask you again "
+            "with what it said. Propose the next change against the tree as it is now; do not "
+            "restate the file. If the work is finished, answer with one line: DONE.",
+        ]
+    heading = (
+        f"STEP {turn} OF AT MOST {ceiling}. THE STEPS BEFORE THIS ONE."
+        if step
+        else "THE STEPS BEFORE THIS ONE."
+    )
     lines = [heading, "Each line is what the box did with an answer, not what was intended:"]
     for item in turns:
         if not isinstance(item, dict):

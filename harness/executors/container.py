@@ -78,6 +78,7 @@ def main() -> int:
             turn=request.get("turn"),
             turns=request.get("turns"),
             ceiling=ceiling(request),
+            steps=request.get("engine") == "steps",
         ),
         "-m",
         model,
@@ -162,6 +163,7 @@ def _prompt(
     turn: object = None,
     turns: object = None,
     ceiling: object = None,
+    steps: bool = False,
 ) -> str:
     if task.get("role") == "architect":
         return _architect_prompt(task, context, previous)
@@ -182,9 +184,9 @@ def _prompt(
     prior = previous_lines(previous)
     if prior:
         lines += ["", PREVIOUS_HEAD, *prior]
-    steps = turn_lines(turn, turns, ceiling)
-    if steps:
-        lines += ["", *steps]
+    step_lines = turn_lines(turn, turns, ceiling, steps=steps)
+    if step_lines:
+        lines += ["", *step_lines]
     lines += [
         "Каждый файл заканчивается переводом строки. Верни ОДИН унифицированный диф в формате "
         "git (пути a/<файл> и b/<файл>, заголовки @@), "

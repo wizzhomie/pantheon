@@ -1,0 +1,28 @@
+# Case D10 — c-d9 verbatim (same task, same visible check, same hidden repro, same file shape),
+# run through the steps engine: one task, up to five calls, the visible check after each step.
+#
+# Prediction, recorded before the run (and before the shape was narrowed): the earlier defect
+# runs answered with a whole-file restatement and were cut at every cap, so the step heading now
+# tells the model it is a step, that the box will show it the check, and not to restate the file.
+# Shape `patch`: a few lines in the named function. Step 1 should get the right idea and
+# re-attach the part before "=" to the completions, but it is likely to miss the empty value:
+# `--mode=` then yields bare values, the visible check fails on its second assertion, and step 2
+# fixes it. Expected: 2–3 calls, under a cent, verdict pass. If step 1 is restated and cut at
+# 4 096 tokens, the loop records an incomplete answer and stops: the refusal is the result, and
+# the question becomes the model's answer scheme, not the loop.
+schema_version = 1
+id = "c-d10"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 5
+shape = "patch"
+model = "deepseek-flash"
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+self_check = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--mode', type=click.Choice(['fast', 'slow']))\ndef main(mode):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --mode=s')\nassert got == ['plain,--mode=slow'], got\nempty = done('gobble --mode=')\nassert empty == ['plain,--mode=fast', 'plain,--mode=slow'], empty"]
+repro = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--color', type=click.Choice(['auto', 'always', 'never']))\ndef main(color):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --color=a')\nassert got == ['plain,--color=auto', 'plain,--color=always'], got\nempty = done('gobble --color=')\nassert empty == ['plain,--color=auto', 'plain,--color=always', 'plain,--color=never'], empty"]
+why = "Живая проверка второго движка: тот же дефект, что не поддался восьми одиночным вызовам, но теперь модель видит, что сделала её правка, и может поправить себя. Цель — не меньше двух шагов, вердикт по repro, не больше пяти вызовов и пяти центов."

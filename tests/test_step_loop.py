@@ -341,6 +341,9 @@ def test_the_step_lines_name_the_check_and_not_the_verdict() -> None:
     assert "the check you can see still failed (exit 1: nope)" in text
     assert "the write gate refused the change (path outside the contract)" in text
     assert "DONE" in text
+    first = "\n".join(executor.turn_lines(1, [], 5, steps=True))
+    assert "STEP 1 OF AT MOST 5" in first and "ask you again" in first
+    assert executor.turn_lines(1, [], 5) == [], "a one-shot call has no step heading"
 
 
 @requires_trajan
