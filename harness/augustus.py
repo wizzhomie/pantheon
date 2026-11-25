@@ -476,6 +476,7 @@ def dispatch(
     pack: context_pack.Pack | None = None
     own_check: dict[str, object] | None = None
     shape: executor.Shape | None = None
+    shape_record: dict[str, object] | None = None
     if "run" in stages:
         patch = task.change
         if patch is None:
@@ -506,6 +507,15 @@ def dispatch(
                         began,
                         rail=rail,
                     )
+                shape_record = (
+                    None
+                    if shape is None
+                    else {
+                        "name": shape.name,
+                        "max_answer_tokens": shape.max_answer_tokens,
+                        "max_cents": shape.max_cents,
+                    }
+                )
                 notes.append(
                     f"shape: {shape_reason}"
                     + (
@@ -711,13 +721,7 @@ def dispatch(
             review_skipped=skipped or None,
             context=pack,
             self_check=own_check,
-            shape=None
-            if shape is None
-            else {
-                "name": shape.name,
-                "max_answer_tokens": shape.max_answer_tokens,
-                "max_cents": shape.max_cents,
-            },
+            shape=shape_record,
         ),
         stamp,
         began,

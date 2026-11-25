@@ -1,0 +1,24 @@
+# Case D7 — the same defect, the same two checks, one new field: `shape = "patch"`.
+# c-d6 showed the model answering by restating the file (24 and 44 copies of the first
+# hunk) until the 4 096-token cap; the task never said how big the change was.
+#
+# Prediction, recorded before the run: with the shape declared (a few lines in the named
+# places, do not restate the file) and the way out named (`ERROR:` if it does not fit),
+# the model writes a small hunk; the hidden check passes, the 2 629-test suite stays
+# green, verdict pass, about a third of a cent. The other end: it answers ERROR — a wrong
+# estimate, recorded, and the shape of this task is then wrong, not the model.
+schema_version = 1
+id = "c-d7"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+shape = "patch"
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+self_check = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--mode', type=click.Choice(['fast', 'slow']))\ndef main(mode):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --mode=s')\nassert got == ['plain,--mode=slow'], got\nempty = done('gobble --mode=')\nassert empty == ['plain,--mode=fast', 'plain,--mode=slow'], empty"]
+repro = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--color', type=click.Choice(['auto', 'always', 'never']))\ndef main(color):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --color=a')\nassert got == ['plain,--color=auto', 'plain,--color=always'], got\nempty = done('gobble --color=')\nassert empty == ['plain,--color=auto', 'plain,--color=always', 'plain,--color=never'], empty"]
+why = "Форма объявлена патчем: несколько строк в названных местах. Проверяет, задаёт ли форма не только потолок, но и схему ответа — модель не должна переписывать файл."
