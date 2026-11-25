@@ -41,8 +41,8 @@ the project without the gate, whichever mode proposed it.
 | **Study** — the R&D cycle: question, experiments, numbers | **works for command runs**: a study is `.pantheon/studia/<id>.toml` — one question, when it counts as closed, and experiments with a hypothesis, metrics (unit, direction, threshold, expected number, extraction pattern, aggregate) and runs (command, parameter matrix, repeats, cwd, env, time limit). `pantheon study --run` expands the matrix, runs the commands, pulls the numbers, aggregates them, gives the hypothesis a verdict against the thresholds and follows the declared `on_confirmed` / `on_refuted` table. A run without a number is `failed`, not `refuted`. An experiment cannot declare a change yet, so the code verdict says no gate ran |
 
 The table is the honest status, not a roadmap promise: eight rows are running code today, and both
-engines run. What is still a claim rather than a result: the steps engine has not yet fixed a live
-defect — the pilot's own case is the next run, with the prediction written before it. The rails are new: the frame is
+engines run. The steps engine fixed live defect `c-d11` in one step: 15 498 thinking tokens,
+1.95 cents, a pass by the hidden check. The rails are new: the frame is
 recorded and accepted, and a task now names the milestone it serves; revisions with a risk note
 are recorded. The flow is new too: a brief, a queue and a feed exist, but no background worker
 drives them yet. The change is still produced as a proposal and applied on the host through

@@ -751,7 +751,7 @@ def test_an_answer_cut_before_any_text_says_so(
     assert deepseek.main() == 1
     answer = json.loads(capsys.readouterr().out)
     assert "cut before any text" in answer["error"]
-    assert any("retry once" in note for note in answer["notes"])
+    assert any("budget" in note for note in answer["notes"])
     assert answer["usage"]["completion_tokens"] == 8192
     assert answer["usage"]["reasoning_tokens"] == 8192
     assert answer["usage"]["answer_tokens"] == 0

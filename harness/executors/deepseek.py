@@ -180,7 +180,7 @@ def main() -> int:
                 notes=[
                     f"finish_reason=length; the room was {room} tokens"
                     + ("" if reasoning is None else f", all {reasoning} of it thinking")
-                    + "; the box can retry once with a larger room"
+                    + "; a larger room is the task budget's decision, not a retry inside it"
                 ],
                 usage=spend,
                 model=reported_model or model,
