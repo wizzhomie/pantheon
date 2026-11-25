@@ -6,6 +6,22 @@ three contours around it, and a rule that a claim is not evidence.
 Everything the agents produce passes a gate that computes its own answer. Verification is not an
 afterthought here; it is the part that already works, and it is where the project started.
 
+The design rule is **rigid in control, flexible in execution**: a small task may be one bounded model
+call, a complex one needs an agent that reads, runs the check and changes its approach — and both
+answer to the same gate, budget and verdict.
+
+## Two ways to run a task
+
+A small task does not need an agent: one bounded call, one diff, one verdict. A complex task does: the
+agent has to read the code, run the check, see the failure and change its approach. Pantheon holds
+both without changing its control surface. A small enough task is a single executor call; a task that
+needs investigation is an agent taking step after step, with every step passing the same gate. The
+verdict, the gate and the records do not need to know which one produced the change.
+
+Today the first way runs and the second does not: the executor answers with one diff per call, and the
+agent mode is the next stage. What the box already enforces for both is the boundary — no change
+reaches the project without the gate, whichever mode proposed it.
+
 ## What runs today
 
 | Part | State |
@@ -15,13 +31,14 @@ afterthought here; it is the part that already works, and it is where the projec
 | **Caesar** — execution gates: contracts, permissions, attempts | **works**: `pantheon run` reads `mandata/<id>.contract.toml` and applies a patch only when every path it touches is inside the declared scope; a delete the contract forbids is refused, `.git/` can never be authorised, and the attempt, its paths and the refusal land in the box either way |
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
 | **Augustus** — orchestration inside the box | **works with a declared executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, has the box's executor produce the change when the task carries none, forces every change through the write gate, calls the contours, and writes the record, the events in `fasti/`, one `acta/` summary and the task's state in `status` — including what the run did not check. A run that stopped before its verdict — the executor killed, the budget spent, the machine rebooted — is continued by `pantheon resume`, which reuses the recorded change instead of asking the model again and refuses to verify a tree that no longer holds it |
-| **Executor** — the command that produces the change | **works**: the box declares `persona/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the `acta/` summary. `bin/pantheon-executor-container` asks the agent inside the box; `bin/pantheon-executor` is the host adapter for an OpenAI-compatible endpoint, kept as a fallback for a box without an agent. A subscription CLI adapter is the next one |
+| **Executor** — the command that produces the change | **works**: the box declares `persona/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the `acta/` summary. The budget a task declares is a total for the task, not a per-attempt quota: the next call gets only what is left, `max_steps` counts the calls, and a task that spent its money, used its calls, or failed the same visible check twice is stopped with a reason and exit code 2. This is the **one-shot** mode: one call, one diff. The agent mode, where a task takes step after step, is the next stage. `bin/pantheon-executor-container` asks the agent inside the box; `bin/pantheon-executor` is the host adapter for an OpenAI-compatible endpoint, kept as a fallback for a box without an agent |
 | **Rails** — the owner's frame: brief, goals, milestones, metrics, principles | **works**: `.pantheon/rails.toml` says what the project serves, `pantheon rails` shows it and names every part that is not filled, and `pantheon rails --approve` writes a record carrying the digest the owner accepted and the questions he left to the box. Once the frame is approved, a task names the milestone it serves: no milestone and an unknown one are refused before anything runs, `outside_plan = "why"` records a decision to stand out, and the dispatch record and `acta/` carry the answer. A departure from the frame is also a record: `add`, `replace` or `revisit`, with the two risk answers for the heavy ones; a heavy revision refuses tasks until the new frame is accepted, and the record names the tasks still on the old one. Closing a milestone is a record too: `rails --close M1 --note "why"` writes the closure with the frame's digest and leaves the frame file alone, so the digest does not move; `rails` shows the milestone as closed and names who closed it and why. A project that never wrote rails still runs — the verdict names that no milestone holds it |
 | **Flow** — the stream: brief, attempts, queue | **works without a daemon**: `pantheon flow` shows the brief (what is being built and why, serving a milestone the accepted frame declares), the queue of frozen task copies and the feed of attempts; `--enqueue` puts a task down, `--next` runs the oldest through the same dispatch under a lock, `--discard` keeps the reason an approach was abandoned, and `--mark-read` says the verdicts were read. The operator drives `--next`; there is no background worker yet |
 | **Study** — the R&D cycle: question, experiments, numbers | **works for command runs**: a study is `.pantheon/studia/<id>.toml` — one question, when it counts as closed, and experiments with a hypothesis, metrics (unit, direction, threshold, expected number, extraction pattern, aggregate) and runs (command, parameter matrix, repeats, cwd, env, time limit). `pantheon study --run` expands the matrix, runs the commands, pulls the numbers, aggregates them, gives the hypothesis a verdict against the thresholds and follows the declared `on_confirmed` / `on_refuted` table. A run without a number is `failed`, not `refuted`. An experiment cannot declare a change yet, so the code verdict says no gate ran |
 
 The table is the honest status, not a roadmap promise: eight rows are running code today, and the
-box's container now runs its own agent with a profile and a model. The rails are new: the frame is
+box's container now runs its own agent with a profile and a model. The executor, though, is still a
+single call: the agent mode that takes steps is the next stage, not a working feature. The rails are new: the frame is
 recorded and accepted, and a task now names the milestone it serves; revisions with a risk note
 are recorded. The flow is new too: a brief, a queue and a feed exist, but no background worker
 drives them yet. The change is still produced as a proposal and applied on the host through
