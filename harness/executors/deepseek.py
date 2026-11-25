@@ -250,15 +250,44 @@ def _prompt(
     prior = previous_lines(previous)
     if prior:
         lines += ["", "THE PREVIOUS ATTEMPT DID NOT PASS. Answer these facts:", *prior]
-    lines += ["", "FILES IN THE PROJECT (relative to its root):", *files[:FILE_LIST_LIMIT], ""]
+    lines += _project_section(files, in_scope)
     block, reading = _scope(project, in_scope, read_chars)
-    beyond = len(files) - FILE_LIST_LIMIT
+    beyond = len(files) - FILE_LIST_LIMIT if not _narrow(files, in_scope) else 0
     if beyond > 0:
         left = reading["left_out"]
         assert isinstance(left, list)
         left.append(f"{beyond} file name(s) beyond the {FILE_LIST_LIMIT}-name list")
     lines += ["FILES IN THE DECLARED SCOPE:", *block]
     return Prompt("\n".join(lines), reading)
+
+
+def _narrow(files: list[str], in_scope: list[str]) -> bool:
+    """Is the task's scope a part of the project rather than the whole of it?"""
+    return bool(in_scope) and len(in_scope) < len(files)
+
+
+def _project_section(files: list[str], in_scope: list[str]) -> list[str]:
+    """What the model is told about the project's files: a layout, not an inventory.
+
+    A task that may touch one file does not need the names of the other hundred and eighty; the
+    pilot measured that noise at about 1 200 tokens — more than the task and its check together,
+    against a model whose answers start to loop just above 9 000. So a narrow scope gets the
+    top-level layout and the count, and the names in scope come with their content below. A
+    scope that covers the project still gets the list, because there the names are the work.
+    """
+    if not _narrow(files, in_scope):
+        listed = [*files[:FILE_LIST_LIMIT]]
+        lines = ["", "FILES IN THE PROJECT (relative to its root):", *listed, ""]
+        return lines
+    tops = sorted({name.split("/")[0] for name in files if "/" in name})
+    loose = sum(1 for name in files if "/" not in name)
+    where = ", ".join(tops) or "the root"
+    tail = f", and {loose} file(s) at the root" if loose else ""
+    return [
+        "",
+        f"THE PROJECT: {len(files)} files under {where}{tail}. The change may touch only the "
+        "declared paths; the files in them come below, with their content.",
+    ]
 
 
 def _scope(

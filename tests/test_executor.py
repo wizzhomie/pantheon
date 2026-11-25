@@ -849,3 +849,30 @@ def test_the_request_carries_the_visible_check_and_not_the_hidden_one(tmp_path: 
     assert "print('visible')" in prompt.text
     assert "print('hidden')" not in prompt.text
     assert "you do not see it" in prompt.text
+
+
+def test_a_narrow_scope_gets_the_layout_not_the_file_inventory(tmp_path: Path) -> None:
+    """The names of files the task may not touch are the box's chatter, not the model's work.
+
+    The pilot measured that inventory at ~1 200 tokens — more than the task and its check
+    together — while the model's answers started looping just above 9 000. A scope that covers
+    the project still gets the list: there the names are the work.
+    """
+    project = tmp_path / "clickish"
+    (project / "src" / "pkg").mkdir(parents=True)
+    (project / "tests").mkdir()
+    (project / "docs").mkdir()
+    (project / "src" / "pkg" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (project / "tests" / "test_app.py").write_text("pass\n", encoding="utf-8")
+    (project / "docs" / "index.md").write_text("# docs\n", encoding="utf-8")
+    subprocess.run(["git", "-C", str(project), "init", "-q"], check=True)
+    subprocess.run(["git", "-C", str(project), "add", "-A"], check=True)
+
+    narrow = deepseek._prompt({"id": "t", "paths": ["src/pkg/app.py"]}, project)
+    assert "THE PROJECT: 3 files under docs, src, tests" in narrow.text
+    assert "FILES IN THE PROJECT" not in narrow.text
+    assert "test_app.py" not in narrow.text
+
+    whole = deepseek._prompt({"id": "t", "paths": ["**"]}, project)
+    assert "FILES IN THE PROJECT (relative to its root):" in whole.text
+    assert "src/pkg/app.py" in whole.text

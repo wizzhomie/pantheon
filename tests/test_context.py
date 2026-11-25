@@ -351,7 +351,7 @@ def test_both_executors_put_the_pack_in_the_prompt(tmp_path: Path) -> None:
         {"id": "t-1", "goal": "g", "kind": "bugfix", "paths": ["src/**"]}, project, lines
     )
     assert "CONTEXT (assembled by code):" in prompt.text
-    assert prompt.text.index("CONTEXT") < prompt.text.index("FILES IN THE PROJECT")
+    assert prompt.text.index("CONTEXT") < prompt.text.index("FILES IN THE DECLARED SCOPE")
 
     builder = box_agent._prompt(
         {"role": "executor", "goal": "g", "paths": ["src/**"]}, lines
