@@ -195,6 +195,8 @@ class Shape:
     name: str
     max_answer_tokens: int
     max_cents: float | None = None
+    max_changed_lines: int | None = None
+    max_files: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,7 +416,7 @@ def _shapes(path: Path, raw: object) -> dict[str, Shape]:
             )
         if not isinstance(entry, dict):
             raise boxes.HarnessError(f"{path}: shapes.{name} must be a table")
-        extra = set(entry) - {"max_answer_tokens", "max_cents"}
+        extra = set(entry) - {"max_answer_tokens", "max_cents", "max_changed_lines", "max_files"}
         if extra:
             raise boxes.HarnessError(
                 f"{path}: shapes.{name} has unknown key(s) {', '.join(sorted(extra))}"
@@ -431,8 +433,23 @@ def _shapes(path: Path, raw: object) -> dict[str, Shape]:
             raise boxes.HarnessError(
                 f"{path}: shapes.{name}.max_cents must be a positive number"
             )
-        table[name] = Shape(name, tokens, None if cents is None else float(cents))
+        lines = _size_limit(path, name, entry.get("max_changed_lines"), "max_changed_lines")
+        files = _size_limit(path, name, entry.get("max_files"), "max_files")
+        table[name] = Shape(
+            name, tokens, None if cents is None else float(cents), lines, files
+        )
     return table
+
+
+def _size_limit(path: Path, shape: str, raw: object, name: str) -> int | None:
+    """A limit on the answer's size, when the box declares one: whole, positive, or absent."""
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, int) or raw <= 0:
+        raise boxes.HarnessError(
+            f"{path}: shapes.{shape}.{name} must be a positive whole number"
+        )
+    return raw
 
 
 def _rate(path: Path, kind: str, raw: object, name: str) -> float | None:

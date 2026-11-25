@@ -1026,6 +1026,26 @@ def contains(project: Path, patch: Path) -> bool:
     return _already_applied(project, patch, _prefix(project))
 
 
+def diff_size(diff: str) -> tuple[int, int, int]:
+    """How big the answer is: files it changes, hunks it writes, lines it adds or removes.
+
+    The declared shape of a change is a statement about this size (D37): a patch is a few lines
+    in one file, a file is one file rewritten. The numbers come from the diff the model wrote,
+    not from an estimate, so "out of shape" is a fact the retry can act on.
+    """
+    files = len(touched_paths(diff))
+    hunks = 0
+    changed = 0
+    for line in diff.splitlines():
+        if line.startswith("@@"):
+            hunks += 1
+        elif line.startswith("+++") or line.startswith("---"):
+            continue
+        elif line.startswith("+") or line.startswith("-"):
+            changed += 1
+    return files, hunks, changed
+
+
 def _tree_signature(base: Path, paths: tuple[str, ...]) -> str:
     """What git says about the paths before and after: status plus the diff against HEAD."""
     status = _git(base, "status", "--porcelain", "--untracked-files=all", "--", *paths)

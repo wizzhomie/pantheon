@@ -514,6 +514,8 @@ def dispatch(
                         "name": shape.name,
                         "max_answer_tokens": shape.max_answer_tokens,
                         "max_cents": shape.max_cents,
+                        "max_changed_lines": shape.max_changed_lines,
+                        "max_files": shape.max_files,
                     }
                 )
                 notes.append(
@@ -588,6 +590,30 @@ def dispatch(
                         began,
                         rail=rail,
                     )
+                if shape is not None and proposal.patch is not None:
+                    problem = _shape_problem(shape, proposal.patch)
+                    if problem is not None:
+                        notes.append(problem)
+                        return _finish(
+                            box,
+                            task,
+                            Dispatch(
+                                task=task,
+                                state="returned",
+                                stages=stages,
+                                arch=arch,
+                                directory=directory,
+                                notes=notes,
+                                exit_code=1,
+                                proposal=proposal,
+                                resumed_from=resumed_from,
+                                context=pack,
+                                shape=shape_record,
+                            ),
+                            stamp,
+                            began,
+                            rail=rail,
+                        )
                 if no_repeat is not None and proposal.patch is not None:
                     digest = _proposal_digest(box.project, proposal.patch)
                     if digest == no_repeat:
@@ -1960,6 +1986,32 @@ def _questions(result: Dispatch) -> list[str]:
     elif not result.verify.passed:
         questions.extend(result.verify.reasons or ["the verification did not pass"])
     return questions
+
+
+def _shape_problem(shape: executor.Shape, patch: Path) -> str | None:
+    """Is the answer the size the task said it would be? A fact, not a rewrite of the answer.
+
+    The shape is the box's control on the answer's scheme (D37): a patch that restates the file
+    is not a patch, however good its lines are, and applying it would teach the box to accept
+    the wrong shape. The refusal names both numbers, so a retry knows what to shrink.
+    """
+    try:
+        text = patch.read_text(encoding="utf-8")
+    except OSError as error:
+        return f"the proposed change cannot be read, so its shape cannot be checked: {error}"
+    files, hunks, changed = caesar.diff_size(text)
+    over: list[str] = []
+    if shape.max_files is not None and files > shape.max_files:
+        over.append(f"{files} file(s) for at most {shape.max_files}")
+    if shape.max_changed_lines is not None and changed > shape.max_changed_lines:
+        over.append(f"{changed} changed line(s) for at most {shape.max_changed_lines}")
+    if not over:
+        return None
+    return (
+        f"the answer is out of shape: {shape.name}, and it carries "
+        + " and ".join(over)
+        + f" ({hunks} hunk(s)): the change was not applied"
+    )
 
 
 def _shape_line(shape: dict[str, object] | None) -> str:

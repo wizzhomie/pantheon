@@ -966,3 +966,75 @@ def test_a_task_declaring_a_shape_the_box_does_not_price_is_refused_before_the_c
     assert dispatch(box, task) == 0, "the fake change passes its checks: the run closes"
     out = capsys.readouterr().out
     assert "shape      multi — 32768 answer tokens, 6 cents" in out
+
+
+BIG_ANSWER = """\
+request = json.load(sys.stdin)
+print(json.dumps({
+    "patch": (
+        "--- a/src/app.py\\n+++ b/src/app.py\\n"
+        "@@ -1,3 +1,3 @@\\n-one\\n-two\\n-three\\n+one!\\n+two!\\n+three!\\n"
+    ),
+    "model": "fake-model",
+    "usage": {"prompt_tokens": 100, "completion_tokens": 20, "cost_cents": 0.5},
+}))
+"""
+
+
+def _longer_project(box: boxes.Box) -> None:
+    (box.project / "src" / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    subprocess.run(
+        ["git", "-C", str(box.project), "-c", "user.email=t@t", "-c", "user.name=t",
+         "commit", "-qam", "longer"],
+        check=True,
+    )
+
+
+def test_an_answer_out_of_shape_is_not_applied_and_the_retry_is_told(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The shape is a control on the answer, not a wish: a patch that rewrites the file is out.
+
+    A patch-sized task answered with a whole-file restatement is the pilot's c-d6/c-d7 failure
+    (33 copies of one hunk, cut at the cap). Applying such an answer would teach the box to
+    accept the wrong scheme, so it is refused with both numbers, and the retry gets the fact.
+    """
+    _project, box, _script, task = probe(tmp_path, BIG_ANSWER)
+    _longer_project(box)
+    (box.root / "persona" / "executor.toml").write_text(
+        (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
+        + "\n[shapes.patch]\nmax_answer_tokens = 4096\nmax_changed_lines = 1\nmax_files = 1\n",
+        encoding="utf-8",
+    )
+    text = task.read_text(encoding="utf-8")
+    task.write_text(text.replace("kind = ", 'shape = "patch"\nkind = '), encoding="utf-8")
+
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "out of shape: patch" in out
+    assert "6 changed line(s) for at most 1" in out
+    assert (box.project / "src" / "app.py").read_text() == "one\ntwo\nthree\n"
+
+    record = json.loads(next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text())
+    assert record["shape"]["max_changed_lines"] == 1
+    facts = augustus.previous_failure(record)
+    assert facts is not None and "out of shape" in str(facts["reason"])
+
+
+def test_an_answer_inside_the_shape_goes_through_the_gate(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The same answer, a shape that allows it: the gate decides, and the run closes."""
+    _project, box, _script, task = probe(tmp_path, BIG_ANSWER)
+    _longer_project(box)
+    (box.root / "persona" / "executor.toml").write_text(
+        (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
+        + "\n[shapes.file]\nmax_answer_tokens = 16384\nmax_changed_lines = 100\nmax_files = 1\n",
+        encoding="utf-8",
+    )
+    text = task.read_text(encoding="utf-8")
+    task.write_text(text.replace("kind = ", 'shape = "file"\nkind = '), encoding="utf-8")
+    assert dispatch(box, task) == 0
+    out = capsys.readouterr().out
+    assert "shape      file — 16384 answer tokens" in out
+    assert (box.project / "src" / "app.py").read_text() == "one!\ntwo!\nthree!\n"
