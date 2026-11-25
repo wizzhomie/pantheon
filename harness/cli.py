@@ -26,6 +26,7 @@ from . import (
     contour,
     debt,
     executor,
+    fluxus,
     frame,
     rails,
     records,
@@ -174,6 +175,39 @@ def _parser() -> argparse.ArgumentParser:
     )
     rails_parser.add_argument("--json", action="store_true", help="the same facts as one object")
     rails_parser.set_defaults(handler=_rails)
+
+    flow_parser = commands.add_parser(
+        "flow",
+        help="the stream: a brief, a feed of attempts, and a queue of tasks",
+        description=(
+            "A task answers whether a change passed. A stream answers what is being built and "
+            "what has already been tried: `flow` shows the brief, the queue and the feed; "
+            "`--enqueue` puts a task down, `--next` runs the oldest one, `--discard` keeps a "
+            "reason for an abandoned approach, and `--mark-read` says the verdicts were read."
+        ),
+    )
+    flow_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    flow_parser.add_argument("--brief", default=None, metavar="WHAT", help="say what is built")
+    flow_parser.add_argument("--why", default=None, help="why it is built; the brief needs both")
+    flow_parser.add_argument("--milestone", default=None, help="the milestone the brief serves")
+    flow_parser.add_argument("--enqueue", default=None, metavar="TASK", help="queue a task file")
+    flow_parser.add_argument(
+        "--next", action="store_true", help="take the oldest queued task and run it"
+    )
+    flow_parser.add_argument(
+        "--discard", default=None, metavar="TASK", help="record an attempt as abandoned"
+    )
+    flow_parser.add_argument("--reason", default=None, help="why it was queued or abandoned")
+    flow_parser.add_argument(
+        "--mark-read", action="store_true", help="mark every verdict as read"
+    )
+    flow_parser.add_argument("--by", default="owner", help="who is speaking in the record")
+    flow_parser.add_argument("--routes", default=None, help="routing table for --next")
+    flow_parser.add_argument("--trajan", default=None, help="the trajan checkout for --next")
+    flow_parser.add_argument("--python", default=None, help="the interpreter that runs trajan")
+    flow_parser.add_argument("--executor", default=None, help="the command producing the change")
+    flow_parser.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    flow_parser.set_defaults(handler=_flow)
 
     ledger_parser = commands.add_parser(
         "records",
@@ -712,6 +746,135 @@ def _delegation(value: str) -> rails.Delegation:
             f"--delegate {value!r} is not QUESTION=DEFAULT: a delegation needs both sides"
         )
     return rails.Delegation(question=question.strip(), default=default.strip())
+
+
+def _flow(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    actions = [
+        args.brief is not None,
+        args.enqueue is not None,
+        args.discard is not None,
+        args.mark_read,
+        args.next,
+    ]
+    if sum(actions) > 1:
+        raise boxes.HarnessError(
+            "one stream action at a time: a brief, an enqueue, a discard, a mark-read, or a next"
+        )
+    if args.brief is not None:
+        if not args.why:
+            raise boxes.HarnessError("a brief says what and why: `--why` is empty")
+        if not args.milestone:
+            raise boxes.HarnessError("a brief serves a milestone: `--milestone` is empty")
+        brief = fluxus.write_brief(
+            box, milestone=args.milestone, what=args.brief, why=args.why, by=args.by
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "brief": {
+                            "at": brief.at,
+                            "by": brief.by,
+                            "milestone": brief.milestone,
+                            "what": brief.what,
+                            "why": brief.why,
+                        }
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        print("\n".join(fluxus.render(box)))
+        return 0
+    if args.enqueue is not None:
+        task_id, queued = fluxus.enqueue(box, Path(args.enqueue), reason=args.reason or "")
+        if args.json:
+            print(json.dumps({"task": task_id, "queued": str(queued)}, indent=2))
+            return 0
+        print(f"queued     {task_id} -> {queued}")
+        return 0
+    if args.discard is not None:
+        entry = fluxus.discard(box, args.discard, args.reason, by=args.by)
+        if args.json:
+            print(json.dumps(entry.json(), indent=2, ensure_ascii=False))
+            return 0
+        print(f"discarded  {entry.task}  {entry.reason}")
+        return 0
+    if args.mark_read:
+        entry = fluxus.mark_read(box, by=args.by)
+        if args.json:
+            print(json.dumps(entry.json(), indent=2, ensure_ascii=False))
+            return 0
+        print(f"read       {entry.at}  by {entry.reason}")
+        return 0
+    if args.next:
+        return _flow_next(box, args)
+    if args.json:
+        print(json.dumps(fluxus.payload(box), indent=2, ensure_ascii=False))
+    else:
+        print("\n".join(fluxus.render(box)))
+    return 0
+
+
+def _flow_next(box: boxes.Box, args: argparse.Namespace) -> int:
+    path = fluxus.next_queued(box)
+    if path is None:
+        raise boxes.HarnessError(
+            "the stream's queue is empty: `pantheon flow --enqueue <task>` puts a task there"
+        )
+    held = fluxus.lock(box)
+    try:
+        task = augustus.read_task(path)
+        routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+        trajan = contour.trajan_root(args.trajan)
+        config = executor.read_config(box.root / executor.PROFILE_FILE)
+        if args.executor:
+            config = executor.ExecutorConfig(
+                path=config.path,
+                command=tuple(shlex.split(args.executor)),
+                model=config.model,
+                max_seconds=config.max_seconds,
+                max_cents=config.max_cents,
+            )
+        result = augustus.dispatch(
+            box,
+            task,
+            routes=_executor_routes(
+                augustus.read_routes(Path(routes) if routes else None), task, config
+            ),
+            trajan_root=trajan,
+            trajan_python=contour.trajan_python(trajan, args.python),
+            executor_config=config,
+            review=_declared_reviewer(box),
+        )
+        fluxus.record_verdict(box, result)
+        path.unlink(missing_ok=True)
+    finally:
+        fluxus.unlock(held)
+    if args.json:
+        payload = augustus.dispatch_json(result)
+        payload["stream"] = fluxus.payload(box)
+        print(json.dumps(payload, indent=2))
+    else:
+        print("\n".join(augustus.render_dispatch(result)))
+        print()
+        print("\n".join(fluxus.render(box)))
+    return result.exit_code
+
+
+def _declared_reviewer(box: boxes.Box) -> contour.Reviewer | None:
+    """The reader the box's own profile declares: `--next` has no flags to override it."""
+    config = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
+    if not config.enabled:
+        return None
+    return contour.box_reviewer(
+        box.root,
+        model=config.model,
+        max_cents=config.max_cents,
+        when_paths=config.when_paths,
+    )
 
 
 def _campaign(args: argparse.Namespace, root: Path) -> int:

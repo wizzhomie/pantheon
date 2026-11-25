@@ -587,10 +587,20 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
             raise boxes.HarnessError(f"cannot read the patch {task.change}: {error}") from error
         change = directory / "change.diff"
         change.write_bytes(data)
-    lines = [
+    header = [
         "# Frozen by `pantheon dispatch`: the task these artifacts belong to.",
         "# `pantheon resume` reads this file, not the original: editing the task must not",
         "# rewrite what already ran.",
+    ]
+    (directory / SNAPSHOT_FILE).write_text(
+        "\n".join(header) + "\n" + task_text(task, change=change), encoding="utf-8"
+    )
+    return replace(task, path=directory / SNAPSHOT_FILE, change=change)
+
+
+def task_text(task: Task, *, change: Path | None = None) -> str:
+    """The task as the TOML a dispatch freezes: the same fields, the change named as it is."""
+    lines = [
         f"schema_version = {SCHEMA_VERSION}",
         f"id = {_quote(task.id)}",
     ]
@@ -614,8 +624,7 @@ def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
         lines.append("records = [" + ", ".join(_quote(item) for item in task.records) + "]")
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
-    (directory / SNAPSHOT_FILE).write_text("\n".join(lines) + "\n", encoding="utf-8")
-    return replace(task, path=directory / SNAPSHOT_FILE, change=change)
+    return "\n".join(lines) + "\n"
 
 
 def resume(
