@@ -82,9 +82,7 @@ def write_task(tmp_path: Path, text: str = TASK) -> Path:
 
 def fake_executor(tmp_path: Path, body: str, name: str = "fake-executor.py") -> Path:
     script = tmp_path / name
-    script.write_text(
-        "#!/usr/bin/env python3\nimport json, sys, time\n" + body, encoding="utf-8"
-    )
+    script.write_text("#!/usr/bin/env python3\nimport json, sys, time\n" + body, encoding="utf-8")
     script.chmod(0o755)
     return script
 
@@ -104,9 +102,7 @@ def probe(tmp_path: Path, body: str, extra: str = "") -> tuple[Path, boxes.Box, 
 
 
 def dispatch(box: boxes.Box, task: Path, *extra: str) -> int:
-    return main(
-        ["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task), *extra]
-    )
+    return main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task), *extra])
 
 
 def ledger_events(box: boxes.Box) -> list[dict[str, Any]]:
@@ -187,6 +183,91 @@ def test_the_task_budget_can_lower_but_not_raise_the_box_cap(tmp_path: Path) -> 
 
 
 @requires_trajan
+def test_the_profile_can_choose_a_model_by_kind(tmp_path: Path) -> None:
+    """The table is the box's decision: an entry names the model and its rate, or neither."""
+    path = tmp_path / "executor.toml"
+    path.write_text(
+        'schema_version = 1\ncommand = "/bin/true"\nmodel = "cheap"\n'
+        '[models.docs]\nmodel = "cheap"\nprice_in = 0.15\nprice_out = 0.6\n'
+        '[models.security]\nmodel = "dear"\n',
+        encoding="utf-8",
+    )
+    config = executor.read_config(path)
+    assert config.models["docs"] == executor.ModelChoice("cheap", 0.15, 0.6)
+    assert config.models["security"] == executor.ModelChoice("dear")
+    assert executor.model_for(config, "security") == (
+        executor.ModelChoice("dear"),
+        "declared for kind security",
+    )
+    assert executor.model_for(config, "bugfix") == (
+        executor.ModelChoice("cheap"),
+        "the profile's model: no entry for kind bugfix",
+    )
+    assert executor.model_for(config, None) == (
+        executor.ModelChoice("cheap"),
+        "the profile's model: the task declared no kind",
+    )
+    assert "by kind: docs \u2192 cheap (0.15/0.6 per M), security \u2192 dear" in (
+        executor.describe(config)
+    )
+
+    plain = executor.ExecutorConfig(path=path, command=("/bin/true",), model="only")
+    assert executor.model_for(plain, "docs") == (executor.ModelChoice("only"), None)
+
+    broken = [
+        ('schema_version = 1\ncommand = "/bin/true"\nmodels = "x"\n', "models must be a table"),
+        ('schema_version = 1\ncommand = "/bin/true"\n[models.docs]\nmodel = ""\n', "models.docs"),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n'
+            '[models.docs]\nmodel = "m"\nprice_in = 0.1\n',
+            "one half of a rate",
+        ),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n'
+            '[models.docs]\nmodel = "m"\nprice_in = -1\nprice_out = 1\n',
+            "price_in",
+        ),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n[models.docs]\nmodel = "m"\nsurprise = 1\n',
+            "unknown key",
+        ),
+    ]
+    for text, match in broken:
+        path.write_text(text, encoding="utf-8")
+        with pytest.raises(boxes.HarnessError, match=match):
+            executor.read_config(path)
+
+
+def test_a_declared_kind_model_reaches_the_request_and_the_record(tmp_path: Path) -> None:
+    """The choice is a fact of the call: the command is told, priced by its own rate, and named."""
+    _project, box = make_box(tmp_path)
+    script = fake_executor(tmp_path, ANSWER)
+    write_profile(
+        box,
+        script,
+        'model = "cheap"\n[models.bugfix]\nmodel = "clever"\nprice_in = 0.5\nprice_out = 1.0\n',
+    )
+    task = augustus.read_task(write_task(tmp_path))
+    config = executor.read_config(box.root / "profile" / "executor.toml")
+
+    proposal = executor.propose(config, task, box, when=None)
+
+    request = json.loads(
+        (box.root / "artifacts" / "t-1" / "proposal-1" / "request.json").read_text()
+    )
+    assert request["model"] == "clever"
+    assert proposal.model == "fake-model", "the answer's own model still wins the field"
+    assert proposal.model_choice == "declared for kind bugfix"
+    assert proposal.data()["model_choice"] == "declared for kind bugfix"
+    assert "model clever chosen: declared for kind bugfix" in proposal.notes
+
+    env = executor._environment(config.models["bugfix"])
+    assert env is not None
+    assert env["PANTHEON_MODEL_PRICE_IN"] == "0.5"
+    assert env["PANTHEON_MODEL_PRICE_OUT"] == "1"
+    assert executor._environment(executor.ModelChoice("clever")) is None
+
+
 def test_a_declared_executor_supplies_the_patch_and_the_bill(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -288,7 +369,7 @@ def test_an_answer_that_costs_more_than_the_budget_is_recorded_not_applied(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     body = (
-        'request = json.load(sys.stdin)\n'
+        "request = json.load(sys.stdin)\n"
         'print(json.dumps({"patch": "--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n'
         '-value = 1\\n+value = 2\\n", "usage": {"prompt_tokens": 10, '
         '"completion_tokens": 5, "cost_cents": 9.0}}))\n'
@@ -306,8 +387,8 @@ def test_an_executor_that_writes_to_the_project_behind_the_gate_is_caught(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     body = (
-        'request = json.load(sys.stdin)\n'
-        'from pathlib import Path\n'
+        "request = json.load(sys.stdin)\n"
+        "from pathlib import Path\n"
         'Path(request["project"]["path"], "src", "app.py").write_text("value = 99\\n")\n'
         'print(json.dumps({"patch": "--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n'
         '-value = 99\\n+value = 2\\n", "usage": {"prompt_tokens": 1, '
@@ -347,9 +428,7 @@ def test_a_task_carrying_a_patch_does_not_ask_the_executor(
     patch.write_text(git(project, "diff", "--cached"), encoding="utf-8")
     git(project, "reset", "-q")
     git(project, "checkout", "--", ".")
-    task = write_task(
-        tmp_path, TASK.replace("[budget]", f'change = "{patch}"\n\n[budget]')
-    )
+    task = write_task(tmp_path, TASK.replace("[budget]", f'change = "{patch}"\n\n[budget]'))
     assert dispatch(box, task) == 0
     out = capsys.readouterr().out
     assert "executor   not run" in out and "attempt    applied" in out
@@ -360,8 +439,8 @@ def test_a_patch_file_written_into_the_record_directory_is_accepted(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     body = (
-        'request = json.load(sys.stdin)\n'
-        'from pathlib import Path\n'
+        "request = json.load(sys.stdin)\n"
+        "from pathlib import Path\n"
         'Path(request["record"]["directory"], "answer.diff").write_text('
         '"--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n-value = 1\\n+value = 2\\n")\n'
         'print(json.dumps({"patch_file": "answer.diff", "usage": '

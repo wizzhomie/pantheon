@@ -23,11 +23,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import shlex
 import subprocess
 import time
 import tomllib
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Protocol
@@ -37,7 +38,9 @@ from . import box as boxes
 SCHEMA_VERSION = 1
 PROFILE_FILE = Path("profile") / "executor.toml"
 EXAMPLE_FILE = Path("profile") / "executor.toml.example"
-CONFIG_KEYS = frozenset({"schema_version", "command", "model", "max_seconds", "max_cents"})
+CONFIG_KEYS = frozenset(
+    {"schema_version", "command", "model", "models", "max_seconds", "max_cents"}
+)
 USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "cost_cents"})
 ANSWER_KEYS = frozenset(
     {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error", "reading"}
@@ -76,6 +79,14 @@ EXAMPLE = """\
 # model = "deepseek-flash"
 # max_seconds = 300
 # max_cents = 5
+#
+# A kind of task may ask for another model: the table is the box's decision, and the
+# record says which entry was taken. A kind without an entry uses `model`.
+# The rate card is per entry, in dollars per million tokens: the box declares what a
+# model costs, so the bill of a model chosen here is not priced by another model's rate.
+# [models]
+# docs = { model = "deepseek-chat", price_in = 0.15, price_out = 0.60 }
+# security = { model = "deepseek-reasoner" }
 """
 
 
@@ -121,6 +132,15 @@ class _Malformed(Exception):
 
 
 @dataclass(frozen=True, slots=True)
+class ModelChoice:
+    """One model the box may ask for, with the rate the box declares for it."""
+
+    model: str
+    price_in: float | None = None
+    price_out: float | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutorConfig:
     """What the box declared: the command, its model name, and the limits it may spend."""
 
@@ -129,6 +149,8 @@ class ExecutorConfig:
     model: str | None = None
     max_seconds: int = DEFAULT_SECONDS
     max_cents: float | None = None
+    models: dict[str, ModelChoice] = field(default_factory=dict)
+    """Which model a kind of task asks for: the box's decision, not the model's own."""
 
     @property
     def declared(self) -> bool:
@@ -165,6 +187,8 @@ class Proposal:
     model: str | None = None
     notes: tuple[str, ...] = ()
     reading: dict[str, object] | None = None
+    model_choice: str | None = None
+    """Why this model: a declared kind entry or the profile's default, as the box decided."""
 
     @property
     def usable(self) -> bool:
@@ -178,9 +202,7 @@ class Proposal:
         else:
             usage = self.usage
             money = (
-                "cost not reported"
-                if usage.cost_cents is None
-                else f"{usage.cost_cents:.2f} cents"
+                "cost not reported" if usage.cost_cents is None else f"{usage.cost_cents:.2f} cents"
             )
             text = (
                 f"{self.status} — {usage.model or 'model not named'}, "
@@ -210,6 +232,7 @@ class Proposal:
             "seconds": None if usage is None else usage.seconds,
             "proposal": f"proposal-{self.number}",
             "reading": self.reading,
+            "model_choice": self.model_choice,
         }
 
 
@@ -244,6 +267,7 @@ def proposal_json(proposal: Proposal) -> dict[str, object]:
         "patch": None if proposal.patch is None else str(proposal.patch),
         "notes": list(proposal.notes),
         "reading": proposal.reading,
+        "model_choice": proposal.model_choice,
     }
 
 
@@ -273,6 +297,7 @@ def read_config(path: Path) -> ExecutorConfig:
     model = data.get("model")
     if model is not None and (not isinstance(model, str) or not model.strip()):
         raise boxes.HarnessError(f"{path}: model must be a non-empty string")
+    models = _models(path, data.get("models"))
     seconds = data.get("max_seconds", DEFAULT_SECONDS)
     if isinstance(seconds, bool) or not isinstance(seconds, int) or seconds <= 0:
         raise boxes.HarnessError(f"{path}: max_seconds must be a positive whole number")
@@ -288,9 +313,85 @@ def read_config(path: Path) -> ExecutorConfig:
         path=path,
         command=command,
         model=model.strip() if isinstance(model, str) else None,
+        models=models,
         max_seconds=seconds,
         max_cents=cents,
     )
+
+
+def _models(path: Path, raw: object) -> dict[str, ModelChoice]:
+    """The kind table: every entry names a model, and its rate is the box's declaration too."""
+    if raw is None:
+        return {}
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(
+            f'{path}: models must be a table of kind = {{ model = "..." }} entries'
+        )
+    table: dict[str, ModelChoice] = {}
+    for kind, entry in raw.items():
+        if not isinstance(kind, str) or not kind.strip():
+            raise boxes.HarnessError(f"{path}: models has a key that is not a kind name")
+        name = entry.get("model") if isinstance(entry, dict) else None
+        if not isinstance(name, str) or not name.strip():
+            raise boxes.HarnessError(
+                f"{path}: models.{kind} must be a table with a non-empty model"
+            )
+        extra = set(entry) - {"model", "price_in", "price_out"}
+        if extra:
+            raise boxes.HarnessError(
+                f"{path}: models.{kind} has unknown key(s) {', '.join(sorted(extra))}"
+            )
+        price_in = _rate(path, kind, entry.get("price_in"), "price_in")
+        price_out = _rate(path, kind, entry.get("price_out"), "price_out")
+        if (price_in is None) != (price_out is None):
+            raise boxes.HarnessError(
+                f"{path}: models.{kind} declares one half of a rate: name both price_in and "
+                "price_out, or neither"
+            )
+        table[kind.strip()] = ModelChoice(name.strip(), price_in, price_out)
+    return table
+
+
+def _rate(path: Path, kind: str, raw: object, name: str) -> float | None:
+    if raw is None:
+        return None
+    if isinstance(raw, bool) or not isinstance(raw, (int, float)) or raw < 0:
+        raise boxes.HarnessError(
+            f"{path}: models.{kind}.{name} must be a non-negative number of dollars per million"
+        )
+    return float(raw)
+
+
+def model_for(config: ExecutorConfig, kind: str | None) -> tuple[ModelChoice | None, str | None]:
+    """The model this task asks for, and the reason the box chose it.
+
+    The table decides by the task's declared kind; a kind without an entry (or a task that
+    declared none) uses the profile's model. The reason travels with the record: a choice
+    nobody can read afterwards is indistinguishable from the default.
+    """
+    default = ModelChoice(config.model) if config.model is not None else None
+    if kind is not None and kind in config.models:
+        return config.models[kind], f"declared for kind {kind}"
+    if not config.models:
+        return default, None
+    if kind is None:
+        return default, "the profile's model: the task declared no kind"
+    return default, f"the profile's model: no entry for kind {kind}"
+
+
+def _environment(choice: ModelChoice | None) -> dict[str, str] | None:
+    """The call's environment, with the entry's rate when the box declared one.
+
+    The adapter prices the call from ``PANTHEON_MODEL_PRICE_IN/OUT``; a model chosen by the
+    table must not be priced by the run's default rate. ``None`` keeps the inherited
+    environment, which is what a box with no declared rate expects.
+    """
+    if choice is None or choice.price_in is None or choice.price_out is None:
+        return None
+    env = dict(os.environ)
+    env["PANTHEON_MODEL_PRICE_IN"] = f"{choice.price_in:g}"
+    env["PANTHEON_MODEL_PRICE_OUT"] = f"{choice.price_out:g}"
+    return env
 
 
 def limits(config: ExecutorConfig, budget: dict[str, int]) -> tuple[int, float | None]:
@@ -312,6 +413,17 @@ def describe(config: ExecutorConfig) -> str:
     bits: list[str] = []
     if config.model is not None:
         bits.append(f"model {config.model}")
+    if config.models:
+        per_kind = ", ".join(
+            f"{kind} → {choice.model}"
+            + (
+                ""
+                if choice.price_in is None
+                else f" ({choice.price_in:g}/{choice.price_out:g} per M)"
+            )
+            for kind, choice in sorted(config.models.items())
+        )
+        bits.append(f"by kind: {per_kind}")
     bits.append(f"max {config.max_seconds} s")
     if config.max_cents is not None:
         bits.append(f"{config.max_cents:g} cents")
@@ -335,8 +447,10 @@ def propose(
     directory.mkdir(parents=True, exist_ok=True)
     seconds, cents = limits(config, task.budget)
     read_chars = task.budget.get("max_read_chars")
+    chosen, reason = model_for(config, task.kind)
+    model = chosen.model if chosen is not None else None
     request = _request(
-        task, box, directory, number, config, seconds, cents, context, previous, read_chars
+        task, box, directory, number, model, seconds, cents, context, previous, read_chars
     )
     (directory / "request.json").write_text(
         json.dumps(request, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
@@ -352,6 +466,7 @@ def propose(
             check=False,
             cwd=str(box.project),
             timeout=float(seconds),
+            env=_environment(chosen),
         )
     except subprocess.TimeoutExpired:
         elapsed = time.monotonic() - started
@@ -364,9 +479,10 @@ def propose(
             f"the executor did not answer within {seconds} s: the attempt was stopped",
             None,
             Usage(None, None, None, None, round(elapsed, 1)),
-            config.model,
+            model,
             stamp,
             [],
+            choice=reason,
         )
     except (OSError, subprocess.SubprocessError) as error:
         _write_call(directory, "", "")
@@ -378,15 +494,16 @@ def propose(
             f"the executor could not be started: {error}",
             None,
             None,
-            config.model,
+            model,
             stamp,
             [],
+            choice=reason,
         )
     elapsed = time.monotonic() - started
     _write_call(directory, done.stdout, done.stderr)
     try:
         patch, usage, answer_model, answer_notes, reading = _read_answer(
-            done, directory, elapsed, config
+            done, directory, elapsed, model
         )
     except _Malformed as error:
         return _record(
@@ -397,11 +514,14 @@ def propose(
             str(error),
             None,
             error.usage,
-            config.model,
+            model,
             stamp,
             [],
+            choice=reason,
         )
     notes = list(answer_notes)
+    if model is not None and reason is not None:
+        notes.append(f"model {model} chosen: {reason}")
     if before is None:
         notes.append(
             "the project is not a git repository: a direct write by the executor could not "
@@ -421,6 +541,7 @@ def propose(
             answer_model,
             stamp,
             notes,
+            choice=reason,
         )
     if cents is not None and usage is not None and usage.cost_cents is not None:
         if usage.cost_cents > cents:
@@ -436,6 +557,7 @@ def propose(
                 answer_model,
                 stamp,
                 notes,
+                choice=reason,
             )
     elif usage is not None and usage.cost_cents is None and cents is not None:
         notes.append(
@@ -445,8 +567,18 @@ def propose(
     if cents is None:
         notes.append("no cent limit is declared: the cost of this call is recorded, not bounded")
     return _record(
-        directory, task, number, "ok", "", patch, usage, answer_model, stamp, notes,
+        directory,
+        task,
+        number,
+        "ok",
+        "",
+        patch,
+        usage,
+        answer_model,
+        stamp,
+        notes,
         reading=reading,
+        choice=reason,
     )
 
 
@@ -484,7 +616,7 @@ def _request(
     box: boxes.Box,
     directory: Path,
     number: int,
-    config: ExecutorConfig,
+    model: str | None,
     seconds: int,
     cents: float | None,
     context: dict[str, object] | None = None,
@@ -508,7 +640,7 @@ def _request(
         "project": {"path": str(box.project)},
         "box": {"name": box.name, "root": str(box.root)},
         "record": {"directory": str(directory)},
-        "model": config.model,
+        "model": model,
         "context": context,
         "previous": previous,
         "limits": {
@@ -523,7 +655,7 @@ def _read_answer(
     done: subprocess.CompletedProcess[str],
     directory: Path,
     elapsed: float,
-    config: ExecutorConfig,
+    model: str | None,
 ) -> tuple[Path, Usage, str | None, tuple[str, ...], dict[str, object] | None]:
     """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore."""
     text = done.stdout.strip()
@@ -542,10 +674,10 @@ def _read_answer(
     unknown = set(data) - ANSWER_KEYS
     if unknown:
         raise _Malformed(f"the executor's answer has unknown key(s) {', '.join(sorted(unknown))}")
-    model = data.get("model")
-    if model is not None and not isinstance(model, str):
+    reported = data.get("model")
+    if reported is not None and not isinstance(reported, str):
         raise _Malformed("the executor's answer: model must be a string")
-    answer_model = model if isinstance(model, str) else config.model
+    answer_model = reported if isinstance(reported, str) else model
     if "error" in data:
         usage = _usage(data.get("usage"), elapsed, answer_model)
         raise _Malformed(f"the executor failed: {data['error']}", usage=usage)
@@ -568,9 +700,7 @@ def _reading(raw: object) -> dict[str, object] | None:
     table: dict[str, object] = {str(key): value for key, value in raw.items()}
     unknown = set(table) - READING_KEYS
     if unknown:
-        raise _Malformed(
-            f"the executor's reading has unknown key(s) {', '.join(sorted(unknown))}"
-        )
+        raise _Malformed(f"the executor's reading has unknown key(s) {', '.join(sorted(unknown))}")
     for name in ("files", "chars", "tokens_estimate"):
         value = _count(table.get(name), f"reading.{name}")
         if value is None:
@@ -683,6 +813,7 @@ def _record(
     notes: list[str],
     *,
     reading: dict[str, object] | None = None,
+    choice: str | None = None,
 ) -> Proposal:
     """Every outcome gets a record: a failed call is part of the task's history too."""
     digest = hashlib.sha256(patch.read_bytes()).hexdigest() if patch is not None else None
@@ -694,6 +825,7 @@ def _record(
         "reason": reason,
         "at": _stamp(when),
         "model": model,
+        "model_choice": choice,
         "usage": None
         if usage is None
         else {
@@ -702,15 +834,11 @@ def _record(
             "cost_cents": usage.cost_cents,
             "seconds": usage.seconds,
         },
-        "patch": None
-        if digest is None
-        else {"file": "change.diff", "digest": f"sha256:{digest}"},
+        "patch": None if digest is None else {"file": "change.diff", "digest": f"sha256:{digest}"},
         "notes": notes,
         "reading": reading,
     }
-    (directory / "proposal.json").write_text(
-        json.dumps(payload, indent=2) + "\n", encoding="utf-8"
-    )
+    (directory / "proposal.json").write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     return Proposal(
         status=status,
         reason=reason,
@@ -721,6 +849,7 @@ def _record(
         model=model,
         notes=tuple(notes),
         reading=reading,
+        model_choice=choice,
     )
 
 
