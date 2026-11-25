@@ -109,3 +109,84 @@ def test_status_says_who_reads_by_default(
     write(box.root, 'schema_version = 1\nenabled = true\nmodel = "deepseek-chat"\n')
     assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
     assert "read by deepseek-chat" in capsys.readouterr().out
+    write(
+        box.root,
+        'schema_version = 1\nenabled = true\nmodel = "deepseek-chat"\n'
+        'when_paths = ["src/**"]\n',
+    )
+    assert main(["--boxes", str(box.root.parent), "status", box.name]) == 0
+    out = capsys.readouterr().out
+    assert "changes touching src/** are read" in out
+    assert "other changes are not read" in out
+
+
+def test_declared_paths_narrow_the_reading_and_are_described(tmp_path: Path) -> None:
+    config = reviewer.read_config(
+        write(
+            tmp_path,
+            'schema_version = 1\nenabled = true\nmodel = "m"\nmax_cents = 1\n'
+            'when_paths = ["src/**", "tests/**"]\n',
+        )
+    )
+    assert config.when_paths == ("src/**", "tests/**")
+    line = reviewer.describe(config)
+    assert "changes touching src/**, tests/** are read" in line
+    assert "other changes are not read" in line
+
+
+@pytest.mark.parametrize(
+    ("text", "message"),
+    [
+        ("schema_version = 1\nenabled = true\nwhen_paths = \"src/**\"\n", "list of glob"),
+        ("schema_version = 1\nenabled = true\nwhen_paths = [\"\"]\n", "relative non-empty"),
+        ("schema_version = 1\nenabled = true\nwhen_paths = [\"/etc/**\"]\n", "relative non-empty"),
+        ("schema_version = 1\nenabled = true\nwhen_paths = [\"../x\"]\n", "relative non-empty"),
+    ],
+)
+def test_declared_paths_that_cannot_be_understood_are_refused(
+    tmp_path: Path, text: str, message: str
+) -> None:
+    with pytest.raises(boxes.HarnessError, match=message):
+        reviewer.read_config(write(tmp_path, text))
+
+
+def test_the_reader_declines_a_change_outside_its_declared_paths() -> None:
+    from harness import contour
+
+    reader = contour.Reviewer(spec="x", env={}, when_paths=("src/**",))
+    assert reader.declines(("docs/note.md",)) is not None
+    assert "declared: src/**" in str(reader.declines(("docs/note.md",)))
+    assert reader.declines(("src/app.py",)) is None
+    assert contour.Reviewer(spec="x", env={}).declines(("docs/note.md",)) is None
+    unknown = contour.Reviewer(spec="x", env={}, when_paths=("src/**",))
+    assert unknown.declines(()) is None, "a change with no readable paths is read, not skipped"
+
+
+def test_the_review_flag_ignores_the_declared_paths(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from argparse import Namespace
+
+    from harness import cli, contour
+
+    project = tmp_path / "probe"
+    project.mkdir()
+    box = boxes.new_box(tmp_path / "boxes", project)
+    write(box.root, 'schema_version = 1\nenabled = true\nwhen_paths = ["src/**"]\n')
+    def build(
+        _root: Path,
+        *,
+        model: str | None = None,
+        seconds: int | None = None,
+        max_cents: float | None = None,
+        when_paths: tuple[str, ...] = (),
+    ) -> contour.Reviewer:
+        return contour.Reviewer(spec="x", env={}, when_paths=when_paths)
+
+    monkeypatch.setattr(contour, "box_reviewer", build)
+    plain = Namespace(review=False, no_review=False, review_model=None, review_seconds=None)
+    asked = Namespace(review=True, no_review=False, review_model=None, review_seconds=None)
+    plain_reader = cli._reviewer(plain, box)
+    asked_reader = cli._reviewer(asked, box)
+    assert plain_reader is not None and plain_reader.when_paths == ("src/**",)
+    assert asked_reader is not None and asked_reader.when_paths == ()

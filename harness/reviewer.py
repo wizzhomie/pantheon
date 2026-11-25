@@ -13,6 +13,9 @@ Three rules keep this from becoming quiet spending:
   is recorded and the gap is named — the call happened, so pretending it did not is worse.
 * **a flag wins over the file.** ``--review`` reads once, ``--no-review`` refuses for one run;
   the file says what usually happens, the flag says what happens now.
+* **a declared path is a declared skip.** ``when_paths`` narrows reading to the changes whose
+  paths match; a change it does not match is not read, and the record says so with the reason —
+  a saving that looked like a reading would be the quietest kind of gap.
 """
 
 from __future__ import annotations
@@ -26,7 +29,7 @@ from . import box as boxes
 SCHEMA_VERSION = 1
 PROFILE_FILE = Path("profile") / "reviewer.toml"
 EXAMPLE_FILE = Path("profile") / "reviewer.toml.example"
-CONFIG_KEYS = frozenset({"schema_version", "enabled", "model", "max_cents"})
+CONFIG_KEYS = frozenset({"schema_version", "enabled", "model", "max_cents", "when_paths"})
 
 EXAMPLE = """\
 # To make every dispatch read the change it produced, copy this file to
@@ -41,6 +44,9 @@ EXAMPLE = """\
 # enabled = true
 # model = "deepseek-flash"
 # max_cents = 1
+# Read only changes that touch these paths; leave the key out to read every change.
+# A change outside the list is not read, and the record and outbox say so.
+# when_paths = ["src/**", "tests/**"]
 """
 
 
@@ -52,6 +58,8 @@ class Config:
     enabled: bool = False
     model: str | None = None
     max_cents: float | None = None
+    when_paths: tuple[str, ...] = ()
+    """The paths whose changes are read. Empty means "every change", not "no change"."""
 
     @property
     def declared(self) -> bool:
@@ -85,7 +93,22 @@ def read_config(path: Path) -> Config:
         if isinstance(cents, bool) or not isinstance(cents, (int, float)) or cents <= 0:
             raise boxes.HarnessError(f"{path}: max_cents must be a positive number")
         cents = float(cents)
-    return Config(path=path, enabled=enabled, model=model, max_cents=cents)
+    when_paths = _paths(path, data.get("when_paths", []))
+    return Config(
+        path=path, enabled=enabled, model=model, max_cents=cents, when_paths=when_paths
+    )
+
+
+def _paths(path: Path, raw: object) -> tuple[str, ...]:
+    """The declared paths, checked for shape: an empty or absolute pattern reads nothing."""
+    if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
+        raise boxes.HarnessError(f"{path}: when_paths must be a list of glob strings")
+    for item in raw:
+        if not item.strip() or item.startswith("/") or ".." in item.split("/"):
+            raise boxes.HarnessError(
+                f"{path}: when_paths entry {item!r} must be a relative non-empty glob"
+            )
+    return tuple(item.strip() for item in raw)
 
 
 def describe(config: Config) -> str:
@@ -95,6 +118,12 @@ def describe(config: Config) -> str:
     if not config.enabled:
         return "declared, switched off — `--review` reads a change once"
     model = config.model or "the box's default model"
+    if config.when_paths:
+        subject = f"changes touching {', '.join(config.when_paths)} are"
+        tail = "; other changes are not read"
+    else:
+        subject = "every dispatch is"
+        tail = ""
     if config.max_cents is None:
-        return f"on — every dispatch is read by {model}, no declared ceiling"
-    return f"on — every dispatch is read by {model}, up to {config.max_cents:g} cents"
+        return f"on — {subject} read by {model}, no declared ceiling{tail}"
+    return f"on — {subject} read by {model}, up to {config.max_cents:g} cents{tail}"

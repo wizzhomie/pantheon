@@ -99,6 +99,9 @@ class Dispatch:
     review_cap: float | None = None
     """The ceiling the box declared for one reading, when it declared one."""
 
+    review_skipped: str | None = None
+    """Why the change was not read by declaration, when the box reads only some paths."""
+
     commit: caesar.Commit | None = None
     """What became of the commit after the verdict: made, skipped with a reason, or failed."""
 
@@ -316,6 +319,8 @@ def dispatch(
     arch: aurelius.Result | None = None
     attempt: caesar.Attempt | None = None
     verify: contour.VerifyResult | None = None
+    reader: contour.Reviewer | None = None
+    skipped = ""
     change: Path | None = task.change
     contract_path = _write_contract(box.root, task)
     _event(
@@ -451,8 +456,8 @@ def dispatch(
             change = attempt.directory / "change.diff"
 
     if "verify" in stages:
-        reader = review if change is not None else None
-        if review is not None and reader is None:
+        reader, skipped = _reader_for(review, change, notes)
+        if review is not None and reader is None and not skipped:
             notes.append(
                 "--review asked for a reader, but this task produced no change to read: the "
                 "checks ran alone"
@@ -484,7 +489,8 @@ def dispatch(
             exit_code=0 if state == "closed" else 1,
             proposal=proposal,
             resumed_from=resumed_from,
-            review_cap=None if review is None else review.max_cents,
+            review_cap=None if reader is None else reader.max_cents,
+            review_skipped=skipped or None,
             context=pack,
         ),
         stamp,
@@ -708,8 +714,8 @@ def resume(
                 stamp,
             )
 
-    reader = review if patch is not None else None
-    if review is not None and reader is None:
+    reader, skipped = _reader_for(review, patch, notes)
+    if review is not None and reader is None and not skipped:
         notes.append(
             "--review asked for a reader, but the recorded change is gone: the checks ran alone"
         )
@@ -736,10 +742,34 @@ def resume(
             exit_code=0 if state == "closed" else 1,
             proposal=proposal,
             resumed_from=source,
-            review_cap=None if review is None else review.max_cents,
+            review_cap=None if reader is None else reader.max_cents,
+            review_skipped=skipped or None,
         ),
         stamp,
     )
+
+
+def _reader_for(
+    review: contour.Reviewer | None, change: Path | None, notes: list[str]
+) -> tuple[contour.Reviewer | None, str]:
+    """The reader, or the reason this change is not read by the box's own declaration.
+
+    The decision is made on the paths the change actually touches, read from the change file
+    the gate wrote. A delegated choice ("read only src/**") is recorded with its reason: a
+    saving that looked like a reading would be the quietest kind of gap.
+    """
+    if review is None or change is None or not review.when_paths:
+        return review, ""
+    try:
+        touched = caesar.touched_paths(change.read_text(encoding="utf-8"))
+    except OSError as error:
+        notes.append(f"the change could not be read to decide what to read: {error}")
+        return review, ""
+    reason = review.declines(touched)
+    if reason is None:
+        return review, ""
+    notes.append(f"the change was not read: {reason}")
+    return None, reason
 
 
 def _verify(
@@ -1037,7 +1067,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"reading    {_reading_line(result.proposal)}",
         f"context    {_context_line(result.context)}",
         f"attempt    {_attempt_line(result.attempt)}",
-        f"verify     {_verify_line(result.verify)}",
+        f"verify     {_verify_line(result.verify, result.review_skipped)}",
         f"commit     {_commit_line(result.commit)}",
         f"state      {result.state}",
     ]
@@ -1094,6 +1124,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "state": result.state,
         "resumed_from": None if result.resumed_from is None else str(result.resumed_from),
         "review_cap": result.review_cap,
+        "review_skipped": result.review_skipped,
         "unknowns": _unknowns(result),
         "notes": list(result.notes),
         "outbox": None if result.outbox is None else str(result.outbox),
@@ -1183,6 +1214,7 @@ def _finish(box: boxes.Box, task: Task, result: Dispatch, when: datetime) -> Dis
         proposal=result.proposal,
         resumed_from=result.resumed_from,
         review_cap=result.review_cap,
+        review_skipped=result.review_skipped,
         context=result.context,
         repeated=result.repeated,
     )
@@ -1215,7 +1247,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- executor: {_executor_line(result.proposal)}",
         f"- context: {_context_line(result.context)}",
         f"- write gate: {_attempt_line(result.attempt)}",
-        f"- verification: {_verify_line(result.verify)}",
+        f"- verification: {_verify_line(result.verify, result.review_skipped)}",
         f"- commit: {_commit_line(result.commit)}",
         "",
         "## what we did not check",
@@ -1265,7 +1297,11 @@ def _unknowns(result: Dispatch) -> list[str]:
                 f"({result.verify.reused_from})"
             )
         review = result.verify.review
-        if review is None:
+        if result.review_skipped is not None:
+            unknown.append(
+                f"the change was not read by declaration: {result.review_skipped}"
+            )
+        elif review is None:
             unknown.append(
                 "no reviewer read the change: the verdict is about the checks, not about what "
                 "the change does"
@@ -1412,7 +1448,9 @@ def _attempt_line(result: caesar.Attempt | None) -> str:
     return f"{result.status} (attempt {result.number}, {len(result.paths)} path(s)){suffix}"
 
 
-def _verify_line(result: contour.VerifyResult | None) -> str:
+def _verify_line(
+    result: contour.VerifyResult | None, skipped: str | None = None
+) -> str:
     if result is None:
         return "not run"
     line = f"{result.status} ({result.checks} checks, report {result.report})"
@@ -1422,6 +1460,8 @@ def _verify_line(result: contour.VerifyResult | None) -> str:
         line += f", reused from {result.reused_from}"
     if result.review is not None:
         line += f"; read by {result.review.line()}"
+    elif skipped:
+        line += f"; not read by declaration ({skipped})"
     elif not result.reviewed:
         line += "; the change was not read"
     return line

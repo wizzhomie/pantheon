@@ -25,6 +25,7 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import box as boxes
+from . import caesar
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TRAJAN_ENV = "PANTHEON_TRAJAN"
@@ -135,6 +136,26 @@ class Reviewer:
     spec: str
     env: dict[str, str]
     max_cents: float | None = None
+    when_paths: tuple[str, ...] = ()
+    """The changes this reader reads by declaration. Empty means every change."""
+
+    def declines(self, paths: tuple[str, ...]) -> str | None:
+        """Why this change is not read, or ``None``: the box may read only some paths.
+
+        Only touched paths decide: a path list that cannot be read is not a reason to skip,
+        because "I could not tell" must not spend like "I decided not to read".
+        """
+        if not self.when_paths or not paths:
+            return None
+        if any(
+            caesar.matches(pattern, path) for pattern in self.when_paths for path in paths
+        ):
+            return None
+        return (
+            "the change touches no path this box reads (declared: "
+            + ", ".join(self.when_paths)
+            + ")"
+        )
 
 
 def box_reviewer(
@@ -143,6 +164,7 @@ def box_reviewer(
     model: str | None = None,
     seconds: int | None = None,
     max_cents: float | None = None,
+    when_paths: tuple[str, ...] = (),
 ) -> Reviewer:
     """The box's agent as a reviewer. Opt-in: a review is a paid call, never a default."""
     wait = seconds or REVIEW_DEFAULT_SECONDS
@@ -156,6 +178,7 @@ def box_reviewer(
             REVIEW_SECONDS_ENV: str(wait),
         },
         max_cents=max_cents,
+        when_paths=when_paths,
     )
 
 

@@ -347,3 +347,49 @@ def test_a_gated_change_outside_the_docs_scope_returns_the_task(
     out = capsys.readouterr().out
     assert "state      returned" in out and "outside-scope" in out
     assert not list((box.root / "artifacts" / "t-1").glob("verify-*"))
+
+
+@requires_trajan
+def test_a_declared_path_decides_whether_the_change_is_read(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project, box = make_box(tmp_path)
+    (project / "docs").mkdir()
+    (project / "docs" / "note.md").write_text("one\n", encoding="utf-8")
+    git(project, "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "docs")
+    (project / "docs" / "note.md").write_text("two\n", encoding="utf-8")
+    git(project, "add", "-A")
+    patch = tmp_path / "docs.diff"
+    patch.write_text(git(project, "diff", "--cached"), encoding="utf-8")
+    git(project, "reset", "-q")
+    git(project, "checkout", "--", ".")
+    (box.root / "profile").mkdir(parents=True, exist_ok=True)
+    (box.root / "profile" / "reviewer.toml").write_text(
+        "schema_version = 1\nenabled = true\nmax_cents = 1\nwhen_paths = [\"src/**\"]\n",
+        encoding="utf-8",
+    )
+    task = write_task(
+        tmp_path,
+        TASK.replace('kind = "bugfix"', 'kind = "docs"')
+        .replace('paths = ["src/**"]', 'paths = ["docs/**"]')
+        + f'change = "{patch}"\n',
+    )
+    assert main(["--boxes", str(box.root.parent), "dispatch", "probe", "--task", str(task)]) == 0
+    out = capsys.readouterr().out
+    assert "not read by declaration" in out
+    assert "the change touches no path this box reads (declared: src/**)" in out
+
+    record = json.loads(
+        next((box.root / "artifacts" / "t-1").glob("dispatch-*.json")).read_text(
+            encoding="utf-8"
+        )
+    )
+    assert record["verify"]["review"] is None
+    assert record["review_cap"] is None
+    assert "src/**" in record["review_skipped"]
+    outbox = next((box.root / "outbox").glob("*.md")).read_text(encoding="utf-8")
+    assert "not read by declaration" in outbox
+    assert "not read by declaration" in "\n".join(
+        line for line in outbox.splitlines() if line.startswith("- ")
+    )

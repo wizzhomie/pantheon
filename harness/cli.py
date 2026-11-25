@@ -802,6 +802,8 @@ def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | No
         model=args.review_model or config.model,
         seconds=args.review_seconds,
         max_cents=config.max_cents,
+        # `--review` means "read this one": a declared path list narrows the file, not the flag.
+        when_paths=() if getattr(args, "review", False) else config.when_paths,
     )
 
 
