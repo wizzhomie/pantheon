@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import time
 import tomllib
 from dataclasses import dataclass, field, replace
@@ -47,6 +48,8 @@ TASK_KEYS = frozenset(
         "self_check",
         "shape",
         "max_steps",
+        "parent",
+        "why",
     }
 )
 MODES = ("manual", "auto")
@@ -138,6 +141,17 @@ class Task:
     a task that has used its calls is stopped before another model call, with the reason in
     the record, instead of being asked again into the same wall.
     """
+
+    parent: str | None = None
+    """The task this one succeeds, when the plan changed instead of being rewritten.
+
+    A task is frozen beside its record: widening its scope or budget means a new task that
+    names the old one, so "why did this get bigger" never depends on memory. The parent is an
+    id, not a copy: the old task keeps its own record and verdict.
+    """
+
+    why: str | None = None
+    """Why the successor differs: written by ``pantheon amend`` with the diff it recorded."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -331,6 +345,23 @@ def read_task(path: Path) -> Task:
         if isinstance(steps_raw, bool) or not isinstance(steps_raw, int) or steps_raw <= 0:
             raise boxes.HarnessError(f"{path}: max_steps must be a positive whole number")
         max_steps = steps_raw
+    parent = _text(data.get("parent"))
+    why = _text(data.get("why"))
+    for key, value in (("parent", data.get("parent")), ("why", data.get("why"))):
+        if value is not None and not isinstance(value, str):
+            raise boxes.HarnessError(f"{path}: {key} must be a string")
+    if parent is None and why is not None:
+        raise boxes.HarnessError(
+            f"{path}: why names the reason for a successor, but no parent is declared: "
+            "a task that stands alone does not need to say what it replaces"
+        )
+    if parent is not None and why is None:
+        raise boxes.HarnessError(
+            f"{path}: parent is declared without why: an amendment that does not say what "
+            "changed and why is an unrecorded rewrite"
+        )
+    if parent == identifier:
+        raise boxes.HarnessError(f"{path}: a task cannot be its own parent")
     return Task(
         path=path,
         id=identifier,
@@ -350,6 +381,8 @@ def read_task(path: Path) -> Task:
         self_check=tuple(item.strip() for item in self_check_raw),
         shape=shape if isinstance(shape, str) else None,
         max_steps=max_steps,
+        parent=parent,
+        why=why,
     )
 
 
@@ -787,6 +820,22 @@ def dispatch(
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     directory = box.root / "tabularium" / task.id
     directory.mkdir(parents=True, exist_ok=True)
+    parked = _parked(box.root, task.id)
+    if parked is not None:
+        reason = str(parked.get("why") or "no reason recorded")
+        detail = (
+            f"the task is parked ({reason}): it does not run. `pantheon amend` writes a "
+            "successor that names it; parking is not a pause button"
+        )
+        _event(box.root, stamp, "task.refused", task, detail)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[detail],
+            exit_code=1,
+        )
     blocked = refusal(task, routes, driven=driven)
     if blocked is not None:
         _event(box.root, stamp, "task.refused", task, blocked)
@@ -1367,6 +1416,10 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         f"schema_version = {SCHEMA_VERSION}",
         f"id = {_quote(task.id)}",
     ]
+    if task.parent is not None:
+        lines.append(f"parent = {_quote(task.parent)}")
+    if task.why is not None:
+        lines.append(f"why = {_quote(task.why)}")
     for key, value in (("goal", task.goal), ("kind", task.kind), ("expected", task.expected)):
         if value is not None:
             lines.append(f"{key} = {_quote(value)}")
@@ -1396,6 +1449,270 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
     return "\n".join(lines) + "\n"
+
+
+PARKED_FILE = "parked.json"
+"""A task set aside with a reason: it stays readable, and no dispatch may run it."""
+AMENDMENT_FILE = "amendment.json"
+"""The successor's difference from its parent, written once when ``amend`` made it."""
+AMENDMENTS_FILE = "amendments.json"
+"""On the parent: every successor made from it, so ``status`` can name the replacement."""
+
+
+@dataclass(frozen=True, slots=True)
+class Amendment:
+    """A successor task and the difference the box recorded between it and its parent."""
+
+    parent: Task
+    child: Task
+    changes: tuple[dict[str, object], ...]
+    record: Path
+
+
+def _iso(when: datetime) -> str:
+    return when.isoformat().replace("+00:00", "Z")
+
+
+def _parked(box_root: Path, task_id: str) -> dict[str, object] | None:
+    """The park record, when the task was set aside: the box refuses to run it again."""
+    path = box_root / "tabularium" / task_id / PARKED_FILE
+    if not path.is_file():
+        return None
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {"why": "the park record cannot be read"}
+    return data if isinstance(data, dict) else {"why": "the park record is not an object"}
+
+
+def _successor_id(box_root: Path, parent_id: str) -> str:
+    """The next free ``<parent>-b`` name: a chain is readable without a registry."""
+    base = f"{parent_id}-b"
+    candidate = base
+    number = 2
+    while (box_root / "tabularium" / candidate).exists() or (
+        box_root / "mandata" / f"{candidate}.toml"
+    ).exists():
+        candidate = f"{base}{number}"
+        number += 1
+    return candidate
+
+
+def change_line(change: dict[str, object]) -> str:
+    def show(value: object) -> str:
+        if value is None:
+            return "none"
+        if isinstance(value, list):
+            return ", ".join(str(item) for item in value) or "none"
+        return str(value)
+
+    return f"{change.get('field')}: {show(change.get('before'))} -> {show(change.get('after'))}"
+
+
+def _task_changes(before: Task, after: Task) -> list[dict[str, object]]:
+    """What an amendment changed, in the three things a task envelope can widen."""
+    changes: list[dict[str, object]] = []
+    if before.paths != after.paths:
+        changes.append(
+            {"field": "paths", "before": list(before.paths), "after": list(after.paths)}
+        )
+    for key in sorted(set(before.budget) | set(after.budget)):
+        if before.budget.get(key) != after.budget.get(key):
+            changes.append(
+                {
+                    "field": f"budget.{key}",
+                    "before": before.budget.get(key),
+                    "after": after.budget.get(key),
+                }
+            )
+    if before.max_steps != after.max_steps:
+        changes.append(
+            {
+                "field": "max_steps",
+                "before": before.max_steps,
+                "after": after.max_steps,
+            }
+        )
+    if before.shape != after.shape:
+        changes.append(
+            {"field": "shape", "before": before.shape, "after": after.shape}
+        )
+    return changes
+
+
+def _append_acta_line(box_root: Path, task_id: str, line: str) -> None:
+    """Say it in the task's acta too, when that acta exists: the summary must not go stale."""
+    acta = sorted((box_root / "acta").glob(f"*-{task_id}.md"))
+    if not acta:
+        return
+    with acta[-1].open("a", encoding="utf-8") as handle:
+        handle.write(f"\n{line}\n")
+
+
+def _amendment(directory: Path) -> dict[str, object] | None:
+    """The successor's own record: what it changed from its parent, if it amended anything."""
+    path = directory / AMENDMENT_FILE
+    if not path.is_file():
+        return None
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _amendments(box_root: Path, task_id: str) -> dict[str, object] | None:
+    path = box_root / "tabularium" / task_id / AMENDMENTS_FILE
+    if not path.is_file():
+        return None
+    try:
+        data: object = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _reason(value: str | None, command: str) -> str:
+    reason = (value or "").strip()
+    if not reason:
+        raise boxes.HarnessError(f"{command} needs --why: a change nobody explained is a rewrite")
+    return reason
+
+
+def amend(
+    box: boxes.Box,
+    task_id: str,
+    *,
+    why: str | None,
+    add_paths: tuple[str, ...] = (),
+    budget: dict[str, int] | None = None,
+    max_steps: int | None = None,
+    when: datetime | None = None,
+) -> Amendment:
+    """Write a successor task that names its parent, the reason and the difference.
+
+    The parent is never edited: its record already says what ran and what it concluded. The
+    successor gets its own id, its own frozen snapshot and one amendment record; the parent
+    gets an event and a line in its acta. A call that changes nothing is refused, because an
+    empty successor is a second name for the same task.
+    """
+    reason = _reason(why, "amend")
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    directory = box.root / "tabularium" / task_id
+    snapshot = directory / SNAPSHOT_FILE
+    if not snapshot.is_file():
+        raise boxes.HarnessError(
+            f"{task_id}: no {SNAPSHOT_FILE} in {directory}: there is no frozen task to amend. "
+            "`pantheon dispatch` freezes the task when it runs it; amend reads that record."
+        )
+    parent = read_task(snapshot)
+    added = tuple(item.strip() for item in add_paths if item.strip())
+    if len(added) != len(add_paths):
+        raise boxes.HarnessError("amend: --add-path needs a path, not an empty string")
+    paths = tuple(dict.fromkeys((*parent.paths, *added)))
+    new_budget = dict(parent.budget)
+    for key, value in (budget or {}).items():
+        if key not in BUDGET_KEYS:
+            raise boxes.HarnessError(
+                f"amend: budget.{key} is not one of {', '.join(sorted(BUDGET_KEYS))}"
+            )
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise boxes.HarnessError(f"amend: budget.{key} must be a positive whole number")
+        new_budget[key] = value
+    if max_steps is not None and max_steps <= 0:
+        raise boxes.HarnessError("amend: --max-steps must be a positive whole number")
+    steps = parent.max_steps if max_steps is None else max_steps
+    candidate = replace(parent, paths=paths, budget=new_budget, max_steps=steps)
+    changes = _task_changes(parent, candidate)
+    if not changes:
+        raise boxes.HarnessError(
+            "nothing changes: add a path, a budget or a call ceiling, or amend nothing — an "
+            "empty successor would be the same task under a second name"
+        )
+    child_id = _successor_id(box.root, parent.id)
+    child_dir = box.root / "tabularium" / child_id
+    child_dir.mkdir(parents=True, exist_ok=False)
+    change: Path | None = None
+    if parent.change is not None and parent.change.is_file():
+        change = child_dir / "change.diff"
+        change.write_bytes(parent.change.read_bytes())
+    mandata = box.root / "mandata"
+    mandata.mkdir(parents=True, exist_ok=True)
+    child_path = mandata / f"{child_id}.toml"
+    child = replace(
+        candidate,
+        path=child_path,
+        id=child_id,
+        parent=parent.id,
+        why=reason,
+        change=change,
+    )
+    header = [
+        "# Frozen by `pantheon amend`: the successor task these artifacts belong to.",
+        "# `pantheon resume` reads this file; the parent keeps its own frozen record.",
+    ]
+    (child_dir / SNAPSHOT_FILE).write_text(
+        "\n".join(header) + "\n" + task_text(child, change=change), encoding="utf-8"
+    )
+    child_path.write_text(task_text(child, change=change), encoding="utf-8")
+    amendment = {
+        "parent": parent.id,
+        "child": child_id,
+        "why": reason,
+        "at": _iso(stamp),
+        "changes": changes,
+    }
+    record = child_dir / AMENDMENT_FILE
+    record.write_text(json.dumps(amendment, indent=2) + "\n", encoding="utf-8")
+    chain_path = directory / AMENDMENTS_FILE
+    chain: dict[str, object] = _amendments(box.root, parent.id) or {"children": []}
+    children = chain.get("children")
+    if not isinstance(children, list):
+        children = []
+    children.append({"id": child_id, "why": reason, "at": _iso(stamp)})
+    chain["children"] = children
+    chain_path.write_text(json.dumps(chain, indent=2) + "\n", encoding="utf-8")
+    _event(
+        box.root,
+        stamp,
+        "task.amended",
+        parent,
+        f"replaced by {child_id}: {reason}",
+        data={"child": child_id, "why": reason, "changes": changes},
+    )
+    _append_acta_line(box.root, parent.id, f"- replaced by {child_id}: {reason}")
+    return Amendment(parent=parent, child=child, changes=tuple(changes), record=record)
+
+
+def park(
+    box: boxes.Box,
+    task_id: str,
+    *,
+    why: str | None,
+    when: datetime | None = None,
+) -> dict[str, object]:
+    """Set a task aside with a reason; it stays readable, and no dispatch may run it.
+
+    Parking is not deletion: the record keeps the work and the reason it stopped, and the way
+    back is a successor (``amend``), not a quiet un-park of the same task.
+    """
+    reason = _reason(why, "park")
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    directory = box.root / "tabularium" / task_id
+    snapshot = directory / SNAPSHOT_FILE
+    if not snapshot.is_file():
+        raise boxes.HarnessError(
+            f"{task_id}: no {SNAPSHOT_FILE} in {directory}: there is no task to park. "
+            "A task is known by its frozen record; park cannot invent one."
+        )
+    task = read_task(snapshot)
+    record: dict[str, object] = {"task": task.id, "why": reason, "at": _iso(stamp)}
+    (directory / PARKED_FILE).write_text(
+        json.dumps(record, indent=2) + "\n", encoding="utf-8"
+    )
+    _event(box.root, stamp, "task.parked", task, reason)
+    _append_acta_line(box.root, task.id, f"- parked: {reason}")
+    return record
 
 
 def resume(
@@ -1439,6 +1756,22 @@ def resume(
             "file existed cannot be continued — run the task again."
         )
     task = read_task(snapshot)
+    parked = _parked(box.root, task.id)
+    if parked is not None:
+        reason = str(parked.get("why") or "no reason recorded")
+        detail = (
+            f"the task is parked ({reason}): it does not continue. `pantheon amend` writes a "
+            "successor that names it; parking is not a pause button"
+        )
+        _event(box.root, stamp, "task.refused", task, detail)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[detail],
+            exit_code=1,
+        )
     rail = rails.check(box, milestone=task.milestone, outside=task.outside_plan)
     if rail.refusal is not None:
         _event(box.root, stamp, "task.refused", task, rail.refusal)
@@ -2377,9 +2710,23 @@ class TaskSummary:
     seconds: float | None = None
     """The dispatch's total wall time, when its record measured one."""
 
+    parent: str | None = None
+    """The task this one amends, when it is a successor."""
+    why: str | None = None
+    """Why it differs, as the amendment recorded."""
+    replaced_by: str | None = None
+    """The newest successor made from this task, when one was made."""
+    parked: str | None = None
+    """Why this task was set aside, when it was."""
+
 
 def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
-    """The newest dispatch record per task, oldest first: what ``status`` may say."""
+    """The newest dispatch record per task, oldest first: what ``status`` may say.
+
+    A task that was amended but not run yet is still a task the owner made: it is shown as
+    "not run" with its parent, because a successor that silently waited would make the status
+    look like the amendment never happened.
+    """
     base = box_root / "tabularium"
     if not base.is_dir():
         return ()
@@ -2388,27 +2735,66 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
         if not task_dir.is_dir():
             continue
         records = sorted(task_dir.glob("dispatch-*.json"))
-        if not records:
-            continue
-        try:
-            data = json.loads(records[-1].read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            continue
-        verify = data.get("verify")
-        unknowns = data.get("unknowns")
-        timings = data.get("timings")
-        seconds = timings.get("total") if isinstance(timings, dict) else None
+        amendment = _amendment(task_dir)
+        parked = _parked(box_root, task_dir.name)
+        snapshot = task_dir / SNAPSHOT_FILE
+        parent: str | None = None
+        why: str | None = None
+        if amendment is not None:
+            parent = str(amendment.get("parent")) if amendment.get("parent") else None
+            why = str(amendment.get("why")) if amendment.get("why") else None
+        elif snapshot.is_file():
+            try:
+                frozen = read_task(snapshot)
+            except boxes.HarnessError:
+                frozen = None
+            if frozen is not None:
+                parent, why = frozen.parent, frozen.why
+        if records:
+            try:
+                data = json.loads(records[-1].read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                continue
+            verify = data.get("verify")
+            unknowns = data.get("unknowns")
+            timings = data.get("timings")
+            seconds = timings.get("total") if isinstance(timings, dict) else None
+            state = str(data.get("state", "unknown"))
+            at = str(data.get("at", "")) or records[-1].stem.removeprefix("dispatch-")
+            record = records[-1]
+            known = tuple(str(item) for item in unknowns) if isinstance(unknowns, list) else ()
+            measured = float(seconds) if isinstance(seconds, (int, float)) else None
+        else:
+            if amendment is None and parked is None and not snapshot.is_file():
+                continue
+            verify = None
+            known = ()
+            measured = None
+            state = "not run"
+            at = str((amendment or {}).get("at") or (parked or {}).get("at") or "")
+            record = snapshot
+        if parked is not None:
+            state = "parked"
+        chain = _amendments(box_root, task_dir.name)
+        children = chain.get("children") if isinstance(chain, dict) else None
+        replaced_by = None
+        if isinstance(children, list) and children:
+            last = children[-1]
+            if isinstance(last, dict) and last.get("id"):
+                replaced_by = str(last["id"])
         found.append(
             TaskSummary(
-                id=str(data.get("task", task_dir.name)),
-                state=str(data.get("state", "unknown")),
-                at=str(data.get("at", "")) or records[-1].stem.removeprefix("dispatch-"),
+                id=str(task_dir.name),
+                state=state,
+                at=at,
                 verify=str(verify.get("status")) if isinstance(verify, dict) else None,
-                record=records[-1],
-                unknowns=tuple(str(item) for item in unknowns)
-                if isinstance(unknowns, list)
-                else (),
-                seconds=float(seconds) if isinstance(seconds, (int, float)) else None,
+                record=record,
+                unknowns=known,
+                seconds=measured,
+                parent=parent,
+                why=why,
+                replaced_by=replaced_by,
+                parked=str(parked.get("why") or "") if parked is not None else None,
             )
         )
     return tuple(found[-limit:])
@@ -2421,6 +2807,10 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"kind       {result.task.kind or 'not declared'}",
         f"role       {result.task.role}",
         f"scope      {', '.join(result.task.paths) or 'nothing declared'}",
+    ]
+    if result.task.parent is not None:
+        lines.append(f"parent     {result.task.parent} — {result.task.why or 'no reason recorded'}")
+    lines += [
         f"stages     {' -> '.join(result.stages) or 'none'}",
         f"engine     {_engine_line(result)}",
         f"frame      {_frame_line(result.frame)}",
@@ -2455,6 +2845,8 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "kind": result.task.kind,
         "role": result.task.role,
         "paths": list(result.task.paths),
+        "parent": result.task.parent,
+        "why": result.task.why,
         "stages": list(result.stages),
         "engine": result.engine,
         "steps": list(result.steps),
@@ -2504,6 +2896,223 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "notes": list(result.notes),
         "acta": None if result.outbox is None else str(result.outbox),
         "exit_code": result.exit_code,
+    }
+
+
+@dataclass(frozen=True, slots=True)
+class Explanation:
+    """What a dispatch would decide, before it pays for a call.
+
+    Every field is read through the same function the dispatch uses: the route and its write
+    gate, the engine and model tables, the limits, the guard and the room. The test that keeps
+    this honest is "the explanation equals the record" on one task, because a resolver that
+    grows its own copy of a rule is how the two answers start to differ.
+    """
+
+    task: Task
+    stages: tuple[str, ...]
+    write_gate_added: bool
+    frame: frame.Standing
+    rails: rails.Check
+    engine: str
+    engine_reason: str
+    model: str | None
+    model_reason: str | None
+    seconds: int
+    cents: float | None
+    calls: int | None
+    room: int | None
+    room_note: str
+    policy: str | None
+    checks: tuple[str, ...]
+    repro: tuple[str, ...]
+    self_check: tuple[str, ...]
+    reader: bool
+    refusal: str | None
+    parked: str | None
+    gaps: tuple[str, ...]
+
+
+def explain(
+    box: boxes.Box,
+    task: Task,
+    *,
+    routes: dict[str, tuple[str, ...]],
+    config: executor.ExecutorConfig,
+    review: contour.Reviewer | None = None,
+) -> Explanation:
+    """Resolve the task's envelope, route, limits, checks and gaps without writing anything.
+
+    Reading is the whole point: the box is not frozen, the contract is not written, no event is
+    made. A task that would be refused says so here, with the same words the dispatch uses.
+    """
+    directory = box.root / "tabularium" / task.id
+    rail = rails.check(box, milestone=task.milestone, outside=task.outside_plan)
+    parked_record = _parked(box.root, task.id)
+    parked = (
+        str(parked_record.get("why") or "no reason recorded")
+        if parked_record is not None
+        else None
+    )
+    blocked = refusal(task, routes)
+    if blocked is None and rail.refusal is not None:
+        blocked = rail.refusal
+    if parked is not None:
+        blocked = f"the task is parked ({parked}): it does not run; amend writes a successor"
+    base, extended = _with_write_gate(route(task, routes), task)
+    engine, engine_reason = executor.engine_for(config, task.kind)
+    model, model_reason = executor.model_for(config, task.kind)
+    seconds, cents = executor.limits(config, task.budget)
+    calls = _steps(task, config)
+    guard = _guard(box, task, config, directory)
+    if guard.stop is not None:
+        room, room_note = None, guard.stop
+    else:
+        room, room_note = executor.room_for(
+            config,
+            guard.cents,
+            model,
+            steps=engine == "steps",
+            directory=directory,
+        )
+    project = boxes.read_project(box.project)
+    gaps: list[str] = []
+    for gap in (
+        frame.standing(box).gap(),
+        rail.gap(),
+    ):
+        if gap is not None:
+            gaps.append(gap)
+    if "verify" not in base:
+        gaps.append("no verification stage: nothing will be checked")
+    if review is None:
+        gaps.append(
+            "no reader is declared: the verdict will be about the checks, not about what the "
+            "change does"
+        )
+    if not task.repro:
+        gaps.append(
+            "no reproduction: 'done' will rest on the suite, which proves only what it covers"
+        )
+    if not task.self_check:
+        gaps.append("no visible check: the model will not see what its change did")
+    if task.budget.get("max_cents") is None:
+        gaps.append("no money budget: the call's cost is not bounded before it is made")
+    if calls is None:
+        gaps.append("no call ceiling: only money, no progress or an answer can stop the loop")
+    if config.command is None and task.change is None:
+        gaps.append("no executor and no change: the run would have nothing to apply")
+    return Explanation(
+        task=task,
+        stages=base,
+        write_gate_added=extended,
+        frame=frame.standing(box),
+        rails=rail,
+        engine=engine,
+        engine_reason=engine_reason,
+        model=model.model if model is not None else None,
+        model_reason=model_reason,
+        seconds=seconds,
+        cents=cents,
+        calls=calls,
+        room=room,
+        room_note=room_note,
+        policy=project.policy_name,
+        checks=project.checks,
+        repro=task.repro,
+        self_check=task.self_check,
+        reader=review is not None,
+        refusal=blocked,
+        parked=parked,
+        gaps=tuple(gaps),
+    )
+
+
+def _command_words(command: tuple[str, ...]) -> str:
+    """One readable line for a command: the full argv stays in the JSON and the record."""
+    if not command:
+        return "not declared"
+    parts: list[str] = []
+    for part in command:
+        flat = " ".join(part.split())
+        if len(flat) > 72:
+            flat = flat[:69] + "..."
+        parts.append(shlex.quote(flat))
+    return " ".join(parts)
+
+
+def render_explanation(result: Explanation) -> list[str]:
+    """The explanation as a person reads it, with the record's own field names."""
+    lines = [
+        f"task       {result.task.id}  ({result.task.path})",
+        f"kind       {result.task.kind or 'not declared'}",
+        f"goal       {result.task.goal or 'not declared'}",
+    ]
+    if result.task.parent is not None:
+        lines.append(
+            f"parent     {result.task.parent} — {result.task.why or 'no reason recorded'}"
+        )
+    limits = f"{result.seconds} s, "
+    limits += "no cent ceiling" if result.cents is None else f"{result.cents:g} cents"
+    limits += f", {result.calls} call(s)" if result.calls is not None else ", no call ceiling"
+    room = "none" if result.room is None else f"{result.room} tokens"
+    lines += [
+        f"frame      {result.frame.line()}",
+        f"rails      {result.rails.line()}",
+        f"route      {' -> '.join(result.stages) or 'none'}"
+        + (" (write gate added)" if result.write_gate_added else ""),
+        f"engine     {result.engine} — {result.engine_reason}",
+        f"model      {result.model or 'not declared'}"
+        + (f" — {result.model_reason}" if result.model_reason else ""),
+        f"limits     {limits}",
+        f"room       {room} — {result.room_note}",
+        f"checks     {result.policy or 'no policy'}: "
+        f"{', '.join(result.checks) or 'none'} (narrowed by the changed paths)",
+        f"repro      {_command_words(result.repro)} (decides the verdict)",
+        f"self check {_command_words(result.self_check)} "
+        "(shown to the model, does not decide)",
+        f"reader     {'declared' if result.reader else 'none declared'}",
+    ]
+    if result.refusal is not None:
+        lines.append(f"refused    {result.refusal}")
+    lines.append("gaps")
+    lines.extend(f"- {gap}" for gap in result.gaps) if result.gaps else lines.append("- none")
+    return lines
+
+
+def explanation_json(result: Explanation) -> dict[str, object]:
+    """The same facts for a machine."""
+    return {
+        "task": result.task.id,
+        "kind": result.task.kind,
+        "goal": result.task.goal,
+        "parent": result.task.parent,
+        "why": result.task.why,
+        "stages": list(result.stages),
+        "write_gate_added": result.write_gate_added,
+        "frame": result.frame.json(),
+        "rails": result.rails.json(),
+        "engine": result.engine,
+        "engine_reason": result.engine_reason,
+        "model": result.model,
+        "model_reason": result.model_reason,
+        "limits": {
+            "seconds": result.seconds,
+            "cents": result.cents,
+            "calls": result.calls,
+            "room": result.room,
+            "room_note": result.room_note,
+        },
+        "checks": {
+            "policy": result.policy,
+            "ids": list(result.checks),
+            "repro": list(result.repro),
+            "self_check": list(result.self_check),
+        },
+        "reader": result.reader,
+        "refusal": result.refusal,
+        "parked": result.parked,
+        "gaps": list(result.gaps),
     }
 
 
@@ -2683,8 +3292,20 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"expected: {task.expected or 'not declared'}",
         f"resumed: {result.resumed_from or 'no — this dispatch started the task'}",
     ]
+    if task.parent is not None:
+        lines.append(f"parent: {task.parent} — {task.why or 'no reason recorded'}")
     if result.stop_reason is not None:
         lines.append(f"stopped: {result.stop_reason}")
+    amendment = _amendment(result.directory)
+    if amendment is not None:
+        lines += ["", "## what changed from the parent"]
+        changes = amendment.get("changes")
+        if isinstance(changes, list) and changes:
+            for change in changes:
+                if isinstance(change, dict):
+                    lines.append(f"- {change_line(change)}")
+        else:
+            lines.append("- the amendment record names no difference")
     lines += [
         "",
         "## what ran",

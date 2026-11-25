@@ -427,6 +427,78 @@ def _parser() -> argparse.ArgumentParser:
     resume.add_argument("--json", action="store_true", help="the answer as one JSON object")
     resume.set_defaults(handler=_resume)
 
+    amend = commands.add_parser(
+        "amend",
+        help="Augustus: write a successor task that names its parent, the reason and the diff",
+    )
+    amend.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    amend.add_argument(
+        "--task", required=True, help="the task id whose frozen record is amended"
+    )
+    amend.add_argument("--why", required=True, help="why the task grew: the successor's reason")
+    amend.add_argument(
+        "--add-path",
+        action="append",
+        default=[],
+        metavar="PATH",
+        help="widen the scope by one path or glob (repeatable)",
+    )
+    amend.add_argument(
+        "--budget",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="change one budget key, e.g. max_cents=8 (repeatable)",
+    )
+    amend.add_argument(
+        "--max-steps", type=int, default=None, help="raise or lower the call ceiling"
+    )
+    amend.add_argument("--json", action="store_true", help="the amendment as one JSON object")
+    amend.set_defaults(handler=_amend)
+
+    park = commands.add_parser(
+        "park",
+        help="Augustus: set a task aside with a reason; it stays readable and does not run",
+    )
+    park.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    park.add_argument("--task", required=True, help="the task id to set aside")
+    park.add_argument("--why", required=True, help="why it is set aside")
+    park.add_argument("--json", action="store_true", help="the park record as one JSON object")
+    park.set_defaults(handler=_park)
+
+    explain = commands.add_parser(
+        "explain",
+        help="Augustus: what a dispatch would decide, before it pays for a call (reads only)",
+    )
+    explain.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    explain.add_argument(
+        "--task", required=True, help="a task file (mandata/<id>.toml) or a frozen task id"
+    )
+    explain.add_argument(
+        "--routes",
+        default=None,
+        help=f"routing table (default: ${augustus.ROUTES_ENV}, else built-in)",
+    )
+    explain.add_argument(
+        "--executor",
+        default=None,
+        help="override the box's executor command for this explanation",
+    )
+    explain.add_argument(
+        "--review", action="store_true", help="assume a reader will be asked for the change"
+    )
+    explain.add_argument(
+        "--no-review",
+        action="store_true",
+        help="assume the change will not be read, whatever persona/reviewer.toml says",
+    )
+    explain.add_argument("--review-model", default=None, help="model that would read the change")
+    explain.add_argument(
+        "--review-seconds", type=int, default=None, help="how long the reading may take"
+    )
+    explain.add_argument("--json", action="store_true", help="the explanation as one object")
+    explain.set_defaults(handler=_explain)
+
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
 
@@ -524,6 +596,10 @@ def _status(args: argparse.Namespace, root: Path) -> int:
                 "seconds": task.seconds,
                 "reading": _reading_of(task.record),
                 "unknowns": list(task.unknowns),
+                "parent": task.parent,
+                "why": task.why,
+                "replaced_by": task.replaced_by,
+                "parked": task.parked,
             }
             for task in tasks
         ]
@@ -553,7 +629,16 @@ def _status(args: argparse.Namespace, root: Path) -> int:
             verify = f"verify {task.verify}" if task.verify else "not verified"
             read = _reading_brief(task.record)
             took = f"  in {task.seconds:.2f}s" if task.seconds is not None else ""
-            print(f"task       {task.id}  {task.state}  {task.at}  {verify}{took}{read}")
+            link = ""
+            if task.parent is not None:
+                link += f"  amends {task.parent}"
+            if task.replaced_by is not None:
+                link += f"  replaced by {task.replaced_by}"
+            if task.parked is not None:
+                link += f"  parked: {task.parked}"
+            print(
+                f"task       {task.id}  {task.state}  {task.at}  {verify}{took}{read}{link}"
+            )
         for unknown in tasks[-1].unknowns:
             print(f"unknown    {unknown}")
     else:
@@ -1148,6 +1233,110 @@ def _resume(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
+
+
+def _amend(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    budget: dict[str, int] = {}
+    for item in args.budget:
+        key, separator, raw = item.partition("=")
+        if not separator or not key.strip():
+            raise boxes.HarnessError(
+                "amend: --budget takes KEY=VALUE, e.g. --budget max_cents=8"
+            )
+        try:
+            value = int(raw)
+        except ValueError as error:
+            raise boxes.HarnessError(
+                f"amend: --budget {item!r}: the value must be a whole number"
+            ) from error
+        budget[key.strip()] = value
+    result = augustus.amend(
+        box,
+        args.task,
+        why=args.why,
+        add_paths=tuple(args.add_path),
+        budget=budget,
+        max_steps=args.max_steps,
+    )
+    if args.json:
+        print(
+            json.dumps(
+                {
+                    "parent": result.parent.id,
+                    "child": result.child.id,
+                    "why": result.child.why,
+                    "changes": list(result.changes),
+                    "task": str(result.child.path),
+                    "record": str(result.record),
+                },
+                indent=2,
+            )
+        )
+        return 0
+    print(f"parent     {result.parent.id}")
+    print(f"successor  {result.child.id}  ({result.child.path})")
+    print(f"why        {result.child.why}")
+    print("changes")
+    for change in result.changes:
+        print(f"- {augustus.change_line(change)}")
+    return 0
+
+
+def _park(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    record = augustus.park(box, args.task, why=args.why)
+    if args.json:
+        print(json.dumps(record, indent=2))
+    else:
+        print(f"parked     {record['task']}")
+        print(f"why        {record['why']}")
+        print("state      it does not run; `pantheon amend` writes a successor that names it")
+    return 0
+
+
+def _resolve_task(box: boxes.Box, value: str) -> augustus.Task:
+    """A task file, or a frozen task id: ``explain`` may read either without writing."""
+    path = Path(value).expanduser()
+    if path.is_file():
+        return augustus.read_task(path)
+    frozen = box.root / "tabularium" / value / augustus.SNAPSHOT_FILE
+    if frozen.is_file():
+        return augustus.read_task(frozen)
+    raise boxes.HarnessError(
+        f"no task file at {value} and no frozen task {value!r}: "
+        "`pantheon status` lists the ids the box knows"
+    )
+
+
+def _explain(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    task = _resolve_task(box, args.task)
+    routes = args.routes or os.environ.get(augustus.ROUTES_ENV)
+    config = executor.read_config(box.root / executor.PROFILE_FILE)
+    if args.executor:
+        config = executor.ExecutorConfig(
+            path=config.path,
+            command=tuple(shlex.split(args.executor)),
+            model=config.model,
+            max_seconds=config.max_seconds,
+            max_cents=config.max_cents,
+            max_steps=config.max_steps,
+        )
+    result = augustus.explain(
+        box,
+        task,
+        routes=_executor_routes(
+            augustus.read_routes(Path(routes) if routes else None), task, config
+        ),
+        config=config,
+        review=_reviewer(args, box),
+    )
+    if args.json:
+        print(json.dumps(augustus.explanation_json(result), indent=2))
+    else:
+        print("\n".join(augustus.render_explanation(result)))
+    return 1 if result.refusal is not None else 0
 
 
 def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:
