@@ -182,7 +182,6 @@ def test_the_task_budget_can_lower_but_not_raise_the_box_cap(tmp_path: Path) -> 
     assert executor.limits(config, {"max_seconds": 600, "max_cents": 50}) == (300, 5.0)
 
 
-@requires_trajan
 def test_the_profile_can_choose_a_model_by_kind(tmp_path: Path) -> None:
     """The table is the box's decision: an entry names the model and its rate, or neither."""
     path = tmp_path / "executor.toml"
@@ -268,6 +267,7 @@ def test_a_declared_kind_model_reaches_the_request_and_the_record(tmp_path: Path
     assert executor._environment(executor.ModelChoice("clever")) is None
 
 
+@requires_trajan
 def test_a_declared_executor_supplies_the_patch_and_the_bill(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
