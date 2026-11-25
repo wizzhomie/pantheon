@@ -1,0 +1,26 @@
+# Case D9 — c-d8 unchanged, on the only other model the endpoint serves: `deepseek-v4-pro`.
+# Four caps (4 096, repeated, 8 192, 16 384) produced the same degeneration from
+# flash, so the last untested variable is the model itself. The task, the two checks and
+# the shape are c-d8 verbatim; only the box's kind table points at another model.
+#
+# Prediction, recorded before the run: v4-pro reasons first and answers with a diff inside
+# the 16 384-token room; if the fix is real, the hidden check turns green and the 2 629-test
+# suite stays green; if it reasons itself into the same restatement, the guard stops it and
+# the failure is about the model class, not flash. Price: the rate for v4-pro is not
+# declared anywhere we know, so the record will say "cost not reported" rather than guess.
+schema_version = 1
+id = "c-d9"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 3
+shape = "file"
+model = "deepseek-v4-pro"
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+self_check = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--mode', type=click.Choice(['fast', 'slow']))\ndef main(mode):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --mode=s')\nassert got == ['plain,--mode=slow'], got\nempty = done('gobble --mode=')\nassert empty == ['plain,--mode=fast', 'plain,--mode=slow'], empty"]
+repro = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--color', type=click.Choice(['auto', 'always', 'never']))\ndef main(color):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --color=a')\nassert got == ['plain,--color=auto', 'plain,--color=always'], got\nempty = done('gobble --color=')\nassert empty == ['plain,--color=auto', 'plain,--color=always', 'plain,--color=never'], empty"]
+why = "Последняя непроверенная переменная: та же задача и та же форма на модели сильнее. Если и она не даст правку — предел в классе моделей, а не в постановке."
