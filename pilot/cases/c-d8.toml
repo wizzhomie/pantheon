@@ -1,0 +1,26 @@
+# Case D8 — the same defect, the same two checks, the shape the model keeps choosing:
+# `file`. c-d7 declared `patch` and the model answered with a whole-file restatement
+# (33 copies of the first hunk, cut at 4 096). This run gives that answer the room its
+# scheme needs: 16 384 answer tokens, and the file shape allows up to 2 000 changed lines
+# in one file. The gate now refuses an answer over the declared size, so this is also the
+# first run where the shape can pass or fail on its own terms.
+#
+# Prediction, recorded before the run: the model writes the file as one diff inside the
+# 16 384-token room, the gate applies it, and the hidden check decides — pass if the
+# prefix really reaches the shell output, hold if the rewrite is broken anywhere else.
+# The other end: the answer is cut again, which says 16 384 is still not the scheme.
+schema_version = 1
+id = "c-d8"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 3
+shape = "file"
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+self_check = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--mode', type=click.Choice(['fast', 'slow']))\ndef main(mode):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --mode=s')\nassert got == ['plain,--mode=slow'], got\nempty = done('gobble --mode=')\nassert empty == ['plain,--mode=fast', 'plain,--mode=slow'], empty"]
+repro = ["python", "-c", "import os\nimport click\nfrom click.shell_completion import BashComplete\n\n@click.command()\n@click.option('--color', type=click.Choice(['auto', 'always', 'never']))\ndef main(color):\n    pass\n\ndef done(words):\n    os.environ['COMP_WORDS'] = words\n    os.environ['COMP_CWORD'] = '1'\n    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()\n\ngot = done('gobble --color=a')\nassert got == ['plain,--color=auto', 'plain,--color=always'], got\nempty = done('gobble --color=')\nassert empty == ['plain,--color=auto', 'plain,--color=always', 'plain,--color=never'], empty"]
+why = "Форма file — та схема ответа, которую модель выбирала сама; здесь она объявлена и оплачена. Проверяет, решает ли задачу комната нужного размера."

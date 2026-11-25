@@ -585,6 +585,7 @@ def dispatch(
                             proposal=proposal,
                             resumed_from=resumed_from,
                             context=pack,
+                            shape=shape_record,
                         ),
                         stamp,
                         began,
