@@ -128,6 +128,9 @@ class TaskView(Protocol):
     def expected(self) -> str | None: ...
 
     @property
+    def self_check(self) -> tuple[str, ...]: ...
+
+    @property
     def forbidden(self) -> tuple[str, ...]: ...
 
     @property
@@ -664,6 +667,7 @@ def _request(
             "role": task.role,
             "paths": list(task.paths),
             "expected": task.expected,
+            "self_check": list(task.self_check),
             "forbidden": list(task.forbidden),
             "budget": dict(task.budget),
         },

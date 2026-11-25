@@ -14,7 +14,7 @@ import subprocess
 import sys
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import pytest
 
@@ -785,3 +785,67 @@ def test_a_reproduction_that_already_passes_stops_the_task_before_the_model(
     out = capsys.readouterr().out
     assert "already passes before any change" in out
     assert not list(box.root.glob("tabularium/t-1/proposal-*"))
+
+
+def test_the_task_shows_the_model_one_check_and_judges_with_another(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Two checks, one visible: the model cannot fit an answer to what it never sees.
+
+    A blind executor answers the task it imagines (c-d4); a check it can read gives it a real
+    target without handing it the verdict. The visible check passing while the box's own check
+    fails is the finding, and the retry is told about the visible one only — handing over the
+    verdict's words would make the two checks one.
+    """
+    _project, box, _script, task = probe(tmp_path, ANSWER)
+    text = task.read_text(encoding="utf-8")
+    own = (
+        'self_check = ["python", "-c", "import sys; '
+        "sys.exit(0 if '2' in open('src/app.py').read() else 1)" + '"]\n'
+    )
+    hidden = 'repro = ["python", "-c", "print(\'HIDDEN-CHECK\'); raise SystemExit(1)"]\n'
+    task.write_text(
+        text.replace("\n[budget]", "\n" + own + hidden + "\n[budget]"), encoding="utf-8"
+    )
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "own check  passed" in out, out
+    assert "fitted to what it could see" in out
+
+    record = json.loads(next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text())
+    assert record["self_check"]["status"] == "passed"
+    facts = augustus.previous_failure(record)
+    assert facts is not None
+    checks = cast(list[str], facts["checks"])
+    assert any("the check the task shows you passed" in item for item in checks)
+    assert not any("HIDDEN-CHECK" in item for item in [*checks, str(facts["reason"])])
+
+
+def test_the_request_carries_the_visible_check_and_not_the_hidden_one(tmp_path: Path) -> None:
+    """The executor's request is the model's whole view of the task: one check, never both."""
+    project, box, _script, _task = probe(tmp_path, ANSWER)
+    task = augustus.Task(
+        path=tmp_path / "t.toml",
+        id="t-1",
+        goal="g",
+        kind="bugfix",
+        paths=("src/**",),
+        expected="e",
+        change=None,
+        forbidden=(),
+        budget={},
+        self_check=("python", "-c", "print('visible')"),
+        repro=("python", "-c", "print('hidden')"),
+    )
+    directory = box.root / "tabularium" / "t-1" / "proposal-1"
+    directory.mkdir(parents=True)
+    request = executor._request(task, box, directory, 1, "m", 60, 2.0)
+    seen = cast(dict[str, Any], request["task"])
+    assert seen["self_check"] == ["python", "-c", "print('visible')"]
+    assert "repro" not in seen
+
+    prompt = deepseek._prompt(seen, project)
+    assert "THE CHECK YOU CAN SEE" in prompt.text
+    assert "print('visible')" in prompt.text
+    assert "print('hidden')" not in prompt.text
+    assert "you do not see it" in prompt.text

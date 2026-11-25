@@ -44,6 +44,7 @@ TASK_KEYS = frozenset(
         "milestone",
         "outside_plan",
         "repro",
+        "self_check",
     }
 )
 MODES = ("manual", "auto")
@@ -96,6 +97,18 @@ class Task:
 
     A defect task without this is a task whose "done" nobody can check: a green suite only
     proves what the suite covers, and the defect lives where no test looks (c-d3).
+
+    The model never sees this command: the verdict is the box's, and an answer fitted to the
+    words of the check is not a change. What the model sees is ``self_check``.
+    """
+
+    self_check: tuple[str, ...] = ()
+    """The check the model is shown, and the box runs beside the verdict — never as the verdict.
+
+    A blind executor answers the task it imagines; a sighted one still cannot fit the answer to
+    a check it does not know. The two run the same behaviour over different data: the visible
+    one is what the model reads, the hidden one (``repro``) is what decides, and a change that
+    satisfies only the visible one is recorded as exactly that.
     """
 
 
@@ -136,6 +149,14 @@ class Dispatch:
     repeated: str | None = None
     """The digest of a change already tried, when the retry proposed exactly it again."""
 
+    self_check: dict[str, object] | None = None
+    """What the check the task shows the model said, when the task names one.
+
+    It is information, never the verdict: the box's own check (``repro``) decides, and the two
+    disagreeing is the finding — a model that satisfies only what it can see has fitted its
+    answer to the words it was given.
+    """
+
     timings: dict[str, float] = field(default_factory=dict)
     """Wall time in seconds per stage and in total, measured around the work, not guessed."""
 
@@ -161,6 +182,18 @@ def record_addresses(raw: object, where: str) -> tuple[str, ...]:
             )
         addresses.append(item)
     return tuple(addresses)
+
+
+def _command(raw: object, key: str, path: Path) -> list[str]:
+    """A check the task names: a command as a list, at least the executable and its argument."""
+    if not isinstance(raw, list) or not all(isinstance(item, str) and item.strip() for item in raw):
+        raise boxes.HarnessError(f"{path}: {key} must be a list of non-empty strings")
+    if raw and len(raw) < 2:
+        raise boxes.HarnessError(
+            f"{path}: {key} must be a command as a list, at least the executable and its "
+            "first argument"
+        )
+    return [item.strip() for item in raw]
 
 
 def read_task(path: Path) -> Task:
@@ -216,16 +249,8 @@ def read_task(path: Path) -> Task:
             f"{path}: a task either names a milestone or says why it stands outside the plan, "
             "not both"
         )
-    repro_raw = data.get("repro", [])
-    if not isinstance(repro_raw, list) or not all(
-        isinstance(item, str) and item.strip() for item in repro_raw
-    ):
-        raise boxes.HarnessError(f"{path}: repro must be a list of non-empty strings")
-    if repro_raw and len(repro_raw) < 2:
-        raise boxes.HarnessError(
-            f"{path}: repro must be a command as a list, at least the executable and its "
-            "first argument"
-        )
+    repro_raw = _command(data.get("repro", []), "repro", path)
+    self_check_raw = _command(data.get("self_check", []), "self_check", path)
     return Task(
         path=path,
         id=identifier,
@@ -242,6 +267,7 @@ def read_task(path: Path) -> Task:
         milestone=_text(milestone),
         outside_plan=_text(outside_plan),
         repro=tuple(item.strip() for item in repro_raw),
+        self_check=tuple(item.strip() for item in self_check_raw),
     )
 
 
@@ -430,6 +456,7 @@ def dispatch(
 
     proposal: executor.Proposal | None = None
     pack: context_pack.Pack | None = None
+    own_check: dict[str, object] | None = None
     if "run" in stages:
         patch = task.change
         if patch is None:
@@ -563,6 +590,18 @@ def dispatch(
             # The change the gate applied is the change a reader must read: a task that
             # carried its patch and a task whose executor proposed one are the same fact here.
             change = attempt.directory / "change.diff"
+            if task.self_check:
+                code, tail = contour.run_repro(
+                    box.project, task.self_check, root=trajan_root, python=trajan_python
+                )
+                own_check = {
+                    "status": "passed" if code == 0 else "failed",
+                    "exit_code": code,
+                    "tail": tail,
+                }
+                notes.append(
+                    f"the check the task shows the model: {own_check['status']} ({tail})"
+                )
 
     if "verify" in stages:
         reader, skipped = _reader_for(review, change, notes)
@@ -589,6 +628,16 @@ def dispatch(
         notes.append("verification was not routed for this task: nothing was checked")
 
     state = _state(verify, arch)
+    if (
+        own_check is not None
+        and own_check["status"] == "passed"
+        and verify is not None
+        and verify.status == "hold"
+    ):
+        notes.append(
+            "the change satisfied the check the task shows the model, and failed the box's own: "
+            "the answer was fitted to what it could see, not changed where the verdict looks"
+        )
     made = _commit_after_verdict(
         box, attempt, verify, state, contract_path, commit_requested, stamp
     )
@@ -613,6 +662,7 @@ def dispatch(
             review_cap=None if reader is None else reader.max_cents,
             review_skipped=skipped or None,
             context=pack,
+            self_check=own_check,
         ),
         stamp,
         began,
@@ -671,6 +721,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         lines.append("forbidden = [" + ", ".join(_quote(item) for item in task.forbidden) + "]")
     if task.records:
         lines.append("records = [" + ", ".join(_quote(item) for item in task.records) + "]")
+    if task.self_check:
+        lines.append("self_check = [" + ", ".join(_quote(item) for item in task.self_check) + "]")
     if task.repro:
         lines.append("repro = [" + ", ".join(_quote(item) for item in task.repro) + "]")
     if task.budget:
@@ -1265,6 +1317,20 @@ def previous_failure(
                     location = item.get("location")
                     name = location.get("file") if isinstance(location, dict) else ""
                     findings.append(f"{name}: {title}" if name else title)
+    own = record.get("self_check")
+    if isinstance(own, dict):
+        # The model sees one check and is judged by another: handing it the verdict's own words
+        # would turn the second check into the first, and the answer could be fitted to it.
+        checks = []
+        status = str(own.get("status"))
+        tail = str(own.get("tail") or "")
+        if status == "failed":
+            checks.append(f"the check the task shows you failed ({tail})")
+        else:
+            checks.append(
+                "the check the task shows you passed, and the box's own check still failed: "
+                "the behaviour is wrong somewhere the visible check does not look"
+            )
     reason = ""
     executor_record = record.get("executor")
     if isinstance(executor_record, dict) and executor_record.get("status") == "failed":
@@ -1457,6 +1523,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"context    {_context_line(result.context)}",
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify, result.review_skipped)}",
+        f"own check  {_own_check_line(result.self_check, result.task.self_check)}",
         f"commit     {_commit_line(result.commit)}",
         f"time       {_time_line(result)}",
         f"state      {result.state}",
@@ -1487,6 +1554,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "context": None if result.context is None else result.context.json(),
         "reading": None if result.proposal is None else result.proposal.reading,
         "repeated": result.repeated,
+        "self_check": result.self_check,
         "verify": None
         if result.verify is None
         else {
@@ -1619,6 +1687,7 @@ def _finish(
         review_skipped=result.review_skipped,
         context=result.context,
         repeated=result.repeated,
+        self_check=result.self_check,
         timings=_timings(result, began),
     )
     # The summary is written from the finished record, not from the one handed in: the frame is
@@ -1827,6 +1896,12 @@ def _questions(result: Dispatch) -> list[str]:
     elif not result.verify.passed:
         questions.extend(result.verify.reasons or ["the verification did not pass"])
     return questions
+
+
+def _own_check_line(check: dict[str, object] | None, declared: tuple[str, ...]) -> str:
+    if check is None:
+        return "declared, not run: no change was applied" if declared else "the task names none"
+    return f"{check.get('status')} — {check.get('tail')}"
 
 
 def _executor_line(result: executor.Proposal | None) -> str:

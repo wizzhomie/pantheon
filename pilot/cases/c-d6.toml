@@ -1,0 +1,63 @@
+# Case D6 — two checks: one the model reads, one that judges. This is D36/ADR-035 on a live
+# defect, and it answers the question c-d4..c-d5 left: a blind executor loses the place, a
+# model that sees the acceptance test fits it. So the task shows the model a check over the
+# same behaviour with different data, and judges with a check the model never sees.
+#
+# Defect: pallets/click#2847. Both checks run the real shell path — `BashComplete.complete()`,
+# the text the shell prints — not a private method, so a fix that changes the completion for
+# real passes both, and a fix fitted to the visible data (`--mode`) dies on the hidden one
+# (`--color`).
+#
+# Prediction, recorded before the run: the model sees the visible check, its output format
+# (`plain,--mode=slow`) and the entry point, and writes the prefix where `complete()` can see
+# it; the hidden check passes, the 2 629-test suite stays green, verdict pass, about a third of
+# a cent. The failure mode to watch is different from c-d4's: not «wrong place» but «fitted to
+# `--mode`», which the hidden check would name.
+schema_version = 1
+id = "c-d6"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. Почини путь дополнения в src/click/shell_completion.py; на словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+self_check = ["python", "-c", '''import os
+import click
+from click.shell_completion import BashComplete
+
+@click.command()
+@click.option('--mode', type=click.Choice(['fast', 'slow']))
+def main(mode):
+    pass
+
+def done(words):
+    os.environ['COMP_WORDS'] = words
+    os.environ['COMP_CWORD'] = '1'
+    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()
+
+got = done('gobble --mode=s')
+assert got == ['plain,--mode=slow'], got
+empty = done('gobble --mode=')
+assert empty == ['plain,--mode=fast', 'plain,--mode=slow'], empty''']
+repro = ["python", "-c", '''import os
+import click
+from click.shell_completion import BashComplete
+
+@click.command()
+@click.option('--color', type=click.Choice(['auto', 'always', 'never']))
+def main(color):
+    pass
+
+def done(words):
+    os.environ['COMP_WORDS'] = words
+    os.environ['COMP_CWORD'] = '1'
+    return BashComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE').complete().splitlines()
+
+got = done('gobble --color=a')
+assert got == ['plain,--color=auto', 'plain,--color=always'], got
+empty = done('gobble --color=')
+assert empty == ['plain,--color=auto', 'plain,--color=always', 'plain,--color=never'], empty''']
+why = "Проверка на живом дефекте показывает, снимает ли видимая проверка слепоту и держит ли скрытая подгонку: две проверки одного поведения на разных данных."

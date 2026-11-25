@@ -426,6 +426,24 @@ def test_a_task_with_a_reproduction_is_read_and_written_back(tmp_path: Path) -> 
     frozen.write_text(augustus.task_text(loaded), encoding="utf-8")
     assert augustus.read_task(frozen).repro == loaded.repro
 
+    # One check the model sees, one it does not: both are task data and both survive the freeze.
+    with_own = tmp_path / "T4.toml"
+    with_own.write_text(
+        'schema_version = 1\nid = "T4"\npaths = ["src/**"]\n'
+        'self_check = ["python", "-c", "print(1)"]\n'
+        'repro = ["python", "-c", "print(2)"]\n',
+        encoding="utf-8",
+    )
+    four = augustus.read_task(with_own)
+    assert four.self_check == ("python", "-c", "print(1)")
+    assert four.repro == ("python", "-c", "print(2)")
+    written = augustus.task_text(four)
+    assert "self_check" in written and "repro" in written
+    text_path = tmp_path / "T4-frozen.toml"
+    text_path.write_text(written, encoding="utf-8")
+    back = augustus.read_task(text_path)
+    assert back.self_check == four.self_check and back.repro == four.repro
+
     path.write_text(
         'schema_version = 1\nid = "T2"\npaths = ["src/**"]\nrepro = []\n', encoding="utf-8"
     )

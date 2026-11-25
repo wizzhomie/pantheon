@@ -235,6 +235,16 @@ def _prompt(
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
         lines.append(f"forbidden: {', '.join(str(item) for item in forbidden)}")
+    own = task.get("self_check")
+    if isinstance(own, list) and own:
+        lines += [
+            "",
+            "THE CHECK YOU CAN SEE. The task names it, and the box runs it beside the verdict:",
+            "  " + json.dumps(own, ensure_ascii=False),
+            "The box also judges this change with its own check, over the same behaviour with",
+            "different data, and you do not see it. Make the behaviour right; an answer fitted",
+            "to the strings of the check above is not a change.",
+        ]
     if context:
         lines += ["", *context]
     prior = previous_lines(previous)
