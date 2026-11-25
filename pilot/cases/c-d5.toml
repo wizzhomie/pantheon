@@ -1,0 +1,45 @@
+# Case D5 — the same defect as c-d4, with the place named. c-d4 (and its sighted retry c-d4b)
+# showed the model getting the idea and losing the place: c-d4 computed the prefix after the
+# split, c-d4b's first answer patched `_resolve_incomplete` with a function attribute on it
+# and invented `CompletionItem._info`, its second answer assumed the wrong file layout.
+#
+# So the question this case asks is narrower: if the task names the function where the "=" is
+# cut and says what `get_completions` must return, does the model write the change? That is
+# the shape c-d3 pointed at (one file, one named function) plus what c-d4 added (the task's
+# own reproduction as a check).
+#
+# Defect: pallets/click#2847. The reproduction is c-d4's, unchanged: the values returned by
+# `get_completions` must carry `--color=`.
+#
+# Prediction, recorded before the run: the model writes the prefix inside `_resolve_incomplete`
+# (or in `get_completions` before calling it) and fetches it back to prepend to each
+# CompletionItem; the reproduction goes from failing to passing, the 2 629-test suite stays
+# green, verdict pass, about a third of a cent. If the shape is still too wide for the model,
+# the likeliest failure is a prefix that never reaches the values — and the check will say so.
+schema_version = 1
+id = "c-d5"
+repo = "https://github.com/pallets/click"
+base_commit = "c8eb7056e1cc85d77be00f18ba4652dbcb6c96dd"
+kind = "bugfix"
+paths = ["src/click/shell_completion.py"]
+cost_bound_cents = 2
+goal = "Автодополнение ломается на слове с «=»: при наборе `prog --color=a` предлагаются `auto` и `always` вместо `--color=auto` и `--color=always`, и опция затирается. «=» отрезается в `_resolve_incomplete` (src/click/shell_completion.py): имя опции уходит в `args`, а часть до «=» теряется. Почини так, чтобы `ShellComplete.get_completions` возвращал каждый `CompletionItem` со значением, начинающимся с части до «=» включительно: для `--color=a` — `--color=auto` и `--color=always`, для `--color=` — все значения с префиксом; одинаково для bash и zsh. На словах без «=» поведение не меняется. Больше ничего не меняй."
+expected_verdict = "pass"
+expected_findings = "none"
+expected_blocks = "none"
+repro = ["python", "-c", '''import click
+from click.shell_completion import ShellComplete
+
+@click.command()
+@click.option('--color', type=click.Choice(['auto', 'always', 'never']))
+def main(color):
+    pass
+
+comp = ShellComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE')
+got = [item.value for item in comp.get_completions([], '--color=a')]
+assert got == ['--color=auto', '--color=always'], got
+empty = [item.value for item in comp.get_completions([], '--color=')]
+assert empty == ['--color=auto', '--color=always', '--color=never'], empty
+plain = [item.value for item in comp.get_completions([], '--color')]
+assert plain == ['--color'], plain''']
+why = "Имя места — последнее, что осталось сузить: c-d4 и c-d4b показали, что модель теряет место, а не идею. Если правка выйдет с названной функцией, форма задачи для дефектов найдена; если нет — предел в модели, а не в постановке."

@@ -22,3 +22,7 @@ expected_verdict = "pass"
 expected_findings = "none"
 expected_blocks = "none"
 why = "Форма «названная функция» дала верный ответ на c-d3, а проверка-воспроизведение закрывает слепое пятно набора: вердикт теперь зависит от самого входа задачи, а не только от чужих тестов."
+
+# Записано после прогона: сам прогон нёс эту команду (коробка получила её в mandata/c-d4.toml),
+# а файл кейса её не содержал. Без неё кейс не воспроизводится, поэтому она здесь — та же, без правок.
+repro = ["python", "-c", "import click\nfrom click.shell_completion import ShellComplete\n\n@click.command()\n@click.option('--color', type=click.Choice(['auto', 'always', 'never']))\ndef main(color):\n    pass\n\ncomp = ShellComplete(main, {}, 'gobble', '_GOBBLE_COMPLETE')\ngot = [item.value for item in comp.get_completions([], '--color=a')]\nassert got == ['--color=auto', '--color=always'], got\nempty = [item.value for item in comp.get_completions([], '--color=')]\nassert empty == ['--color=auto', '--color=always', '--color=never'], empty\nplain = [item.value for item in comp.get_completions([], '--color')]\nassert plain == ['--color'], plain"]
