@@ -1,0 +1,23 @@
+# What Pantheon checks about itself.
+#
+# The repository is a project like any other: its own gate is `make check` — trajan's checks,
+# the harness tests, ruff and mypy — and that command is what CI runs. Naming it here instead
+# of restating the tools keeps one source of truth; a check that cannot run would say so, not
+# pass quietly.
+
+name = "pantheon-self"
+
+[budget]
+max_seconds = 400
+max_checks = 3
+
+[sandbox]
+memory_mb = 2048
+file_mb = 128
+
+[[checks]]
+id = "gate"
+name = "make check"
+argv = ["make", "check"]
+timeout_s = 380
+purpose = "the same command CI runs: both test suites, ruff and mypy"
