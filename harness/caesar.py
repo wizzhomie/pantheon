@@ -843,6 +843,7 @@ def _recount(change: str) -> tuple[str, str]:
     lines = change.splitlines(keepends=True)
     out: list[str] = []
     notes: list[str] = []
+    dropped = 0
     index = 0
     while index < len(lines):
         match = HUNK_HEADER.match(lines[index].rstrip("\n"))
@@ -852,6 +853,7 @@ def _recount(change: str) -> tuple[str, str]:
             continue
         start = index + 1
         removed = added = 0
+        touched = False
         while start < len(lines):
             body = lines[start]
             if body.startswith(" "):
@@ -861,12 +863,21 @@ def _recount(change: str) -> tuple[str, str]:
                 pass  # "no newline at end of file": a marker for the line above it
             elif body.startswith("+"):
                 added += 1
+                touched = True
             elif body.startswith("-"):
                 removed += 1
+                touched = True
             else:
                 break
             start += 1
         declared = (int(match.group(2) or 1), int(match.group(4) or 1))
+        if not touched:
+            # A hunk whose body has no +/- line is context and nothing else: it changes
+            # nothing, and git refuses the whole patch for it ("corrupt patch"). The body is
+            # the change, so the hunk is dropped and the record says it was.
+            dropped += 1
+            index = start
+            continue
         if (removed, added) != declared:
             notes.append(
                 f"a hunk header said -{declared[0]}/+{declared[1]} but its body carried "
@@ -879,12 +890,15 @@ def _recount(change: str) -> tuple[str, str]:
             out.append(lines[index])
         out.extend(lines[index + 1 : start])
         index = start
-    note = (
-        ""
-        if not notes
-        else "; ".join(notes) + ": the header was corrected and the body applied as written"
-    )
-    return "".join(out), note
+    said: list[str] = []
+    if dropped:
+        said.append(
+            f"{dropped} hunk(s) carried no change and were dropped: a hunk of context is not "
+            "a patch"
+        )
+    if notes:
+        said.append("; ".join(notes) + ": the header was corrected and the body applied as written")
+    return "".join(out), "; ".join(said)
 
 
 def _apply(

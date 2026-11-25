@@ -456,3 +456,33 @@ def test_the_reproduction_becomes_a_check_beside_the_policy(tmp_path: Path) -> N
     assert [check["id"] for check in data["checks"]] == ["repro"]
     assert data["checks"][0]["argv"] == ["python", "-c", "print(1)"]
     assert "when_paths" not in data["checks"][0]
+
+
+def test_a_hunk_that_changes_nothing_is_dropped_and_said_out_loud(tmp_path: Path) -> None:
+    """A hunk of context is not a patch: git refuses the whole diff for it ("corrupt patch").
+
+    The model that wrote c-d4b added no line to a second hunk of `_resolve_incomplete`; the
+    gate told it "corrupt patch at line 45" and the change was lost for a reason nobody could
+    act on. The body is the change, so the empty hunk is dropped and the rest applies.
+    """
+    project, box_root = make_box(tmp_path)
+    contract = caesar.read_contract(write_contract(tmp_path))
+    (project / "src" / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qam", "longer")
+    patch = tmp_path / "empty-hunk.diff"
+    patch.write_text(
+        "--- a/src/app.py\n"
+        "+++ b/src/app.py\n"
+        "@@ -1,2 +1,3 @@\n"
+        " one\n"
+        "+one and a half\n"
+        " two\n"
+        "@@ -2,2 +2,2 @@\n"
+        " two\n"
+        " three\n",
+        encoding="utf-8",
+    )
+    attempt = caesar.run_attempt(box_root, project, contract, patch)
+    assert attempt.applied, attempt.reason
+    assert (project / "src" / "app.py").read_text() == "one\none and a half\ntwo\nthree\n"
+    assert "carried no change and were dropped" in attempt.reason
