@@ -26,7 +26,11 @@ from . import caesar
 SCHEMA_VERSION = 1
 RAILS_FILE = ".pantheon/rails.toml"
 RECORD_TYPE = "rails.approval"
+REVISION_TYPE = "rails.revision"
 RECORDS = Path("tabularium") / "forma"
+KINDS = ("add", "replace", "revisit")
+HEAVY = frozenset({"replace", "revisit"})
+"""A heavy revision rewrites the frame and waits for it to be accepted again."""
 DIRECTIONS = frozenset({"up", "down"})
 STATES = frozenset({"open", "closed"})
 
@@ -182,6 +186,37 @@ class Standing:
 
 
 @dataclass(frozen=True, slots=True)
+class Revision:
+    """A departure from the accepted frame: what kind, why, and what it costs either way."""
+
+    path: Path
+    at: str
+    kind: str
+    from_digest: str
+    to_digest: str
+    note: str
+    breaks: str | None
+    lose: str | None
+    by: str
+    before: tuple[str, ...]
+    """Tasks whose record rested on an older frame: they were run before this departure."""
+
+    def json(self) -> dict[str, object]:
+        return {
+            "at": self.at,
+            "kind": self.kind,
+            "from": self.from_digest,
+            "to": self.to_digest,
+            "note": self.note,
+            "breaks": self.breaks,
+            "lose": self.lose,
+            "by": self.by,
+            "before": list(self.before),
+            "record": str(self.path),
+        }
+
+
+@dataclass(frozen=True, slots=True)
 class Check:
     """How one task stands against the rails: the milestone it serves, or why it stands out."""
 
@@ -213,6 +248,7 @@ class Check:
     def json(self) -> dict[str, object]:
         return {
             "state": self.standing.state,
+            "digest": self.standing.digest,
             "milestone": None if self.milestone is None else self.milestone.id,
             "title": None if self.milestone is None else self.milestone.title,
             "outside": self.outside,
@@ -332,7 +368,7 @@ def approve(
         "base": caesar.head(box.project),
     }
     path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
-    _append_event(box, by, note, path, stamp)
+    _append_event(box, by, note, path, stamp, kind="rails.approved")
     return Approval(
         path=path,
         at=_stamp(stamp),
@@ -343,12 +379,100 @@ def approve(
     )
 
 
+def revise(
+    box: boxes.Box,
+    kind: str,
+    note: str,
+    *,
+    breaks: str | None = None,
+    lose: str | None = None,
+    by: str = "owner",
+    when: datetime | None = None,
+) -> Revision:
+    """Record a departure from the accepted frame: what kind, why, and what it costs either way.
+
+    The record answers the two questions a heavy revision has to answer — what breaks if we do,
+    and what we lose if we do not — and names the tasks that rested on the older frame. It is
+    not an approval: the new frame is accepted by its own record, and a heavy revision refuses
+    tasks until that happens.
+    """
+    if kind not in KINDS:
+        raise boxes.HarnessError(
+            f"revision kind {kind!r} is not one of {', '.join(KINDS)}"
+        )
+    if not note.strip():
+        raise boxes.HarnessError(
+            "a revision names why it was made: an edit without a reason is a rewrite on the fly"
+        )
+    current = read(box.project)
+    if current is None:
+        raise boxes.HarnessError(
+            f"there are no rails to revise in {box.project}: {RAILS_FILE} does not exist"
+        )
+    approval = latest(box)
+    if approval is None:
+        raise boxes.HarnessError(
+            "there is nothing to revise: the frame was never approved, so no departure can be "
+            "named; approve the frame first"
+        )
+    if current.digest == approval.digest:
+        raise boxes.HarnessError(
+            "the frame did not change since it was approved: a revision that changes nothing is "
+            "not one; edit the frame first"
+        )
+    if kind in HEAVY:
+        if not (breaks and breaks.strip()):
+            raise boxes.HarnessError(
+                f"a {kind} revision says what breaks if we do it: `--breaks` is empty"
+            )
+        if not (lose and lose.strip()):
+            raise boxes.HarnessError(
+                f"a {kind} revision says what we lose if we do not: `--lose` is empty"
+            )
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    directory = box.root / RECORDS
+    directory.mkdir(parents=True, exist_ok=True)
+    path = _free_path(directory, stamp, prefix="rails-revision")
+    before = _older_tasks(box, current.digest)
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "type": REVISION_TYPE,
+        "at": _stamp(stamp),
+        "kind": kind,
+        "from": approval.digest,
+        "to": current.digest,
+        "note": note,
+        "breaks": breaks,
+        "lose": lose,
+        "by": by,
+        "before": list(before),
+        "base": caesar.head(box.project),
+    }
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    _append_event(box, by, note, path, stamp, kind="rails.revised")
+    return Revision(
+        path=path,
+        at=_stamp(stamp),
+        kind=kind,
+        from_digest=approval.digest,
+        to_digest=current.digest,
+        note=note,
+        breaks=breaks,
+        lose=lose,
+        by=by,
+        before=before,
+    )
+
+
 def latest(box: boxes.Box) -> Approval | None:
     """The newest approval record, or ``None``. An unreadable record is an error, not a skip."""
     directory = box.root / RECORDS
     if not directory.is_dir():
         return None
-    records = sorted(directory.glob("rails-approval-*.json"))
+    records = sorted(
+        directory.glob("rails-approval-*.json"),
+        key=lambda item: (item.stat().st_mtime_ns, item.name),
+    )
     if not records:
         return None
     path = records[-1]
@@ -384,6 +508,44 @@ def latest(box: boxes.Box) -> Approval | None:
     )
 
 
+def latest_revision(box: boxes.Box) -> Revision | None:
+    """The newest revision record, or ``None``. An unreadable record is an error, not a skip."""
+    directory = box.root / RECORDS
+    if not directory.is_dir():
+        return None
+    records = sorted(
+        directory.glob("rails-revision-*.json"),
+        key=lambda item: (item.stat().st_mtime_ns, item.name),
+    )
+    if not records:
+        return None
+    path = records[-1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise boxes.HarnessError(f"the rails revision {path} does not parse: {error}") from error
+    if not isinstance(data, dict) or data.get("type") != REVISION_TYPE:
+        raise boxes.HarnessError(f"{path} is not a rails revision record")
+    kind = str(data.get("kind", ""))
+    if kind not in KINDS:
+        raise boxes.HarnessError(
+            f"{path} names revision kind {kind!r}, which is not one of {KINDS}"
+        )
+    before = data.get("before", [])
+    return Revision(
+        path=path,
+        at=str(data.get("at", "")),
+        kind=kind,
+        from_digest=str(data.get("from", "")),
+        to_digest=str(data.get("to", "")),
+        note=str(data.get("note", "")),
+        breaks=_optional(data.get("breaks")),
+        lose=_optional(data.get("lose")),
+        by=str(data.get("by", "")),
+        before=tuple(str(item) for item in before) if isinstance(before, list) else (),
+    )
+
+
 def standing(box: boxes.Box) -> Standing:
     """The rails on disk against the newest approval: the answer a dispatch will record."""
     current = read(box.project)
@@ -406,6 +568,20 @@ def check(box: boxes.Box, *, milestone: str | None, outside: str | None) -> Chec
     """
     how = standing(box)
     if how.state != "approved":
+        revision = latest_revision(box)
+        if (
+            revision is not None
+            and revision.kind in HEAVY
+            and revision.to_digest == how.digest
+        ):
+            return Check(
+                how,
+                refusal=(
+                    f"the frame was rewritten ({revision.kind}) and the new frame was never "
+                    "accepted: a heavy revision waits for `pantheon rails --approve` before a "
+                    "task runs against it"
+                ),
+            )
         return Check(how)
     current = read(box.project)
     if current is None:
@@ -434,7 +610,9 @@ def check(box: boxes.Box, *, milestone: str | None, outside: str | None) -> Chec
     return Check(how, milestone=found)
 
 
-def render(standing: Standing, current: Rails | None) -> list[str]:
+def render(
+    standing: Standing, current: Rails | None, revision: Revision | None = None
+) -> list[str]:
     """The rails as a person reads them: the frame, what is missing, and who accepted it."""
     lines = [f"rails      {standing.line()}"]
     if current is None:
@@ -466,10 +644,30 @@ def render(standing: Standing, current: Rails | None) -> list[str]:
             lines.append(f"note       {approval.note}")
         for item in approval.delegations:
             lines.append(f"delegated  {item.question} -> {item.default}")
+    if revision is not None:
+        lines.append(f"revision   {revision.kind} {revision.at} by {revision.by}")
+        lines.append(
+            f"           accepted {_short(revision.from_digest)} -> now {revision.to_digest[:12]}"
+        )
+        lines.append(f"           note {revision.note}")
+        if revision.breaks:
+            lines.append(f"           breaks: {revision.breaks}")
+        if revision.lose:
+            lines.append(f"           lose: {revision.lose}")
+        if revision.before:
+            lines.append(f"           before: {', '.join(revision.before)}")
+        accepted = standing.approval
+        if accepted is not None and revision.at > accepted.at:
+            lines.append(
+                "           not accepted yet — `pantheon rails --approve` makes the new frame "
+                "the basis"
+            )
     return lines
 
 
-def payload(standing: Standing, current: Rails | None) -> dict[str, object]:
+def payload(
+    standing: Standing, current: Rails | None, revision: Revision | None = None
+) -> dict[str, object]:
     """The rails as one JSON object: the same facts the render puts on lines."""
     body = standing.json()
     if current is None:
@@ -478,6 +676,7 @@ def payload(standing: Standing, current: Rails | None) -> dict[str, object]:
         return body
     body["file"] = RAILS_FILE
     body["missing"] = list(current.missing)
+    body["revision"] = None if revision is None else revision.json()
     body["brief"] = {
         "why": current.brief.why,
         "for": current.brief.for_whom,
@@ -599,12 +798,40 @@ def _text(data: dict[str, object], key: str, where: str) -> str:
     return value.strip()
 
 
-def _free_path(directory: Path, when: datetime) -> Path:
-    """Two approvals in one second are two records, not one silently overwriting the other."""
-    path = directory / f"rails-approval-{when:%Y%m%dT%H%M%SZ}.json"
+def _older_tasks(box: boxes.Box, digest: str) -> tuple[str, ...]:
+    """The tasks whose record rested on an older frame: the ones a departure leaves behind."""
+    base = box.root / "tabularium"
+    if not base.is_dir():
+        return ()
+    found: list[str] = []
+    for record in sorted(base.glob("*/dispatch-*.json")):
+        try:
+            data = json.loads(record.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(data, dict):
+            continue
+        held = data.get("rails")
+        if not isinstance(held, dict):
+            continue
+        older = held.get("digest")
+        if isinstance(older, str) and older and older != digest:
+            task = str(data.get("task") or record.parent.name)
+            if task not in found:
+                found.append(task)
+    return tuple(found)
+
+
+def _optional(value: object) -> str | None:
+    return value.strip() if isinstance(value, str) and value.strip() else None
+
+
+def _free_path(directory: Path, when: datetime, *, prefix: str = "rails-approval") -> Path:
+    """Two records in one second are two records, not one silently overwriting the other."""
+    path = directory / f"{prefix}-{when:%Y%m%dT%H%M%SZ}.json"
     counter = 2
     while path.exists():
-        path = directory / f"rails-approval-{when:%Y%m%dT%H%M%SZ}-{counter}.json"
+        path = directory / f"{prefix}-{when:%Y%m%dT%H%M%SZ}-{counter}.json"
         counter += 1
     return path
 
@@ -621,8 +848,10 @@ def _stamp(when: datetime) -> str:
     return when.replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
-def _append_event(box: boxes.Box, by: str, note: str, record: Path, when: datetime) -> None:
-    """One ledger event per approval: a record the timeline cannot find is half a record."""
+def _append_event(
+    box: boxes.Box, by: str, note: str, record: Path, when: datetime, *, kind: str
+) -> None:
+    """One ledger event per record: a record the timeline cannot find is half a record."""
     ledger = box.root / "fasti"
     ledger.mkdir(parents=True, exist_ok=True)
     path = ledger / f"{when:%Y-%m-%d}.jsonl"
@@ -633,7 +862,7 @@ def _append_event(box: boxes.Box, by: str, note: str, record: Path, when: dateti
         link = str(record)
     event = {
         "id": f"e-{when:%Y-%m-%d}-{len(existing) + 1}",
-        "type": "rails.approved",
+        "type": kind,
         "at": _stamp(when),
         "task": None,
         "actor": by,

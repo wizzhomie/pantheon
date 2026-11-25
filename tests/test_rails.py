@@ -362,3 +362,141 @@ def test_dispatch_refuses_a_task_that_serves_no_milestone(tmp_path: Path) -> Non
     events = list((box.root / "fasti").glob("*.jsonl"))
     last = json.loads(events[-1].read_text(encoding="utf-8").splitlines()[-1])
     assert last["type"] == "task.refused" and "milestone" in last["reason"]
+
+
+def changed_frame() -> str:
+    return FRAME.replace(
+        'threshold = "zero tasks outside the plan"',
+        'threshold = "one task outside the plan"',
+    )
+
+
+def test_a_revision_names_the_departure_and_what_it_costs(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    revision = rails.revise(
+        box,
+        "replace",
+        "one exception is allowed",
+        breaks="a task may drift once",
+        lose="nothing worth keeping",
+    )
+    assert revision.kind == "replace"
+    assert revision.from_digest != revision.to_digest
+    assert revision.breaks == "a task may drift once"
+    assert revision.path.name.startswith("rails-revision-")
+    written = json.loads(revision.path.read_text(encoding="utf-8"))
+    assert written["type"] == "rails.revision"
+    event = json.loads(
+        (box.root / "fasti" / f"{written['at'][:10]}.jsonl")
+        .read_text(encoding="utf-8")
+        .splitlines()[-1]
+    )
+    assert event["type"] == "rails.revised"
+    assert rails.standing(box).state == "changed"
+    shown = "\n".join(
+        rails.render(rails.standing(box), rails.read(project), rails.latest_revision(box))
+    )
+    assert "revision   replace" in shown
+    assert "breaks: a task may drift once" in shown
+
+
+def test_a_revision_that_changes_nothing_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    with pytest.raises(boxes.HarnessError, match="did not change"):
+        rails.revise(box, "add", "nothing changed")
+
+
+def test_a_heavy_revision_needs_both_risk_answers(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    with pytest.raises(boxes.HarnessError, match="what breaks"):
+        rails.revise(box, "replace", "why", breaks="")
+    with pytest.raises(boxes.HarnessError, match="what we lose"):
+        rails.revise(box, "replace", "why", breaks="a cost")
+    revision = rails.revise(box, "replace", "why", breaks="a cost", lose="a loss")
+    assert revision.breaks == "a cost" and revision.lose == "a loss"
+
+
+def test_a_light_revision_needs_a_reason_but_no_risk_note(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    with pytest.raises(boxes.HarnessError, match="names why"):
+        rails.revise(box, "add", "  ")
+    revision = rails.revise(box, "add", "a new scenario")
+    assert revision.kind == "add" and revision.breaks is None
+
+
+def test_a_revision_without_an_approval_is_refused(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    with pytest.raises(boxes.HarnessError, match="never approved"):
+        rails.revise(box, "add", "why")
+
+
+def test_a_heavy_revision_refuses_tasks_until_it_is_accepted_again(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    rails.revise(box, "replace", "why", breaks="a cost", lose="a loss")
+    check = rails.check(box, milestone="M1", outside=None)
+    assert check.refusal is not None and "never accepted" in check.refusal
+    rails.approve(box, by="owner")
+    admitted = rails.check(box, milestone="M1", outside=None)
+    assert admitted.refusal is None
+
+
+def test_a_revision_names_the_tasks_left_on_the_old_frame(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    record = box.root / "tabularium" / "t-old" / "dispatch-20260101T000000Z.json"
+    record.parent.mkdir(parents=True, exist_ok=True)
+    record.write_text(
+        json.dumps({"task": "t-old", "rails": {"digest": "sha256:older"}}),
+        encoding="utf-8",
+    )
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    revision = rails.revise(box, "add", "another scenario")
+    assert revision.before == ("t-old",)
+
+
+def test_the_cli_records_a_revision(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    rails.approve(box, by="owner")
+    (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
+    assert (
+        run(
+            box,
+            "rails",
+            box.name,
+            "--revise",
+            "revisit",
+            "--note",
+            "the metric changes",
+            "--breaks",
+            "the old number stops being comparable",
+            "--lose",
+            "the history of the old number",
+            "--json",
+        )
+        == 0
+    )
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["revision"]["kind"] == "revisit"
+    assert answer["revision"]["breaks"].startswith("the old number")
+    capsys.readouterr()
+    assert run(box, "rails", box.name, "--revise", "add", "--note", "x", "--approve") == 2
+    assert "two acts" in capsys.readouterr().err

@@ -149,6 +149,22 @@ def _parser() -> argparse.ArgumentParser:
     rails_parser.add_argument("--by", default="owner", help="who accepts the frame")
     rails_parser.add_argument("--note", default="", help="why this frame was accepted")
     rails_parser.add_argument(
+        "--revise",
+        choices=rails.KINDS,
+        default=None,
+        help="record a departure from the accepted frame: add, replace or revisit",
+    )
+    rails_parser.add_argument(
+        "--breaks",
+        default=None,
+        help="what breaks if the revision is made; heavy revisions require it",
+    )
+    rails_parser.add_argument(
+        "--lose",
+        default=None,
+        help="what we lose if the revision is not made; heavy revisions require it",
+    )
+    rails_parser.add_argument(
         "--delegate",
         action="append",
         default=[],
@@ -630,6 +646,26 @@ def _approve(args: argparse.Namespace, root: Path) -> int:
 
 def _rails(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
+    if args.revise is not None and args.approve:
+        raise boxes.HarnessError(
+            "a revision and an approval are two acts: record the revision, then accept the frame"
+        )
+    if args.revise is not None:
+        revision = rails.revise(
+            box,
+            args.revise,
+            args.note,
+            breaks=args.breaks,
+            lose=args.lose,
+            by=args.by,
+        )
+        standing = rails.standing(box)
+        current = rails.read(box.project)
+        if args.json:
+            print(json.dumps({"revision": revision.json()}, indent=2, ensure_ascii=False))
+            return 0
+        print("\n".join(rails.render(standing, current, revision)))
+        return 0
     if args.approve:
         delegations = tuple(_delegation(item) for item in args.delegate)
         approval = rails.approve(box, by=args.by, note=args.note, delegations=delegations)
@@ -654,14 +690,15 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
                 )
             )
             return 0
-        print("\n".join(rails.render(rails.standing(box), current)))
+        print("\n".join(rails.render(rails.standing(box), current, rails.latest_revision(box))))
         return 0
     standing = rails.standing(box)
     current = rails.read(box.project)
+    previous = rails.latest_revision(box)
     if args.json:
-        print(json.dumps(rails.payload(standing, current), indent=2, ensure_ascii=False))
+        print(json.dumps(rails.payload(standing, current, previous), indent=2, ensure_ascii=False))
         return 0
-    print("\n".join(rails.render(standing, current)))
+    print("\n".join(rails.render(standing, current, previous)))
     return 0
 
 

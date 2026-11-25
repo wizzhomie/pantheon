@@ -238,7 +238,10 @@ def latest(box: boxes.Box) -> Approval | None:
     directory = box.root / RECORDS
     if not directory.is_dir():
         return None
-    records = sorted(directory.glob("approval-*.json"))
+    records = sorted(
+        directory.glob("approval-*.json"),
+        key=lambda item: (item.stat().st_mtime_ns, item.name),
+    )
     if not records:
         return None
     path = records[-1]
