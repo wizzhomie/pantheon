@@ -142,6 +142,17 @@ print(json.dumps({
 }))
 """
 
+ANSWER_CUT = """\
+request = json.load(sys.stdin)
+print(json.dumps({
+    "patch": "--- a/src/app.py\\n+++ b/src/app.py\\n@@ -1 +1 @@\\n-value = 1\\n+value = 2\\n",
+    "model": "fake-model",
+    "usage": {"prompt_tokens": 123, "completion_tokens": 4096, "cost_cents": 0.5},
+    "truncated": True,
+    "notes": ["the answer hit the token cap: the diff may be incomplete"],
+}))
+"""
+
 
 def test_a_box_without_a_profile_declares_no_executor(tmp_path: Path) -> None:
     config = executor.read_config(tmp_path / "executor.toml")
@@ -384,6 +395,25 @@ def test_an_answer_that_costs_more_than_the_budget_is_recorded_not_applied(
     assert "over-budget" in out and "9.00 cents" in out
     assert (project / "src" / "app.py").read_text() == "value = 1\n"
     assert not list(box.root.glob("tabularium/t-1/verify-*"))
+
+
+@requires_trajan
+def test_an_answer_cut_at_the_cap_is_recorded_not_applied(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A diff that stops at the cap can apply and still be half a fix: refuse it, name it."""
+    project, box, _script, task = probe(tmp_path, ANSWER_CUT)
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "cut at the token cap" in out
+    assert (project / "src" / "app.py").read_text() == "value = 1\n"
+    assert not list(box.root.glob("tabularium/t-1/verify-*"))
+    proposal = json.loads(
+        (box.root / "tabularium" / "t-1" / "proposal-1" / "proposal.json").read_text()
+    )
+    assert proposal["status"] == "incomplete"
+    assert proposal["usage"]["completion_tokens"] == 4096
+    assert proposal["usage"]["cost_cents"] == 0.5, "a cut call still costs money"
 
 
 @requires_trajan
@@ -718,3 +748,25 @@ def test_an_answer_cut_before_any_text_says_so(
     assert "cut before any text" in answer["error"]
     assert any("raise" in note for note in answer["notes"])
     assert answer["usage"]["completion_tokens"] == 8192
+
+
+def test_a_diff_that_hit_the_cap_is_marked_truncated(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The diff parses, but the answer was cut: the box must see the cut, not just a patch."""
+    request = {"task": {"id": "t"}, "project": {"path": str(tmp_path)}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request)))
+    monkeypatch.setenv(deepseek.KEY_ENV, "k")
+
+    def fake_post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
+        return {
+            "choices": [{"message": {"content": DIFF}, "finish_reason": "length"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 4096},
+        }
+
+    monkeypatch.setattr(deepseek, "_post", fake_post)
+    assert deepseek.main() == 0
+    answer = json.loads(capsys.readouterr().out)
+    assert answer["truncated"] is True
+    assert answer["patch"] == DIFF
+    assert any("token cap" in note for note in answer["notes"])

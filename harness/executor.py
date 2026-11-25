@@ -6,7 +6,7 @@ the task as JSON on stdin, may read the project, and answers with one unified di
 it spent. Everything after that is unchanged: the diff goes through Caesar's gate like any
 other patch, and the record keeps the answer, not a promise about it.
 
-Three rules make the answer usable:
+Four rules make the answer usable:
 
 * **A budget is a limit, not a wish.** ``max_seconds`` stops the command; an answer that
   claims more cents than the budget allows is recorded and not applied.
@@ -14,6 +14,9 @@ Three rules make the answer usable:
   record that says "unknown", because zero is a number and "nobody counted" is not.
 * **The command proposes; it does not write.** The project is read before and after the call:
   a direct change is caught and the dispatch returns instead of closing on an unguarded tree.
+* **A cut answer is not a change.** An answer that hit the token cap is recorded with its
+  price and not applied: a diff that stops at the cap can still apply cleanly and pass the
+  checks while half the fix is missing, so it is refused as incomplete rather than trusted.
 
 A box without ``persona/executor.toml`` has no executor. Then a task must carry its own patch,
 and the record says that too — the same honesty as before this module existed.
@@ -43,7 +46,18 @@ CONFIG_KEYS = frozenset(
 )
 USAGE_KEYS = frozenset({"prompt_tokens", "completion_tokens", "cost_cents"})
 ANSWER_KEYS = frozenset(
-    {"patch", "patch_file", "summary", "model", "usage", "notes", "duration_ms", "error", "reading"}
+    {
+        "patch",
+        "patch_file",
+        "summary",
+        "model",
+        "usage",
+        "notes",
+        "duration_ms",
+        "truncated",
+        "error",
+        "reading",
+    }
 )
 READING_KEYS = frozenset(
     {"files", "chars", "tokens_estimate", "cap_chars", "declared_chars", "left_out"}
@@ -502,7 +516,7 @@ def propose(
     elapsed = time.monotonic() - started
     _write_call(directory, done.stdout, done.stderr)
     try:
-        patch, usage, answer_model, answer_notes, reading = _read_answer(
+        patch, usage, answer_model, answer_notes, reading, truncated = _read_answer(
             done, directory, elapsed, model
         )
     except _Malformed as error:
@@ -541,6 +555,22 @@ def propose(
             answer_model,
             stamp,
             notes,
+            choice=reason,
+        )
+    if truncated:
+        return _record(
+            directory,
+            task,
+            number,
+            "incomplete",
+            "the answer was cut at the token cap: the diff is incomplete, so it was recorded "
+            "and not applied — raise the answer cap or narrow the task",
+            patch,
+            usage,
+            answer_model,
+            stamp,
+            notes,
+            reading=reading,
             choice=reason,
         )
     if cents is not None and usage is not None and usage.cost_cents is not None:
@@ -656,7 +686,7 @@ def _read_answer(
     directory: Path,
     elapsed: float,
     model: str | None,
-) -> tuple[Path, Usage, str | None, tuple[str, ...], dict[str, object] | None]:
+) -> tuple[Path, Usage, str | None, tuple[str, ...], dict[str, object] | None, bool]:
     """Parse the answer strictly: an unknown key is a protocol defect, not something to ignore."""
     text = done.stdout.strip()
     if not text:
@@ -688,7 +718,10 @@ def _read_answer(
     usage = _usage(data.get("usage"), elapsed, answer_model)
     notes = _notes(data.get("notes"))
     reading = _reading(data.get("reading"))
-    return patch, usage, answer_model, notes, reading
+    truncated = data.get("truncated", False)
+    if not isinstance(truncated, bool):
+        raise _Malformed("the executor's answer: truncated must be true or false")
+    return patch, usage, answer_model, notes, reading, truncated
 
 
 def _reading(raw: object) -> dict[str, object] | None:

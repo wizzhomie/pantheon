@@ -159,6 +159,7 @@ def main() -> int:
                     "cost_cents": cost,
                 },
                 "duration_ms": int(elapsed * 1000),
+                "truncated": finish == "length",
                 "notes": notes,
                 "reading": prompt.reading,
             }
