@@ -93,7 +93,7 @@ def read_config(path: Path) -> Config:
         if isinstance(cents, bool) or not isinstance(cents, (int, float)) or cents <= 0:
             raise boxes.HarnessError(f"{path}: max_cents must be a positive number")
         cents = float(cents)
-    when_paths = _paths(path, data.get("when_paths", []))
+    when_paths = _paths(path, data["when_paths"]) if "when_paths" in data else ()
     return Config(
         path=path, enabled=enabled, model=model, max_cents=cents, when_paths=when_paths
     )
@@ -103,6 +103,11 @@ def _paths(path: Path, raw: object) -> tuple[str, ...]:
     """The declared paths, checked for shape: an empty or absolute pattern reads nothing."""
     if not isinstance(raw, list) or not all(isinstance(item, str) for item in raw):
         raise boxes.HarnessError(f"{path}: when_paths must be a list of glob strings")
+    if isinstance(raw, list) and not raw:
+        raise boxes.HarnessError(
+            f"{path}: when_paths is empty: name at least one path, or leave the key out to "
+            "read every change"
+        )
     for item in raw:
         if not item.strip() or item.startswith("/") or ".." in item.split("/"):
             raise boxes.HarnessError(

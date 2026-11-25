@@ -139,6 +139,7 @@ def test_declared_paths_narrow_the_reading_and_are_described(tmp_path: Path) -> 
     [
         ("schema_version = 1\nenabled = true\nwhen_paths = \"src/**\"\n", "list of glob"),
         ("schema_version = 1\nenabled = true\nwhen_paths = [\"\"]\n", "relative non-empty"),
+        ("schema_version = 1\nenabled = true\nwhen_paths = []\n", "when_paths is empty"),
         ("schema_version = 1\nenabled = true\nwhen_paths = [\"/etc/**\"]\n", "relative non-empty"),
         ("schema_version = 1\nenabled = true\nwhen_paths = [\"../x\"]\n", "relative non-empty"),
     ],
