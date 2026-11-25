@@ -604,6 +604,7 @@ print(json.dumps({
 """
 
 
+@requires_trajan
 def test_what_the_executor_read_is_recorded_and_printed(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -624,6 +625,7 @@ def test_what_the_executor_read_is_recorded_and_printed(
     assert proposal["reading"]["chars"] == 40
 
 
+@requires_trajan
 def test_the_dispatch_output_names_what_was_read(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -634,6 +636,7 @@ def test_the_dispatch_output_names_what_was_read(
     assert "2 file(s), 40 chars (~10 tokens)" in out
 
 
+@requires_trajan
 def test_a_task_read_budget_reaches_the_executor(tmp_path: Path) -> None:
     _project, box, _script, task = probe(tmp_path, ANSWER)
     text = task.read_text() + "\nmax_read_chars = 400\n"
@@ -663,6 +666,7 @@ def test_the_read_budget_leaves_files_out_and_names_them(tmp_path: Path) -> None
     assert "--- src/a.py ---" in prompt.text
 
 
+@requires_trajan
 def test_status_names_what_the_task_read(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
