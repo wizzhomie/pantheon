@@ -670,6 +670,22 @@ def test_the_read_budget_leaves_files_out_and_names_them(tmp_path: Path) -> None
     assert "--- src/a.py ---" in prompt.text
 
 
+def test_a_file_that_fits_the_budget_is_read_whole(tmp_path: Path) -> None:
+    """A 45k file used to arrive cut to 40k: the model then cannot anchor a hunk below the cut."""
+    project = tmp_path / "whole"
+    (project / "src").mkdir(parents=True)
+    body = "a" * 45_000 + "\n"
+    (project / "src" / "big.py").write_text(body, encoding="utf-8")
+    git(project, "init", "-q")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    prompt = deepseek._prompt({"id": "t", "paths": ["src/**"]}, project, None, None)
+    assert prompt.reading["files"] == 1
+    assert prompt.reading["chars"] == len(body)
+    assert body in prompt.text
+    assert prompt.reading["left_out"] == []
+
+
 @requires_trajan
 def test_status_names_what_the_task_read(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]

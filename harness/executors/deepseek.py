@@ -50,7 +50,6 @@ PRICE_OUT_ENV = "PANTHEON_MODEL_PRICE_OUT"
 DEFAULT_MAX_TOKENS = 4096
 FILE_LIST_LIMIT = 300
 CONTEXT_CHARS = 120_000
-FILE_CHARS = 40_000
 TIMEOUT_SECONDS = 180.0
 
 SYSTEM = (
@@ -264,7 +263,6 @@ def _scope(
     parts: list[str] = []
     used = 0
     read = 0
-    cut = 0
     unreadable = 0
     after_budget = 0
     for index, name in enumerate(names):
@@ -273,15 +271,11 @@ def _scope(
         except (OSError, UnicodeDecodeError):
             unreadable += 1
             continue
-        snippet = text[:FILE_CHARS]
-        if used + len(snippet) > cap:
+        if used + len(text) > cap:
             after_budget = len(names) - index
             break
-        if len(text) > FILE_CHARS:
-            snippet += "\n… (truncated)"
-            cut += 1
-        parts += [f"--- {name} ---", snippet, ""]
-        used += len(snippet)
+        parts += [f"--- {name} ---", text, ""]
+        used += len(text)
         read += 1
     left_out: list[str] = []
     if after_budget:
@@ -291,8 +285,6 @@ def _scope(
             else "the prompt size limit"
         )
         left_out.append(f"{after_budget} file(s) after {by} of {cap} chars")
-    if cut:
-        left_out.append(f"{cut} file(s) cut to {FILE_CHARS} chars")
     if unreadable:
         left_out.append(f"{unreadable} file(s) that could not be read as text")
     reading: dict[str, object] = {
