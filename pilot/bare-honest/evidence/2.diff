@@ -1,0 +1,48 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index c3efc74..01bf4c6 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -1101,7 +1101,7 @@ class Command:
+         self.deprecated = deprecated
+ 
+     def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+-        return {
++        info_dict = {
+             "name": self.name,
+             "params": [param.to_info_dict() for param in self.get_params(ctx)],
+             "help": self.help,
+@@ -1111,6 +1111,25 @@ class Command:
+             "deprecated": self.deprecated,
+         }
+ 
++        # The usage line is the full invocation of the command, so it is only
++        # meaningful when the whole context chain has names to build the
++        # command path from.
++        root_ctx = ctx
++
++        while root_ctx.parent is not None:
++            root_ctx = root_ctx.parent
++
++        if root_ctx.info_name is not None:
++            usage = self.get_usage(ctx)
++            usage_prefix = f"{_('Usage:')} "
++
++            if usage.startswith(usage_prefix):
++                usage = usage[len(usage_prefix) :]
++
++            info_dict["usage"] = usage
++
++        return info_dict
++
+     def __repr__(self) -> str:
+         return f"<{self.__class__.__name__} {self.name}>"
+ 
+@@ -2614,7 +2633,7 @@ class Parameter(ABC):
+         if metavar is None:
+             metavar = self.type.name.upper()
+ 
+-        if self.nargs != 1:
++        if self.nargs != 1 or self.multiple:
+             metavar += "..."
+ 
+         return metavar

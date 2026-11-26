@@ -1,0 +1,96 @@
+diff --git a/src/click/core.py b/src/click/core.py
+index c3efc74..efd39b0 100644
+--- a/src/click/core.py
++++ b/src/click/core.py
+@@ -1101,7 +1101,7 @@ class Command:
+         self.deprecated = deprecated
+ 
+     def to_info_dict(self, ctx: Context) -> dict[str, t.Any]:
+-        return {
++        info_dict = {
+             "name": self.name,
+             "params": [param.to_info_dict() for param in self.get_params(ctx)],
+             "help": self.help,
+@@ -1111,6 +1111,25 @@ class Command:
+             "deprecated": self.deprecated,
+         }
+ 
++        # The usage line is the full invocation of the command, so it is only
++        # meaningful when the whole context chain has names to build the
++        # command path from.
++        root_ctx = ctx
++
++        while root_ctx.parent is not None:
++            root_ctx = root_ctx.parent
++
++        if root_ctx.info_name is not None:
++            usage = self.get_usage(ctx)
++            usage_prefix = f"{_('Usage:')} "
++
++            if usage.startswith(usage_prefix):
++                usage = usage[len(usage_prefix) :]
++
++            info_dict["usage"] = usage
++
++        return info_dict
++
+     def __repr__(self) -> str:
+         return f"<{self.__class__.__name__} {self.name}>"
+ 
+@@ -2614,7 +2633,7 @@ class Parameter(ABC):
+         if metavar is None:
+             metavar = self.type.name.upper()
+ 
+-        if self.nargs != 1:
++        if self.nargs != 1 or self.multiple:
+             metavar += "..."
+ 
+         return metavar
+@@ -2658,6 +2677,12 @@ class Parameter(ABC):
+             value = self.default
+ 
+         if call and callable(value):
++            if ctx.resilient_parsing:
++                # Completion parses in resilient mode just to locate what is
++                # being completed. Default factories may be expensive or have
++                # side effects, so leave them unevaluated in that case.
++                return None
++
+             value = value()
+ 
+         return value
+@@ -3398,13 +3423,32 @@ class Option(Parameter):
+         # result is the programmer-supplied ``flag_value`` (often a class or enum),
+         # which must NOT be instantiated here.
+         if value is raw and call and callable(value):
++            if ctx.resilient_parsing:
++                # See Parameter.get_default: don't evaluate default factories
++                # while parsing only to produce completions.
++                return None
++
+             value = value()
+         return value
+ 
+     def get_error_hint(self, ctx: Context | None) -> str:
+         result = super().get_error_hint(ctx)
+-        if self.show_envvar and self.envvar:
+-            envvars = [self.envvar] if isinstance(self.envvar, str) else self.envvar
++        envvar = self.envvar
++
++        # Match the env var shown in help when no explicit ``envvar`` is set but
++        # an ``auto_envvar_prefix`` is available.
++        if (
++            self.show_envvar
++            and not envvar
++            and ctx is not None
++            and self.allow_from_autoenv
++            and ctx.auto_envvar_prefix is not None
++            and self.name
++        ):
++            envvar = f"{ctx.auto_envvar_prefix}_{self.name.upper()}"
++
++        if self.show_envvar and envvar:
++            envvars = [envvar] if isinstance(envvar, str) else envvar
+             # An environment variable is allowed to feature a space or a comma on all
+             # platforms, hence the quotes around each.
+             var_str = ", ".join(f"'{var}'" for var in envvars)
