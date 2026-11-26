@@ -218,6 +218,32 @@ def test_a_citation_that_the_archive_holds_is_an_escalation(tmp_path: Path) -> N
     assert compared.cost_cents == pytest.approx(0.3)
 
 
+def test_a_clause_quoted_with_our_label_is_still_the_clause(tmp_path: Path) -> None:
+    """A live run found it: the reader copies the rendered line, label and all."""
+    box = boxes.new_box(tmp_path / "castra", make_project(tmp_path))
+    entry = _archive_one(box)
+
+    def labelled(prompt: str) -> tuple[str, float | None]:
+        answer = {
+            "contradiction": {
+                "address": entry.address,
+                "old": "ожидаемое: the value is two",
+                "new": "the value is three",
+                "why": "the task reverses the decision",
+            }
+        }
+        return json.dumps(answer), 0.1
+
+    compared = contradiction.compare(
+        box.root,
+        ("src/**",),
+        lambda history: contradiction.prompt("make the value two", "the value is two", {}, history),
+        ask=labelled,
+    )
+    assert compared.escalated and compared.citation is not None
+    assert compared.citation.old == "the value is two", "the label is stripped, the clause kept"
+
+
 def test_a_citation_the_archive_does_not_hold_counts_as_nothing(tmp_path: Path) -> None:
     box = boxes.new_box(tmp_path / "castra", make_project(tmp_path))
     entry = _archive_one(box)
@@ -362,6 +388,10 @@ def test_a_task_that_reverses_a_closed_decision_is_refused_before_it_is_paid(
     record = json.loads(records[0].read_text(encoding="utf-8"))
     assert record["state"] == "refused"
     assert any("contradicts the decision" in note for note in record["notes"])
+    compared = record["contract_comparison"]
+    assert compared["checked"] is True and compared["citation"] is not None
+    assert compared["citation"]["address"] == entries(box)[0].address
+    assert compared["cost_cents"] == pytest.approx(0.3)
     events = [
         json.loads(line)
         for path in (box.root / "fasti").glob("*.jsonl")

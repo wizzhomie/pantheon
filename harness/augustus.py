@@ -260,6 +260,14 @@ class Dispatch:
     answer to the words it was given.
     """
 
+    compared: contradiction.Comparison | None = None
+    """The new contract against the archived decisions on its paths, when the box compared them.
+
+    A citation that holds is a refusal (the owner decides), and the record keeps what the reader
+    said; an unusable answer is a named gap, not a pass. The comparison costs one call, and its
+    bill is in the record beside it.
+    """
+
     sensitivity: sensitivity.Report | None = None
     """Whether the task's own check notices the change, reversed piece by piece.
 
@@ -1015,6 +1023,7 @@ def dispatch(
                 notes=notes,
                 exit_code=1,
                 resumed_from=resumed_from,
+                compared=compared,
             ),
             stamp,
             began,
@@ -1555,6 +1564,7 @@ def dispatch(
             steps=steps,
             stop_reason=loop_stop,
             repeated=repeated,
+            compared=compared,
             sensitivity=sensitivity_report,
         ),
         stamp,
@@ -3185,6 +3195,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"{result.route_reason or 'no execution policy'}",
         f"frame      {_frame_line(result.frame)}",
         f"rails      {_rails_line(result.rails)}",
+        f"contracts  {_contracts_line(result.compared)}",
         f"arch       {_arch_line(result.arch)}",
         f"executor   {_executor_line(result.proposal)}",
         f"reading    {_reading_line(result.proposal)}",
@@ -3210,6 +3221,24 @@ def render_dispatch(result: Dispatch) -> list[str]:
     if result.outbox is not None:
         lines.append(f"outbox     {result.outbox}")
     return lines
+
+
+def _contracts_line(compared: contradiction.Comparison | None) -> str:
+    """The contract against the archive as one line: the citation, the gap, or the absence."""
+    if compared is None:
+        return "not compared — the task declares no paths to look up"
+    if compared.citation is not None:
+        return (
+            f"contradiction at {compared.citation.address}: «{compared.citation.old}» against "
+            f"«{compared.citation.new}»"
+        )
+    if compared.error:
+        return f"nothing usable — {compared.error}"
+    if compared.skipped:
+        return f"not compared — {compared.skipped}"
+    addresses = ", ".join(item.address for item in compared.history)
+    money = "" if compared.cost_cents is None else f", {compared.cost_cents:g} cents"
+    return f"no contradiction — compared with {addresses}{money}"
 
 
 def _sensitivity_line(report: sensitivity.Report | None) -> str:
@@ -3251,6 +3280,9 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "repeated": result.repeated,
         "stop_reason": result.stop_reason,
         "failure_class": failure_class(result),
+        "contract_comparison": None
+        if result.compared is None
+        else contradiction.payload(result.compared),
         "self_check": result.self_check,
         "sensitivity": None
         if result.sensitivity is None
@@ -3832,6 +3864,7 @@ def _finish(
         repeated=result.repeated,
         stop_reason=result.stop_reason,
         self_check=result.self_check,
+        compared=result.compared,
         sensitivity=result.sensitivity,
         shape=result.shape,
         engine=result.engine,
@@ -3965,6 +3998,8 @@ def _summary(result: Dispatch, when: datetime) -> str:
             value = getattr(task.contract, key)
             if value is not None:
                 lines.append(f"contract {key}: {value}")
+    if result.compared is not None:
+        lines.append(f"contracts: {_contracts_line(result.compared)}")
     if task.parent is not None:
         lines.append(f"parent: {task.parent} — {task.why or 'no reason recorded'}")
     if result.stop_reason is not None:

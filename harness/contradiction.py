@@ -56,6 +56,9 @@ EXAMPLE = """\
 # seconds = 240
 """
 
+LABELS = ("ожидаемое", "цель", "symptom", "visible", "boundaries", "expected", "goal")
+"""The words the history is rendered with; a reader that quotes them is quoting our formatting."""
+
 SYSTEM = (
     "Ты — валидатор контрактов. Тебе дают новый контракт задачи и решения, уже принятые в этих "
     "путях. Твоя работа — найти только ЯВНОЕ противоречие: новый контракт требует обратного "
@@ -103,6 +106,8 @@ class Comparison:
     skipped: str | None
     cost_cents: float | None = None
     error: str | None = None
+    answer: str = ""
+    """What the reader said, kept when its citation did not hold: a gap must be explainable."""
 
     @property
     def escalated(self) -> bool:
@@ -216,6 +221,7 @@ def compare(
         skipped=None,
         cost_cents=cost,
         error=problem,
+        answer="" if citation is not None else " ".join(text.split())[:400],
     )
 
 
@@ -232,6 +238,27 @@ def reason(comparison: Comparison) -> str | None:
     )
 
 
+def payload(comparison: Comparison) -> dict[str, object]:
+    """The comparison as a machine reads it: what the reader was given, said, and cost."""
+    citation = comparison.citation
+    return {
+        "history": [item.address for item in comparison.history],
+        "checked": comparison.checked,
+        "skipped": comparison.skipped,
+        "cost_cents": comparison.cost_cents,
+        "error": comparison.error,
+        "answer": comparison.answer,
+        "citation": None
+        if citation is None
+        else {
+            "address": citation.address,
+            "old": citation.old,
+            "new": citation.new,
+            "why": citation.why,
+        },
+    }
+
+
 def note(comparison: Comparison) -> str:
     """What the record says when no contradiction was found, including why nobody looked."""
     if comparison.citation is not None:
@@ -242,9 +269,10 @@ def note(comparison: Comparison) -> str:
         return f"the contract was not compared with the archive ({comparison.skipped}: {addresses})"
     if comparison.error:
         addresses = ", ".join(item.address for item in comparison.history)
+        told = f" The reader said: {comparison.answer}" if comparison.answer else ""
         return (
             f"the comparison with {addresses} produced nothing usable: {comparison.error}. The "
-            "task goes on, and the gap is named here"
+            f"task goes on, and the gap is named here.{told}"
         )
     addresses = ", ".join(item.address for item in comparison.history)
     money = "" if comparison.cost_cents is None else f", {comparison.cost_cents:g} cents"
@@ -341,7 +369,7 @@ def _citation(text: str, history: tuple[archivum.Entry, ...]) -> tuple[Citation 
     if not isinstance(raw, dict):
         return None, "the contradiction is not an object"
     address = str(raw.get("address") or "").strip()
-    old = str(raw.get("old") or "").strip()
+    old = _unlabel(str(raw.get("old") or "").strip())
     new = str(raw.get("new") or "").strip()
     if not address or not old or not new:
         return None, "the contradiction names no address or no clause"
@@ -351,6 +379,26 @@ def _citation(text: str, history: tuple[archivum.Entry, ...]) -> tuple[Citation 
     if _squash(old) not in _clause(entry):
         return None, f"the clause cited from {address} is not there"
     return Citation(address=address, old=old, new=new, why=str(raw.get("why") or "").strip()), None
+
+
+def _unlabel(clause: str) -> str:
+    """The reader copies the line as it was shown, label and all; the label is ours, not the clause.
+
+    A live run found this: the history is rendered as ``ожидаемое: <clause>``, the reader quoted
+    the whole line, and the check said the clause was not in the archive — while it was, one
+    label away. The label is stripped before the comparison, and what is compared stays verbatim.
+    """
+    lowered = clause.casefold()
+    for label in LABELS:
+        head = f"{label.casefold()}:"
+        if lowered.startswith(head):
+            clause = clause[len(head) :].strip()
+            break
+    for tail in ("…", "..."):
+        if clause.endswith(tail):
+            clause = clause[: -len(tail)].strip()
+            break
+    return clause
 
 
 def _first_object(text: str) -> dict[str, object] | None:

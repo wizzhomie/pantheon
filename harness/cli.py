@@ -643,6 +643,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     facts = container.state(box)
     agent_status = container.agent_status(box) if facts.running else None
     agent = executor.read_config(box.root / executor.PROFILE_FILE)
+    comparison = contradiction.read_config(box.root / contradiction.PROFILE_FILE)
     if args.json:
         payload = boxes.status_json(report)
         payload["container"] = {
@@ -659,6 +660,12 @@ def _status(args: argparse.Namespace, root: Path) -> int:
                 "provider": agent_status.provider,
                 "platforms": agent_status.platforms,
             },
+        }
+        payload["contracts"] = {
+            "declared": comparison.declared,
+            "enabled": comparison.enabled,
+            "model": comparison.model,
+            "max_cents": comparison.max_cents,
         }
         payload["executor"] = {
             "declared": agent.declared,
@@ -710,6 +717,7 @@ def _status(args: argparse.Namespace, root: Path) -> int:
     lines.insert(-1, f"executor   {executor.describe(agent)}")
     reader = reviewer.read_config(box.root / reviewer.PROFILE_FILE)
     lines.insert(-1, f"reviewer   {reviewer.describe(reader)}")
+    lines.insert(-1, f"contracts  {contradiction.describe(comparison)}")
     lines.insert(-1, f"frame      {frame.standing(box).line()}")
     lines.insert(-1, f"rails      {rails.standing(box).line()}")
     lines.insert(-1, f"debt       {debt.tally(box).line()}")
