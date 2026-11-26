@@ -808,7 +808,9 @@ def route_for(config: ExecutorConfig, task: TaskView) -> ExecutionRoute:
     shape, shape_reason = shape_for(config, task.shape)
     paths = len(task.paths)
     lines = None if shape is None else shape.max_changed_lines
-    in_files = paths <= policy.one_shot_max_files
+    in_files = paths <= policy.one_shot_max_files and (
+        shape is None or shape.max_files is None or paths <= shape.max_files
+    )
     in_lines = lines is None or lines <= policy.one_shot_max_changed_lines
     if (
         task.shape == "patch"
@@ -822,7 +824,9 @@ def route_for(config: ExecutorConfig, task: TaskView) -> ExecutionRoute:
         if declared == "steps":
             reason += "; the box declares steps, so it runs steps"
         return ExecutionRoute(1, engine, reason)
-    steps_files = paths <= policy.steps_max_files
+    steps_files = paths <= policy.steps_max_files and (
+        shape is None or shape.max_files is None or paths <= shape.max_files
+    )
     steps_lines = lines is None or lines <= policy.steps_max_changed_lines
     known = shape is not None or task.shape is None
     if task.self_check and known and steps_files and steps_lines:
