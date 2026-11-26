@@ -90,6 +90,17 @@ def write_task(tmp_path: Path, text: str = TASK, name: str = "t-1.toml") -> Path
     return path
 
 
+
+def test_a_task_may_declare_a_shorter_subject_and_the_freeze_keeps_it(tmp_path: Path) -> None:
+    text = TASK.replace('paths = ["src/**"]', 'subject = "keep the = prefix"\npaths = ["src/**"]')
+    path = write_task(tmp_path, text)
+    task = augustus.read_task(path)
+    assert task.subject == "keep the = prefix"
+    frozen = tmp_path / "frozen.toml"
+    frozen.write_text(augustus.task_text(task), encoding="utf-8")
+    assert augustus.read_task(frozen).subject == "keep the = prefix"
+
+
 def make_box(tmp_path: Path) -> tuple[Path, boxes.Box]:
     project = make_project(tmp_path)
     return project, boxes.new_box(tmp_path / "castra", project)

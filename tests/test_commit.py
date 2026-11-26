@@ -57,6 +57,22 @@ missing = ""
 """
 
 
+
+def test_the_commit_subject_can_be_shorter_than_the_goal(tmp_path: Path) -> None:
+    contract = caesar.Contract(
+        path=tmp_path / "c.toml",
+        task="t-1",
+        kind="docs",
+        goal="в docs/how-it-works.md, в конце первого раздела, добавь фразу про вердикт",
+        expected=None,
+        allowed_paths=(),
+        forbidden=(),
+        budget={},
+        subject="keep the --opt= prefix in completion",
+    )
+    assert caesar._subject(contract) == "docs: keep the --opt= prefix in completion"
+
+
 def git(project: Path, *args: str) -> str:
     done = subprocess.run(
         ["git", "-C", str(project), *args], capture_output=True, text=True, check=True

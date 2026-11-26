@@ -46,6 +46,7 @@ TASK_KEYS = frozenset(
         "id",
         "goal",
         "kind",
+        "subject",
         "paths",
         "expected",
         "contract",
@@ -142,6 +143,8 @@ class Task:
     forbidden: tuple[str, ...]
     budget: dict[str, int]
     mode: str = "manual"
+    subject: str | None = None
+    """One line a person reads in the log, when the goal is longer than a commit subject."""
     role: str = "executor"
     records: tuple[str, ...] = ()
     """Digest addresses the task names itself: history its paths would not have found."""
@@ -436,11 +439,17 @@ def read_task(path: Path) -> Task:
         )
     if parent == identifier:
         raise boxes.HarnessError(f"{path}: a task cannot be its own parent")
+    subject = data.get("subject")
+    if subject is not None and (
+        not isinstance(subject, str) or not subject.strip() or "\n" in subject
+    ):
+        raise boxes.HarnessError(f"{path}: subject must be one non-empty line")
     return Task(
         path=path,
         id=identifier,
         goal=_text(data.get("goal")),
         kind=_text(data.get("kind")),
+        subject=_text(subject),
         paths=tuple(item.strip() for item in paths),
         expected=_text(data.get("expected")),
         contract=contract,
@@ -1661,6 +1670,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
     for key, value in (("goal", task.goal), ("kind", task.kind), ("expected", task.expected)):
         if value is not None:
             lines.append(f"{key} = {_quote(value)}")
+    if task.subject is not None:
+        lines.append(f"subject = {_quote(task.subject)}")
     lines.append("paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")
     if task.shape is not None:
         lines.append(f"shape = {_quote(task.shape)}")
@@ -2732,11 +2743,11 @@ def _guard(box: boxes.Box, task: Task, config: executor.ExecutorConfig, director
                 source = f"the box allows {box_cap:g} cents (the task asked {declared:g})"
             else:
                 source = f"the box declares {box_cap:g} cents"
-            unknown = (
-                ""
-                if ceiling is not None
-                else f"; {record.unpriced} call(s) reported no price, so the sum is a lower bound"
-            )
+            if record.unpriced:
+                at = f" at {ceiling:g} cents" if ceiling is not None else ""
+                unknown = f"; {record.unpriced} call(s) reported no price and were charged{at}"
+            else:
+                unknown = ""
             return Guard(
                 None,
                 f"{source} and its records already show "
@@ -3752,6 +3763,7 @@ def _compare_with_archive(
             task.goal or "", task.expected or "", contract, history
         ),
         ask=ask,
+        cap_cents=config.max_cents,
     )
     if compared.history:
         notes.append(contradiction.note(compared))
@@ -3795,7 +3807,12 @@ def _write_contract(box_root: Path, task: Task) -> Path:
         f"schema_version = {SCHEMA_VERSION}",
         f'task = "{task.id}"',
     ]
-    for key, value in (("kind", task.kind), ("goal", task.goal), ("expected", task.expected)):
+    for key, value in (
+        ("kind", task.kind),
+        ("goal", task.goal),
+        ("subject", task.subject),
+        ("expected", task.expected),
+    ):
         if value:
             lines.append(f"{key} = {_quote(value)}")
     lines.append("allowed_paths = [" + ", ".join(_quote(item) for item in task.paths) + "]")

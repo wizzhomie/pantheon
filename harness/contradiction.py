@@ -109,6 +109,9 @@ class Comparison:
     answer: str = ""
     """What the reader said, kept when its citation did not hold: a gap must be explainable."""
 
+    over_cap: float | None = None
+    """The bill when it passed the declared ceiling, which does not size the call."""
+
     @property
     def escalated(self) -> bool:
         return self.citation is not None
@@ -124,7 +127,11 @@ def describe(config: Config) -> str:
         return "no profile: contracts are not compared with the archive"
     if not config.enabled:
         return "declared and off: contracts are not compared with the archive"
-    money = "" if config.max_cents is None else f", up to {config.max_cents:g} cents"
+    money = (
+        ""
+        if config.max_cents is None
+        else f", a reading over {config.max_cents:g} cents is named, not prevented"
+    )
     return f"on: every contract is compared with the archive on its paths{money}"
 
 
@@ -181,6 +188,7 @@ def compare(
     prompt_for: Callable[[tuple[archivum.Entry, ...]], str],
     *,
     ask: Answer | None,
+    cap_cents: float | None = None,
 ) -> Comparison:
     """The archived decisions on these paths, and what the reader says about them.
 
@@ -220,6 +228,11 @@ def compare(
         checked=True,
         skipped=None,
         cost_cents=cost,
+        over_cap=(
+            cost
+            if cap_cents is not None and cost is not None and cost > cap_cents
+            else None
+        ),
         error=problem,
         answer="" if citation is not None else " ".join(text.split())[:400],
     )
@@ -246,6 +259,7 @@ def payload(comparison: Comparison) -> dict[str, object]:
         "checked": comparison.checked,
         "skipped": comparison.skipped,
         "cost_cents": comparison.cost_cents,
+        "over_cap": comparison.over_cap,
         "error": comparison.error,
         "answer": comparison.answer,
         "citation": None
@@ -276,8 +290,14 @@ def note(comparison: Comparison) -> str:
         )
     addresses = ", ".join(item.address for item in comparison.history)
     money = "" if comparison.cost_cents is None else f", {comparison.cost_cents:g} cents"
+    over = (
+        ""
+        if comparison.over_cap is None
+        else f"; the reading cost {comparison.over_cap:g} cents, above the declared ceiling"
+    )
     return (
-        f"the contract was compared with the archive ({addresses}): no contradiction named{money}"
+        f"the contract was compared with the archive ({addresses}): no contradiction named"
+        f"{money}{over}"
     )
 
 

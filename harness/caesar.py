@@ -33,7 +33,17 @@ from . import box as boxes
 
 SCHEMA_VERSION = 1
 CONTRACT_KEYS = frozenset(
-    {"schema_version", "task", "kind", "goal", "expected", "allowed_paths", "forbidden", "budget"}
+    {
+        "schema_version",
+        "task",
+        "kind",
+        "goal",
+        "subject",
+        "expected",
+        "allowed_paths",
+        "forbidden",
+        "budget",
+    }
 )
 BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
 FORBIDDEN = frozenset({"delete"})
@@ -64,6 +74,7 @@ class Contract:
     allowed_paths: tuple[str, ...]
     forbidden: tuple[str, ...]
     budget: dict[str, int]
+    subject: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -175,6 +186,7 @@ def read_contract(path: Path) -> Contract:
         task=task.strip(),
         kind=_optional_text(data.get("kind")),
         goal=_optional_text(data.get("goal")),
+        subject=_optional_text(data.get("subject")),
         expected=_optional_text(data.get("expected")),
         allowed_paths=tuple(allowed),
         forbidden=tuple(forbidden),
@@ -638,9 +650,14 @@ def attempt_json(attempt: Attempt) -> dict[str, object]:
 def _subject(contract: Contract) -> str:
     """One line a person reads in the log: what the task was, not what the diff was."""
     kind = contract.kind or "task"
+    if contract.subject:
+        return f"{kind}: {contract.subject}"
     goal = (contract.goal or contract.task).splitlines()[0].strip()
     if len(goal) > 68:
-        goal = goal[:65].rstrip() + "..."
+        cut = goal[:65]
+        if " " in cut:
+            cut = cut.rsplit(" ", 1)[0]
+        goal = cut.rstrip(" ,;:.") + "..."
     return f"{kind}: {goal}"
 
 
