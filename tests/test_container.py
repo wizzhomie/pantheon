@@ -77,6 +77,32 @@ def test_up_pins_the_image_writes_compose_and_reports_running(
     assert any("config set model.provider deepseek" in line for line in log), log
 
 
+def test_up_installs_what_the_checks_need_and_the_image_lacks(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fresh container must not be a new environment: the box installs what its checks need."""
+    box = make_box(tmp_path)
+    monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", "  Gateway:      ✓ running\n")
+    monkeypatch.setenv("FAKE_DOCKER_MISSING", "less")
+    assert container.up(box, IMAGE).running
+    log = docker_log(tmp_path)
+    assert any("command -v less" in line for line in log), log
+    assert any("apt-get install -y -qq less" in line for line in log), log
+
+
+def test_up_that_cannot_install_what_the_checks_need_is_not_success(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    box = make_box(tmp_path)
+    monkeypatch.setenv("FAKE_DOCKER_RUNNING", "1")
+    monkeypatch.setenv("FAKE_DOCKER_AGENT", "  Gateway:      ✓ running\n")
+    monkeypatch.setenv("FAKE_DOCKER_MISSING", "less")
+    monkeypatch.setenv("FAKE_DOCKER_INSTALL_FAIL", "1")
+    with pytest.raises(boxes.HarnessError, match="Unable to locate"):
+        container.up(box, IMAGE)
+
+
 def test_up_that_does_not_produce_a_running_container_is_not_success(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

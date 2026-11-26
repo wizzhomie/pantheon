@@ -33,6 +33,14 @@ if os.environ.get("FAKE_DOCKER_FAIL") == "1":
     print("compose failed on purpose", file=sys.stderr)
     sys.exit(1)
 if "exec" in args:
+    joined = " ".join(args)
+    # The test says which tool the image lacks, and whether installing it may fail.
+    missing = os.environ.get("FAKE_DOCKER_MISSING", "")
+    if missing and f"command -v {missing}" in joined:
+        sys.exit(1)
+    if os.environ.get("FAKE_DOCKER_INSTALL_FAIL") == "1" and "apt-get install" in joined:
+        print("E: Unable to locate package", file=sys.stderr)
+        sys.exit(100)
     # `docker compose exec ...`: the test says what the agent would answer.
     print(os.environ.get("FAKE_DOCKER_AGENT", ""))
     sys.exit(0)
@@ -50,4 +58,6 @@ def fake_docker(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     monkeypatch.setenv("FAKE_DOCKER_LOG", str(tmp_path / "docker.log"))
     monkeypatch.delenv("FAKE_DOCKER_RUNNING", raising=False)
     monkeypatch.delenv("FAKE_DOCKER_FAIL", raising=False)
+    monkeypatch.delenv("FAKE_DOCKER_MISSING", raising=False)
+    monkeypatch.delenv("FAKE_DOCKER_INSTALL_FAIL", raising=False)
     return script

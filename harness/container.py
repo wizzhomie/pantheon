@@ -38,6 +38,13 @@ PROJECT_MOUNT = "/work/project"
 STATE_MOUNT = "/opt/data"
 TABULARIUM_MOUNT = "/work/tabularium"
 MEMORY_LIMIT = "1g"
+BOX_PACKAGES = ("less",)
+"""What the image does not carry and the project's checks do need.
+
+The upstream image is pinned by digest, so it cannot be edited in place; the demo project's suite
+shells out to `less` for its pager tests, and without it 24 tests are red whatever the change is.
+`up` installs these by name and checks the name, so a recreated container is not a new environment.
+"""
 DOCKER_ENV = "PANTHEON_DOCKER"
 HERMES = "/opt/hermes/.venv/bin/hermes"
 AGENT_MODEL = "deepseek-flash"
@@ -147,6 +154,7 @@ def up(box: boxes.Box, image: str | None = None) -> Container:
     facts = state(box)
     if not facts.running:
         return facts
+    _provision(box)
     if _model_key(box) is None:
         facts = replace(
             facts,
@@ -289,6 +297,26 @@ def _write_secret(box: boxes.Box, key: str) -> None:
     path.chmod(0o600)
 
 
+def _provision(box: boxes.Box) -> None:
+    """Install what the checks need and the image lacks: a failed install is an error."""
+    for package in BOX_PACKAGES:
+        probe = _compose(
+            box, "exec", "-u", "0", SERVICE, "sh", "-c", f"command -v {package}", strict=False
+        )
+        if probe.returncode == 0:
+            continue
+        _compose(
+            box,
+            "exec",
+            "-u",
+            "0",
+            SERVICE,
+            "sh",
+            "-c",
+            f"apt-get update -qq && apt-get install -y -qq {package}",
+        )
+
+
 def _await_agent(box: boxes.Box, facts: Container) -> Container:
     """A container that is up is not yet an agent that answers: wait, then say which it is."""
     deadline = time.monotonic() + STARTUP_SECONDS
@@ -337,7 +365,7 @@ def _yaml(value: str) -> str:
 
 
 def _compose(
-    box: boxes.Box, *args: str, env: dict[str, str] | None = None
+    box: boxes.Box, *args: str, env: dict[str, str] | None = None, strict: bool = True
 ) -> subprocess.CompletedProcess[str]:
     prefix = docker_prefix()
     command = [*prefix, "compose", "-p", project_name(box), "-f", str(box.compose), *args]
@@ -352,7 +380,7 @@ def _compose(
         )
     except (OSError, subprocess.SubprocessError) as error:
         raise boxes.HarnessError(f"cannot run docker: {error}") from error
-    if done.returncode != 0 and args[0] != "ps":
+    if strict and done.returncode != 0 and args[0] != "ps":
         detail = (done.stderr or done.stdout).strip().splitlines()
         raise boxes.HarnessError(
             "docker compose "
