@@ -3201,6 +3201,89 @@ def _command_words(command: tuple[str, ...]) -> str:
     return " ".join(parts)
 
 
+@dataclass(frozen=True, slots=True)
+class Intake:
+    """Whether a task may be handed on: the contract filled, nothing left to ask."""
+
+    task: Task
+    refusals: tuple[str, ...] = ()
+    gaps: tuple[str, ...] = ()
+
+    @property
+    def ready(self) -> bool:
+        return not self.refusals
+
+
+def intake(task: Task) -> Intake:
+    """Check the task's contract before any work: five points, no open questions.
+
+    This is not a refusal to run — ``dispatch`` still runs what it is given. It asks whether
+    the task is ready to be *handed on*: the owner's words are complete, and nothing is left
+    for the owner to answer. It reads only and writes nothing.
+    """
+    refusals: list[str] = []
+    gaps: list[str] = []
+    contract = task.contract
+    if contract is None:
+        refusals.append(
+            "no contract: the task is not handed on before the criterion is in the owner's words"
+        )
+    else:
+        omitted = [
+            name
+            for name in ("symptom", "visible", "boundaries")
+            if getattr(contract, name) is None
+        ]
+        if omitted:
+            refusals.append(
+                "the contract does not name " + ", ".join(omitted) + ": the criterion is incomplete"
+            )
+        if contract.missing is not None:
+            refusals.append(
+                "the report leaves facts unknown (" + contract.missing + "): escalate to the owner"
+            )
+    if task.expected is None:
+        refusals.append("no expected behaviour: what will be seen after the fix is not stated")
+    if not task.paths:
+        gaps.append("no scope: dispatch will refuse a task with no declared paths")
+    if not task.repro:
+        gaps.append(
+            "no reproduction: 'done' will rest on the suite, which proves only what it covers"
+        )
+    return Intake(task=task, refusals=tuple(refusals), gaps=tuple(gaps))
+
+
+def render_intake(result: Intake) -> list[str]:
+    """The intake answer as a person reads it."""
+    lines = [
+        f"task       {result.task.id}  ({result.task.path})",
+        f"contract   {_contract_words(result.task.contract)}",
+        f"expected   {result.task.expected or 'not declared'}",
+        f"verdict    {'ready' if result.ready else 'refused'}",
+    ]
+    if result.refusals:
+        lines.append("refusals")
+        lines.extend(f"- {item}" for item in result.refusals)
+    lines.append("gaps")
+    if result.gaps:
+        lines.extend(f"- {item}" for item in result.gaps)
+    else:
+        lines.append("- none")
+    return lines
+
+
+def intake_payload(result: Intake) -> dict[str, object]:
+    """The same answer for a machine."""
+    return {
+        "task": result.task.id,
+        "ready": result.ready,
+        "refusals": list(result.refusals),
+        "gaps": list(result.gaps),
+        "contract": _contract_json(result.task.contract),
+        "expected": result.task.expected,
+    }
+
+
 def _contract_words(contract: Contract | None) -> str:
     """The contract as one line: each point named, the absent ones left out, absence named."""
     if contract is None:

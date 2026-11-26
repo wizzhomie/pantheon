@@ -520,6 +520,17 @@ def _parser() -> argparse.ArgumentParser:
     preflight_parser.add_argument("--json", action="store_true", help="the answer as one object")
     preflight_parser.set_defaults(handler=_preflight)
 
+    intake_parser = commands.add_parser(
+        "intake",
+        help="Augustus: check the task contract before the work is handed on (reads only)",
+    )
+    intake_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    intake_parser.add_argument(
+        "--task", required=True, help="a task file (mandata/<id>.toml) or a frozen task id"
+    )
+    intake_parser.add_argument("--json", action="store_true", help="the answer as one object")
+    intake_parser.set_defaults(handler=_intake)
+
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
 
@@ -1377,6 +1388,18 @@ def _preflight(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(preflight.render(result)))
     return 0 if result.ok else 1
+
+
+def _intake(args: argparse.Namespace, root: Path) -> int:
+    """Check the contract before any work: ready, or the named facts it is missing."""
+    box = boxes.find_box(root, args.name, Path.cwd())
+    task = _resolve_task(box, args.task)
+    result = augustus.intake(task)
+    if args.json:
+        print(json.dumps(augustus.intake_payload(result), indent=2))
+    else:
+        print("\n".join(augustus.render_intake(result)))
+    return 0 if result.ready else 1
 
 
 def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:
