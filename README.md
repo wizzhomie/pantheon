@@ -1,5 +1,8 @@
 # Pantheon — a personal AI engineering harness
 
+![Pantheon — agentic harness](docs/assets/pantheon-banner.jpg)
+
+
 Pantheon is one person's engineering environment for working with coding agents: a box per project,
 three contours around it, and a rule that a claim is not evidence.
 
