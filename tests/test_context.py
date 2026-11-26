@@ -225,29 +225,32 @@ print(json.dumps({{
 SEES_THE_PACK = sees_the_pack(DIFF)
 
 
-def test_a_past_record_on_the_declared_paths_is_selected_with_its_reason(
+def test_a_past_record_on_the_declared_paths_is_named_as_the_latest(
     tmp_path: Path,
 ) -> None:
     box = make_box(tmp_path)
     write_record(box, "t-old", goal="bump the value once")
     pack = context.build(box, "t-1", ("src/**",))
     assert [item.entry.task for item in pack.selected] == ["t-old"]
-    assert pack.selected[0].reason == "touches src/app.py"
+    assert pack.selected[0].reason == "touches src/app.py", "the reason stays in the JSON"
     text = "\n".join(pack.lines)
-    assert "t-old" in text and "why" not in text
-    assert "tabularium/t-old/dispatch-20261124T120000Z.json" in text
+    assert "t-old" in text and "(pass)" in text
+    assert "bump the value once" in text
+    assert "owner's call" in text
+    assert "tabularium/t-old" not in text, "the block is a consequence, not a list of pointers"
     assert "frame:" in text
     assert pack.omitted["no_overlap"] == 0
 
 
-def test_a_record_from_another_area_is_named_as_left_out(tmp_path: Path) -> None:
+def test_a_record_from_another_area_is_not_called_history(tmp_path: Path) -> None:
     box = make_box(tmp_path)
     write_record(box, "t-docs", paths=("docs/**",), changed=("docs/note.md",))
     pack = context.build(box, "t-1", ("src/**",))
     assert pack.selected == ()
     text = "\n".join(pack.lines)
-    assert "records: no record touches the declared paths" in text
-    assert "left out: 1 record does not touch the declared paths" in text
+    assert "no recorded change touches these paths" in text
+    assert "1 records in the box" in text
+    assert "t-docs" not in text, "a record from another area is not put in front of the model"
     assert pack.omitted["no_overlap"] == 1
 
 
@@ -257,7 +260,7 @@ def test_the_task_does_not_pick_its_own_earlier_record(tmp_path: Path) -> None:
     pack = context.build(box, "t-1", ("src/**",))
     assert pack.selected == ()
     assert pack.omitted["own"] == 1
-    assert "this task's own earlier record" in "\n".join(pack.lines)
+    assert "no recorded change touches these paths" in "\n".join(pack.lines)
 
 
 def test_selection_is_capped_and_the_rest_is_counted(
@@ -271,20 +274,21 @@ def test_selection_is_capped_and_the_rest_is_counted(
     assert len(pack.selected) == 1
     assert pack.selected[0].entry.task == "t-b", "the digests newest-first order is kept"
     assert pack.omitted["over_limit"] == 1
-    assert "selection cap" in "\n".join(pack.lines)
+    text = "\n".join(pack.lines)
+    assert "2 recorded changes" in text, "the count is every record that matched, not the cap"
+    assert "the latest is t-b" in text
 
 
-def test_the_size_cap_drops_lines_instead_of_growing_the_prompt(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    monkeypatch.setattr(context, "LIMIT_CHARS", 400)
+def test_a_long_goal_is_cut_so_the_block_stays_bounded(tmp_path: Path) -> None:
     box = make_box(tmp_path)
-    write_record(box, "t-long", goal="a very long goal " * 8)
+    write_record(box, "t-long", goal="a very long goal " * 40)
     pack = context.build(box, "t-1", ("src/**",))
     assert pack.selected, "the record still matched"
-    assert pack.omitted["over_budget"] == 1
-    assert "size cap" in pack.lines[-1]
-    assert pack.selected[0].entry.task not in "\n".join(pack.lines[:-1])
+    block = "\n".join(pack.lines)
+    assert "t-long" in block
+    assert block.count("\n") == 2, "a heading, a frame line and one history line"
+    assert len(block) <= context.LIMIT_CHARS
+    assert "…" in block, "the subject is cut, not carried whole"
 
 
 def test_the_pack_is_written_with_the_frame_it_rested_on(tmp_path: Path) -> None:
@@ -358,7 +362,10 @@ def test_a_declared_executor_makes_a_checks_only_kind_do_work(
 
 def test_both_executors_put_the_pack_in_the_prompt(tmp_path: Path) -> None:
     project = make_project(tmp_path)
-    lines = ["CONTEXT (assembled by code):", "- t-old | docs | touches src/app.py"]
+    lines = [
+        "CONTEXT (assembled by code):",
+        "history: 1 recorded change on these paths; the latest is t-old (pass) \"docs\".",
+    ]
     prompt = deepseek._prompt(
         {"id": "t-1", "goal": "g", "kind": "bugfix", "paths": ["src/**"]}, project, lines
     )
@@ -368,13 +375,12 @@ def test_both_executors_put_the_pack_in_the_prompt(tmp_path: Path) -> None:
     builder = box_agent._prompt(
         {"role": "executor", "goal": "g", "paths": ["src/**"]}, lines
     )
-    assert "Контекст, собранный коробкой" in builder
-    assert "- t-old" in builder
+    assert "history: 1 recorded change" in builder
 
     architect = box_agent._prompt(
         {"role": "architect", "goal": "g", "paths": [".pantheon/**"]}, lines
     )
-    assert "Контекст, собранный коробкой" in architect
+    assert "history: 1 recorded change" in architect
     assert "Ты — архитектор коробки" in architect
 
 
@@ -388,8 +394,8 @@ def test_a_named_record_is_selected_even_when_its_paths_do_not_overlap(
     assert pack.selected[0].reason == context.NAMED_REASON
     assert pack.named == ("t-docs/20261124T120000Z",)
     text = "\n".join(pack.lines)
-    assert "t-docs/20261124T120000Z -> " in text
-    assert "named by the task" in text
+    assert "the task named t-docs" in text
+    assert "t-docs/20261124T120000Z" not in text, "the address lives in the JSON"
     assert "1 named record(s)" in context.line(pack)
     assert pack.omitted["no_overlap"] == 0
     assert context.payload(pack)["named"] == ["t-docs/20261124T120000Z"]
@@ -465,7 +471,7 @@ def test_a_named_record_reaches_the_model_and_the_record_keeps_it(
 import json, sys
 request = json.load(sys.stdin)
 lines = (request.get("context") or {{}}).get("lines") or []
-if not any("named by the task" in line for line in lines):
+if not any("the task named" in line for line in lines):
     print("the request carries no named record", file=sys.stderr)
     sys.exit(2)
 print(json.dumps({{
@@ -491,5 +497,5 @@ print(json.dumps({{
         )
     )
     assert any(
-        "t-docs/20261124T120000Z" in line for line in request["context"]["lines"]
-    ), "the named address is in the request the model sees"
+        "the task named t-docs" in line for line in request["context"]["lines"]
+    ), "the record the task named is named in the request the model sees"

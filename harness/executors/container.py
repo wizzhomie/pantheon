@@ -157,12 +157,6 @@ def main() -> int:
     return 0
 
 
-CONTEXT_HEAD = (
-    "Контекст, собранный коробкой. Путь записи напечатан от корня коробки, например "
-    "`tabularium/<задача>/<метка>`; в контейнере тот же файл лежит по пути "
-    "`/work/tabularium/<задача>/<метка>` — префикс `tabularium/` заменяется на "
-    "`/work/tabularium/`:"
-)
 PREVIOUS_HEAD = (
     "Предыдущая попытка не прошла. Ответь на эти факты, а не повторяй их:"
 )
@@ -209,7 +203,7 @@ def _prompt(
     if isinstance(forbidden, list) and forbidden:
         lines.append(f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     if context:
-        lines += ["", CONTEXT_HEAD, *context]
+        lines += ["", *context]
     prior = previous_lines(previous)
     if prior:
         lines += ["", PREVIOUS_HEAD, *prior]
@@ -254,7 +248,7 @@ def _architect_prompt(
     if isinstance(forbidden, list) and forbidden:
         lines.append(f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     if context:
-        lines += ["", CONTEXT_HEAD, *context]
+        lines += ["", *context]
     prior = previous_lines(previous)
     if prior:
         lines += ["", PREVIOUS_HEAD, *prior]

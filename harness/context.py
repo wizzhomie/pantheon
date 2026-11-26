@@ -10,8 +10,11 @@ of records and a fixed number of characters. Everything that does not fit is cou
 in the pack itself — a context that silently lost half of its records would be worse than an
 empty one, because the model would not know what it had not been told.
 
-The pack is a *pointer* document. Each selected record is one line ending with the record's own
-file; a model opens a record only when it decides the work, instead of re-reading the history.
+The pack is a *consequence* document, not an inventory. What the model is told is one line: how
+many recorded changes touch these paths, which one came last, and that undoing a recorded decision
+is the owner's call. The full selection, its reasons and the addresses stay in the pack's JSON for
+a person, because a list of pointers is what the model never opened (measured 2026-11-26,
+``pilot/context-block/``: the answer with that list was byte for byte the answer without it).
 """
 
 from __future__ import annotations
@@ -27,8 +30,8 @@ from . import frame as frames
 
 SCHEMA_VERSION = 1
 MAX_SELECTED = 6
-LIMIT_CHARS = 4000
-"""The pack's size cap in characters: roughly a thousand tokens, not a second task."""
+LIMIT_CHARS = 600
+"""The block's size cap in characters: one line of consequence, not a second task."""
 STAMP = "%Y%m%dT%H%M%SZ"
 NAMED_REASON = "named by the task"
 """The reason a record the task named itself carries, as opposed to one its paths found."""
@@ -159,16 +162,13 @@ def build(
             omitted["no_overlap"] += 1
             continue
         picked.append(Selection(entry, reason))
+    matched = len(named_selected) + len(picked)
     room = MAX_SELECTED - len(named_selected)
     if len(picked) > room:
         omitted["over_limit"] = len(picked) - room
         picked = picked[:room]
     selected = named_selected + picked
-    lines, dropped = _lines(standing, digest, selected)
-    omitted["over_budget"] = dropped
-    leftovers = _left_out(omitted)
-    if leftovers:
-        lines.append(f"left out: {leftovers}")
+    lines = _lines(standing, digest, selected, matched, len(named_selected))
     return Pack(
         task=identifier,
         built_at=moment.isoformat().replace("+00:00", "Z"),
@@ -237,61 +237,69 @@ def render(pack: Pack) -> list[str]:
 
 
 def _lines(
-    standing: frames.Standing, digest: records.Digest, selected: list[Selection]
-) -> tuple[list[str], int]:
+    standing: frames.Standing,
+    digest: records.Digest,
+    selected: list[Selection],
+    matched: int,
+    named: int,
+) -> list[str]:
+    """What the model is told: the frame it rests on and one line of consequence."""
     head = [
         "CONTEXT (assembled by code from the box's records, not by a search):",
         f"frame: {standing.line()}",
     ]
-    if selected:
-        named = sum(1 for item in selected if item.reason == NAMED_REASON)
-        by_paths = len(selected) - named
-        chosen: list[str] = []
-        if named:
-            chosen.append(f"{named} named by the task")
-        if by_paths:
-            chosen.append(f"{by_paths} by the declared paths")
-        head.append(
-            f"records: {len(selected)} of {digest.total} selected ({', '.join(chosen)}; "
-            f"digest {records.short(digest.digest)}); each line ends with its address and "
-            "record file — open one only if it decides the work"
+    budget = LIMIT_CHARS - _chars(head) - 1
+    return [*head, _history(digest, selected, matched, named, budget)]
+
+
+def _history(
+    digest: records.Digest,
+    selected: list[Selection],
+    matched: int,
+    named: int,
+    budget: int,
+) -> str:
+    """One line: how much history there is, which decision came last, and whose call undoing it is.
+
+    The line names the newest record and says how many touch these paths; an inventory of six
+    pointers is what the model never opened. The address and the full record stay in the pack's
+    JSON, where a person reads them.
+    """
+    if not selected:
+        return (
+            "history: no recorded change touches these paths "
+            f"({digest.total} records in the box) — nothing recorded to keep in mind"
         )
+    chosen = [item for item in selected if item.reason == NAMED_REASON] or list(selected)
+    newest = max(chosen, key=lambda item: item.entry.when)
+    changes = "1 recorded change" if matched == 1 else f"{matched} recorded changes"
+    verdict = newest.entry.verdict or "not checked"
+    if named:
+        lead = f"history: {changes}; the task named {newest.entry.task} ({verdict}) "
     else:
-        head.append(
-            "records: no record touches the declared paths "
-            f"({digest.total} in all, digest {records.short(digest.digest)})"
-        )
-    used = _chars(head)
-    dropped = 0
-    for index, selection in enumerate(selected):
-        raw = selection.entry.pack_line(selection.reason)
-        if used + len(raw) + 1 > LIMIT_CHARS:
-            dropped = len(selected) - index
-            break
-        head.append(raw)
-        used += len(raw) + 1
-    return head, dropped
+        lead = f"history: {changes} on these paths; the latest is {newest.entry.task} ({verdict}) "
+    head = lead + '"'
+    tail = (
+        '". Reversing a recorded decision is the owner\'s call: if the task does not ask for it, '
+        "do not undo it"
+    )
+    room = max(budget - len(head) - len(tail) - 1, 20)
+    return head + _short(newest.entry.goal, room) + tail
 
 
-def _left_out(omitted: dict[str, int]) -> str:
-    parts: list[str] = []
-    if omitted["no_overlap"] == 1:
-        parts.append("1 record does not touch the declared paths")
-    elif omitted["no_overlap"]:
-        parts.append(f"{omitted['no_overlap']} records do not touch the declared paths")
-    if omitted["over_limit"]:
-        parts.append(f"{omitted['over_limit']} more than the selection cap")
-    if omitted["over_budget"]:
-        parts.append(f"{omitted['over_budget']} more than the size cap")
-    if omitted["older"]:
-        parts.append(f"{omitted['older']} older than the digest cap")
-    if omitted["unreadable"] == 1:
-        parts.append("1 record could not be read")
-    elif omitted["unreadable"]:
-        parts.append(f"{omitted['unreadable']} records could not be read")
-    if omitted["own"]:
-        parts.append("this task's own earlier record")
-    return "; ".join(parts)
+def _short(text: str, room: int) -> str:
+    """The subject cut at a sentence end, else at a word, so a long goal cannot grow the block."""
+    flat = " ".join((text or "").split())
+    if not flat:
+        return "no goal"
+    if len(flat) <= room:
+        return flat
+    window = flat[: room - 1]
+    end = window.rfind(". ")
+    if end >= 20:
+        return window[: end + 1]
+    cut = window.rsplit(" ", 1)[0] if " " in window else window
+    return (cut or window).rstrip(" ,;:-—") + "…"
 
 
 def _reason(entry: records.Entry, patterns: tuple[str, ...]) -> str | None:

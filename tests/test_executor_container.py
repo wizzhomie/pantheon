@@ -75,15 +75,14 @@ def test_the_prompt_says_read_only_scope_and_one_diff_only() -> None:
     assert "пути в дифе всё равно от корня проекта" in prompt
 
 
-def test_the_records_the_box_selected_reach_the_container_command(
+def test_the_packs_line_reaches_the_container_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """The pack is not only counted in the record: its lines are in the prompt the agent gets."""
+    """The pack is not only counted in the record: its line is in the prompt the agent gets."""
     box = make_box(tmp_path)
     record = (
-        "- t-0 | 2026-01-01T00:00:00Z | closed | pass | bugfix | прошлая задача про core | "
-        "touches src/click/core.py | t-0/20260101T000000Z -> "
-        "tabularium/t-0/dispatch-20260101T000000Z.json"
+        "history: 1 recorded change on these paths; the latest is t-0 (pass) "
+        '"прошлая задача про core".'
     )
     payload = request_for(box)
     payload["context"] = {
@@ -98,7 +97,7 @@ def test_the_records_the_box_selected_reach_the_container_command(
     assert code == 0
     asked = (tmp_path / "docker.log").read_text(encoding="utf-8")
     assert record in asked
-    assert "touches src/click/core.py" in asked
+    assert asked.count("history:") == 1
 
 
 def test_a_request_without_a_pack_has_no_context_block(
@@ -109,13 +108,7 @@ def test_a_request_without_a_pack_has_no_context_block(
     code, _ = run(monkeypatch, capsys, request_for(box))
     assert code == 0
     asked = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    assert "Контекст, собранный коробкой" not in asked
-
-
-def test_the_context_head_says_where_the_pointers_resolve() -> None:
-    """A pointer printed from the box root must name the container path, or it is a dead end."""
-    assert "tabularium/<задача>/<метка>" in executor.CONTEXT_HEAD
-    assert "/work/tabularium/<задача>/<метка>" in executor.CONTEXT_HEAD
+    assert "CONTEXT (assembled by code" not in asked
 
 
 def test_the_card_is_read_from_the_box_and_hashed(tmp_path: Path) -> None:

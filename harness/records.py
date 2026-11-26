@@ -76,10 +76,6 @@ class Entry:
             )
         )
 
-    def pack_line(self, reason: str) -> str:
-        """The same record as the context pack shows it: why it is here, and where it lives."""
-        return f"- {self.line()} | {reason} | {self.address} -> {self.record}"
-
     def json(self) -> dict[str, object]:
         return {
             "task": self.task,
@@ -326,9 +322,12 @@ def _strings(value: object) -> tuple[str, ...]:
 
 
 def _clip(text: str, limit: int) -> str:
+    """Cut at a word, never mid-word: this text is what a model is shown as the subject."""
     if len(text) <= limit:
         return text
-    return text[: limit - 1].rstrip() + "…"
+    window = text[: limit - 1]
+    cut = window.rsplit(" ", 1)[0] if " " in window else window
+    return (cut or window).rstrip(" ,;:-—") + "…"
 
 
 def _iso(stamp: str) -> str:

@@ -221,7 +221,6 @@ def test_a_record_has_an_address_and_the_digest_prints_it(tmp_path: Path) -> Non
     assert entry.json()["address"] == entry.address
     text = "\n".join(records.render(digest))
     assert "t-1/20261124T120000Z -> " + entry.record in text
-    assert entry.address in entry.pack_line("touches docs/note.md")
 
 
 def test_an_address_is_looked_up_in_the_digest(tmp_path: Path) -> None:
