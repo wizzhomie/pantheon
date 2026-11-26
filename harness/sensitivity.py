@@ -91,6 +91,10 @@ class Report:
     attempts: tuple[Attempt, ...]
     left_out: int = 0
     seconds: float = 0.0
+    limit: int = LIMIT_PIECES
+    """How many pieces the caller allowed: the report says the number it was given, not a guess."""
+    stopped: str = ""
+    """Why the run ended before its limit, when the caller put a clock on it."""
 
     @property
     def blind(self) -> tuple[Attempt, ...]:
@@ -116,12 +120,17 @@ def check(
     limit: int = LIMIT_PIECES,
     seconds: int = LIMIT_SECONDS,
     base: str = "HEAD",
+    total_seconds: float | None = None,
 ) -> Report:
     """Reverse each piece of the change on its own copy and see whether the check notices.
 
     The tree the pieces are applied to is the base commit plus the patch, built in a worktree:
     the working tree may already hold other things, and a check should be judged against the
     change, not against whatever else is lying around.
+
+    ``total_seconds`` is the caller's clock for the whole run: a dispatch cannot spend ten minutes
+    on a rehearsal whose job is to inform a verdict it already computed. What did not fit is
+    counted as left out, and the report names the clock instead of pretending it was the limit.
     """
     if not repro:
         raise boxes.HarnessError(
@@ -143,6 +152,11 @@ def check(
         if venv.is_dir():
             (work / ".venv").symlink_to(venv)
         code, tail = contour.run_repro(work, repro, root=root, python=python, timeout=seconds)
+        if code == 124:
+            raise boxes.HarnessError(
+                f"the check did not finish in {seconds}s on the change itself: a check that "
+                "cannot be run twice cannot be reversed, and the run would be noise"
+            )
         if code != 0:
             raise boxes.HarnessError(
                 f"the check is already red on the change itself ({tail}): a check that fails "
@@ -151,7 +165,15 @@ def check(
         for item in pieces:
             if item.kind == "skipped":
                 attempts.append(Attempt(item, SKIPPED, item.note))
-        for piece in tested:
+        stopped = ""
+        for index, piece in enumerate(tested):
+            if total_seconds is not None and _now() - began > total_seconds:
+                left_out += len(tested) - index
+                stopped = (
+                    f"the run stopped after {round(_now() - began, 1)} s: the caller allowed "
+                    f"{total_seconds} s, and a rehearsal may not outlast the verdict it informs"
+                )
+                break
             attempt = _one_piece(work, piece, repro, root, python, seconds, parent)
             attempts.append(attempt)
     finally:
@@ -163,6 +185,8 @@ def check(
         attempts=tuple(attempts),
         left_out=left_out,
         seconds=round(_now() - began, 2),
+        limit=limit,
+        stopped=stopped,
     )
 
 
@@ -187,10 +211,12 @@ def render(report: Report) -> list[str]:
         mark = {NOTICED: "noticed", BLIND: "blind", SKIPPED: "skipped"}[item.status]
         detail = f" — {item.why}" if item.why else ""
         lines.append(f"{mark:<10} {item.piece.where} — {item.piece.kind}{detail}")
+    if report.stopped:
+        lines.append(f"stopped    {report.stopped}")
     if report.left_out:
         lines.append(
-            f"left out   {report.left_out} piece(s): the limit is {LIMIT_PIECES} check runs, and a "
-            "bigger change is not worth a hundred"
+            f"left out   {report.left_out} piece(s): the limit is {report.limit} check runs, and "
+            "a bigger change is not worth a hundred"
         )
     if report.blind:
         lines.append(
@@ -209,6 +235,8 @@ def payload(report: Report) -> dict[str, object]:
         "patch": str(report.patch),
         "seconds": report.seconds,
         "left_out": report.left_out,
+        "limit": report.limit,
+        "stopped": report.stopped,
         "pieces": [
             {
                 "where": item.piece.where,

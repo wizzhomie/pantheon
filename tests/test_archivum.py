@@ -303,3 +303,78 @@ def test_a_real_dispatch_writes_the_archive_and_asks_it_by_path(
         ["--castra", str(box.root.parent), "history", box.name, "--path", "docs/**"]
     ) == 0
     assert "nothing archived touches docs/**" in capsys.readouterr().out
+    record = json.loads(
+        next((box.root / "tabularium" / "t-1").glob("dispatch-*.json")).read_text(encoding="utf-8")
+    )
+    assert record["sensitivity"] is None, "a task with no check of its own has nothing to reverse"
+    assert any("no check of its own" in note for note in record["notes"])
+
+
+@requires_trajan
+def test_a_dispatch_records_whether_the_task_s_check_notices_the_change(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """ADR-047 in the record: the rehearsal is shown, and it does not move the verdict.
+
+    The change is a text block the task's own check greps for: reversing it turns the check red,
+    so the piece is noticed, the verdict is still the checks', and the record carries the count.
+    """
+    project = tmp_path / "probe"
+    (project / "src").mkdir(parents=True)
+    (project / "docs").mkdir()
+    (project / "src" / "app.py").write_text("value = 1\n", encoding="utf-8")
+    (project / "docs" / "guide.md").write_text("# Guide\n\nOld line.\n", encoding="utf-8")
+    (project / ".trajan").mkdir()
+    (project / ".trajan" / "policy.toml").write_text(
+        'name = "probe"\n\n[[checks]]\nid = "base"\nargv = ["grep", "-qx", "value = 1", '
+        '"src/app.py"]\npurpose = "the base is untouched"\n',
+        encoding="utf-8",
+    )
+    git(project, "init", "-q")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(project, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    box = boxes.new_box(tmp_path / "castra", project)
+    patch = tmp_path / "change.diff"
+    patch.write_text(
+        "--- a/docs/guide.md\n"
+        "+++ b/docs/guide.md\n"
+        "@@ -1,3 +1,4 @@\n"
+        " # Guide\n"
+        " \n"
+        " Old line.\n"
+        "+Rule: the check notices.\n",
+        encoding="utf-8",
+    )
+    task = tmp_path / "t-2.toml"
+    task.write_text(
+        f"""\
+schema_version = 1
+id = "t-2"
+goal = "write the rule down"
+kind = "docs"
+paths = ["docs/**"]
+expected = "the guide carries the rule"
+change = "{patch}"
+repro = ["grep", "-qF", "Rule: the check notices.", "docs/guide.md"]
+
+[contract]
+symptom = "the rule is not written"
+visible = "docs/guide.md carries the rule"
+boundaries = "docs/guide.md only"
+missing = ""
+
+[budget]
+max_cents = 2
+max_seconds = 60
+""",
+        encoding="utf-8",
+    )
+    code = main(
+        ["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task), "--json"]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    rehearsal = payload["sensitivity"]
+    assert rehearsal is not None, "the record must say whether the check notices the change"
+    assert rehearsal["noticed"] == 1 and rehearsal["blind"] == 0
+    assert payload["state"] == "closed", "the rehearsal is information, not a verdict"

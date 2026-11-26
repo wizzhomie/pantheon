@@ -34,6 +34,7 @@ from . import (
     frame,
     rails,
     records,
+    sensitivity,
 )
 from . import box as boxes
 from . import context as context_pack
@@ -76,6 +77,12 @@ RETRYABLE_FAILURES = frozenset({FAILURE_INCOMPLETE, FAILURE_NARROWED})
 """The failures a second attempt may address: the others are not about the change."""
 REPAIR_ATTEMPTS = 2
 """How many times one task is asked: the second is paid only for a retryable class."""
+SENSITIVITY_PIECES = 3
+"""Inside a dispatch the reversal is the smaller run: the verdict belongs to the checks."""
+SENSITIVITY_SECONDS = 60
+"""One check run of the rehearsal: a check slower than this says more about its cost."""
+SENSITIVITY_TOTAL_SECONDS = 90
+"""The clock for the whole rehearsal, so a dispatch cannot outlive the verdict it informs."""
 CONTRACT_KEYS = frozenset({"symptom", "visible", "boundaries", "missing"})
 """The four points of a task contract besides the expected behaviour, which stays `expected`."""
 ROUTES_ENV = "PANTHEON_ROUTES"
@@ -251,6 +258,14 @@ class Dispatch:
     It is information, never the verdict: the box's own check (``repro``) decides, and the two
     disagreeing is the finding — a model that satisfies only what it can see has fitted its
     answer to the words it was given.
+    """
+
+    sensitivity: sensitivity.Report | None = None
+    """Whether the task's own check notices the change, reversed piece by piece.
+
+    Information, not a verdict (ADR-047): a blind piece says the check can be green whatever that
+    piece says, and the record shows it. Returning the task on a blind piece is a separate
+    decision, and this field does not make it.
     """
 
     engine: str = "one-shot"
@@ -1447,6 +1462,10 @@ def dispatch(
         else:
             changed_paths = attempt.paths if attempt is not None else None
 
+    sensitivity_report: sensitivity.Report | None = None
+    if "run" in stages and ((attempt is not None and attempt.applied) or applied):
+        sensitivity_report = _rehearse(box, task, change, trajan_root, trajan_python, notes)
+
     if "verify" in stages:
         reader, skipped = _reader_for(review, change, notes)
         if review is not None and reader is None and not skipped:
@@ -1519,11 +1538,60 @@ def dispatch(
             steps=steps,
             stop_reason=loop_stop,
             repeated=repeated,
+            sensitivity=sensitivity_report,
         ),
         stamp,
         began,
         rail=rail,
     )
+
+
+def _rehearse(
+    box: boxes.Box,
+    task: Task,
+    change: Path | None,
+    trajan_root: Path,
+    trajan_python: Path,
+    notes: list[str],
+) -> sensitivity.Report | None:
+    """Does the task's own check notice the change? Recorded, never turned into a verdict.
+
+    Deterministic and free, and still the smaller run: three pieces and ninety seconds, because
+    the dispatch has already spent its money on the change and the checks. A check that cannot be
+    run twice (too slow, already red) is named as not measured — the verdict does not move.
+    """
+    if not task.repro:
+        notes.append(
+            "sensitivity: the task declares no check of its own, so nothing was reversed: the "
+            "project's checks say nothing about whether this task's criterion could fail"
+        )
+        return None
+    if change is None or not change.is_file():
+        notes.append("sensitivity: no applied change on disk, so nothing was reversed")
+        return None
+    try:
+        report = sensitivity.check(
+            box.project,
+            task=task.id,
+            patch=change,
+            repro=task.repro,
+            root=trajan_root,
+            python=trajan_python,
+            limit=SENSITIVITY_PIECES,
+            seconds=SENSITIVITY_SECONDS,
+            total_seconds=SENSITIVITY_TOTAL_SECONDS,
+        )
+    except boxes.HarnessError as error:
+        notes.append(f"sensitivity: not measured — {error}")
+        return None
+    for item in report.blind:
+        notes.append(
+            f"sensitivity: the check does not notice {item.piece.where} ({item.piece.kind}): it "
+            "can be green whatever that piece says"
+        )
+    if report.stopped:
+        notes.append(f"sensitivity: {report.stopped}")
+    return report
 
 
 def _snapshot(box: boxes.Box, task: Task, when: datetime) -> Task:
@@ -3107,6 +3175,7 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"attempt    {_attempt_line(result.attempt)}",
         f"verify     {_verify_line(result.verify, result.review_skipped)}",
         f"own check  {_own_check_line(result.self_check, result.task.self_check)}",
+        f"sensitivity {_sensitivity_line(result.sensitivity)}",
         f"shape      {_shape_line(result.shape)}",
         f"commit     {_commit_line(result.commit)}",
         f"time       {_time_line(result)}",
@@ -3124,6 +3193,19 @@ def render_dispatch(result: Dispatch) -> list[str]:
     if result.outbox is not None:
         lines.append(f"outbox     {result.outbox}")
     return lines
+
+
+def _sensitivity_line(report: sensitivity.Report | None) -> str:
+    """One line beside the verdict: what the reversal saw, and no promise beyond it."""
+    if report is None:
+        return "not run — no check of the task's own, or it could not be measured"
+    tested = len(report.noticed) + len(report.blind)
+    if not tested:
+        return f"nothing to reverse ({len(report.skipped)} piece(s) named as not tested)"
+    return (
+        f"{tested} piece(s) tested, {len(report.noticed)} noticed, "
+        f"{len(report.blind)} blind, {len(report.skipped)} skipped, {report.seconds:.2f} s"
+    )
 
 
 def dispatch_json(result: Dispatch) -> dict[str, object]:
@@ -3153,6 +3235,9 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "stop_reason": result.stop_reason,
         "failure_class": failure_class(result),
         "self_check": result.self_check,
+        "sensitivity": None
+        if result.sensitivity is None
+        else sensitivity.payload(result.sensitivity),
         "shape": result.shape,
         "verify": None
         if result.verify is None
@@ -3729,6 +3814,7 @@ def _finish(
         repeated=result.repeated,
         stop_reason=result.stop_reason,
         self_check=result.self_check,
+        sensitivity=result.sensitivity,
         shape=result.shape,
         engine=result.engine,
         level=result.level,
