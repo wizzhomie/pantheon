@@ -241,6 +241,10 @@ def _prepare(box: boxes.Box) -> None:
                 "--rm",
                 "--no-deps",
                 "-T",
+                # The home belongs to the host user: a root-owned config.yaml makes the
+                # agent's own backup of it fail on the first answer (`Permission denied`).
+                "-u",
+                str(os.getuid()),
                 SERVICE,
                 HERMES,
                 "config",

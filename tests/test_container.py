@@ -142,10 +142,17 @@ def test_up_seeds_the_agent_home_once(tmp_path: Path, monkeypatch: pytest.Monkey
     box = make_box(tmp_path)
     container.up(box, IMAGE)
     assert (box.root / "cella" / "SOUL.md").is_file()
+    log = (tmp_path / "docker.log").read_text(encoding="utf-8")
+    # The file the image writes becomes the agent's home: it must belong to the caller,
+    # not to root, or the agent's own backup of it fails on the first answer.
+    assert f"run --rm --no-deps -T -u {os.getuid()} augustus" in log
     state = box.root / "cella" / "SOUL.md"
     state.write_text("edited by the owner", encoding="utf-8")
+    (box.root / "cella" / "config.yaml").write_text("model: fake\n", encoding="utf-8")
+    config_sets = log.count("config set")
     container.up(box, IMAGE)
     assert state.read_text() == "edited by the owner"
+    assert (tmp_path / "docker.log").read_text(encoding="utf-8").count("config set") == config_sets
 
 
 def test_a_container_without_an_answering_agent_is_not_called_working(
