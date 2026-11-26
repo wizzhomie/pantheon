@@ -2365,11 +2365,23 @@ def _guard(box: boxes.Box, task: Task, config: executor.ExecutorConfig, director
             f"the task allows {steps} call(s) and has already made {record.calls}: nothing was "
             "asked again",
         )
-    limit = task.budget.get("max_cents")
+    declared = task.budget.get("max_cents")
+    box_cap = config.max_cents
+    limit: float | None = None
+    if declared is not None:
+        limit = float(declared)
+    if box_cap is not None:
+        limit = float(box_cap) if limit is None else min(limit, float(box_cap))
     cents: float | None = None
     if limit is not None:
-        left = float(limit) - record.cents
+        left = limit - record.cents
         if left <= 0:
+            if declared is not None and (box_cap is None or float(declared) <= float(box_cap)):
+                source = f"the task declared {declared:g} cents"
+            elif declared is not None:
+                source = f"the box allows {box_cap:g} cents (the task asked {declared:g})"
+            else:
+                source = f"the box declares {box_cap:g} cents"
             unknown = (
                 ""
                 if ceiling is not None
@@ -2377,7 +2389,7 @@ def _guard(box: boxes.Box, task: Task, config: executor.ExecutorConfig, director
             )
             return Guard(
                 None,
-                f"the task declared {limit:g} cents and its records already show "
+                f"{source} and its records already show "
                 f"{record.cents:.2f} cents over {record.calls} call(s){unknown}: nothing was "
                 "asked again — raise the limit if this is a deliberate decision",
             )
@@ -2720,6 +2732,21 @@ class TaskSummary:
     """Why this task was set aside, when it was."""
 
 
+def _when_value(value: str) -> float:
+    """A record's time as a number, whichever of the two stamps the box wrote."""
+    text = value.strip()
+    if not text:
+        return -1.0
+    try:
+        return datetime.fromisoformat(text.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        pass
+    try:
+        return datetime.strptime(text, "%Y%m%dT%H%M%SZ").replace(tzinfo=UTC).timestamp()
+    except ValueError:
+        return -1.0
+
+
 def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
     """The newest dispatch record per task, oldest first: what ``status`` may say.
 
@@ -2797,6 +2824,7 @@ def recent_tasks(box_root: Path, limit: int = 10) -> tuple[TaskSummary, ...]:
                 parked=str(parked.get("why") or "") if parked is not None else None,
             )
         )
+    found.sort(key=lambda summary: (_when_value(summary.at), summary.id))
     return tuple(found[-limit:])
 
 
@@ -2996,8 +3024,14 @@ def explain(
         )
     if not task.self_check:
         gaps.append("no visible check: the model will not see what its change did")
-    if task.budget.get("max_cents") is None:
+    declared_cents = task.budget.get("max_cents")
+    if declared_cents is None:
         gaps.append("no money budget: the call's cost is not bounded before it is made")
+    elif config.max_cents is not None and float(declared_cents) > float(config.max_cents):
+        gaps.append(
+            f"the task asks {declared_cents:g} cents and the box allows {config.max_cents:g}: "
+            "the box's ceiling is what binds"
+        )
     if calls is None:
         gaps.append("no call ceiling: only money, no progress or an answer can stop the loop")
     if config.command is None and task.change is None:

@@ -325,3 +325,21 @@ def test_the_box_may_cap_the_calls_a_task_makes(tmp_path: Path) -> None:
     profile.write_text('schema_version = 1\ncommand = "/bin/true"\nmax_steps = 0\n')
     with pytest.raises(boxes.HarnessError, match="max_steps"):
         executor.read_config(profile)
+
+
+def test_the_box_money_ceiling_bounds_the_task_total(tmp_path: Path) -> None:
+    """A task may ask for more than the box; the box's cents are still the task's ceiling."""
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    write_profile(box, write_executor(tmp_path), extra="max_cents = 2\n")
+    config = executor.read_config(box.root / executor.PROFILE_FILE)
+    asking = augustus.read_task(
+        write_task(tmp_path, TASK.replace("max_cents = 1", "max_cents = 8"))
+    )
+    guard = augustus._guard(box, asking, config, box.root / "tabularium" / asking.id)
+    assert guard.stop is None and guard.cents == 2.0
+    silent = augustus.read_task(
+        write_task(tmp_path, TASK.replace("max_cents = 1\n", ""))
+    )
+    guarded = augustus._guard(box, silent, config, box.root / "tabularium" / silent.id)
+    assert guarded.stop is None and guarded.cents == 2.0

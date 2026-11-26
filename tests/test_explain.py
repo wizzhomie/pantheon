@@ -154,3 +154,16 @@ def test_the_explanation_matches_what_the_dispatch_record_says(tmp_path: Path) -
     assert resolution.frame.state == record["frame"]["state"]
     assert resolution.rails.milestone == (record["rails"] or {}).get("milestone")
     assert resolution.task.budget == record["budget"]
+
+
+def test_explain_names_the_box_ceiling_that_binds(tmp_path: Path) -> None:
+    _, box = make_box(tmp_path)
+    task = augustus.read_task(write_task(tmp_path))
+    config = executor.ExecutorConfig(
+        path=tmp_path / "executor.toml", max_seconds=60, max_cents=1.0
+    )
+    result = augustus.explain(
+        box, task, routes=augustus.read_routes(None), config=config
+    )
+    assert result.cents == 1.0
+    assert any("the box's ceiling is what binds" in gap for gap in result.gaps)

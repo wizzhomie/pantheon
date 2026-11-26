@@ -285,3 +285,17 @@ def test_amend_a_closed_task_and_the_new_acta_names_the_difference(
     assert "## what changed from the parent" in text
     assert "paths: src/** -> src/**, src/lib/**" in text
     assert "parent: t-1 — the helper is in scope too" in text
+
+
+def test_status_keeps_the_newest_tasks_not_the_last_alphabetically(tmp_path: Path) -> None:
+    root = tmp_path / "box"
+    for number in range(12):
+        directory = root / "tabularium" / f"t-{number:02d}"
+        directory.mkdir(parents=True)
+        stamp = f"20261101T0000{11 - number:02d}Z"
+        (directory / f"dispatch-{stamp}.json").write_text(
+            json.dumps({"task": directory.name, "state": "closed"}), encoding="utf-8"
+        )
+    # t-00 is the newest and t-11 the oldest: taking the last names would keep t-11.
+    newest = augustus.recent_tasks(root, limit=1)
+    assert [task.id for task in newest] == ["t-00"]
