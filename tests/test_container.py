@@ -43,7 +43,8 @@ def test_the_compose_file_declares_the_mounts_and_the_limit(tmp_path: Path) -> N
     assert f"{box.project.as_posix()}:/work/project:ro" in text
     assert f"{(box.root / 'cella').as_posix()}:/opt/data" in text
     assert f"{(box.root / 'tabularium').as_posix()}:/work/tabularium:ro" in text
-    assert "mem_limit: 512m" in text
+    assert container.MEMORY_LIMIT == "1g"
+    assert f"mem_limit: {container.MEMORY_LIMIT}" in text
     assert 'command: ["gateway", "run"]' in text
     assert f"HERMES_UID={os.getuid()}" in text and f"HERMES_GID={os.getgid()}" in text
     assert "DEEPSEEK_API_KEY" not in text and "user:" not in text and "sleep" not in text
