@@ -18,6 +18,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 
 from . import (
+    archivum,
     augustus,
     aurelius,
     caesar,
@@ -530,6 +531,23 @@ def _parser() -> argparse.ArgumentParser:
     )
     intake_parser.add_argument("--json", action="store_true", help="the answer as one object")
     intake_parser.set_defaults(handler=_intake)
+
+    history = commands.add_parser(
+        "history", help="Augustus: what was changed here and why, from the box's archive"
+    )
+    history.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    history.add_argument(
+        "--path",
+        action="append",
+        default=[],
+        help="a path or glob to narrow by, e.g. src/app/** (repeatable)",
+    )
+    history.add_argument(
+        "--diff", default=None, help="print the stored change for one address: <task>/<stamp>"
+    )
+    history.add_argument("--limit", type=int, default=10, help="how many changes to show (10)")
+    history.add_argument("--json", action="store_true", help="the same answer as one object")
+    history.set_defaults(handler=_history)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -1400,6 +1418,47 @@ def _intake(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_intake(result)))
     return 0 if result.ready else 1
+
+
+def _history(args: argparse.Namespace, root: Path) -> int:
+    """The archive's first reader: what touched these paths, and why.
+
+    A query without paths lists the newest changes; a query with paths answers the refactoring
+    and the reproducer question. The diff is not in the answer — it is read on demand, because a
+    map that carried every change would be the whole history in every prompt.
+    """
+    box = boxes.find_box(root, args.name, Path.cwd())
+    if args.diff:
+        entry = archivum.find(box.root, args.diff)
+        if entry is None:
+            raise boxes.HarnessError(f"no archived change at {args.diff}: the address is wrong")
+        path = archivum.diff(box.root, args.diff)
+        if path is None:
+            raise boxes.HarnessError(f"{args.diff} has no stored change")
+        print(path.read_text(encoding="utf-8"))
+        return 0
+    patterns = tuple(args.path)
+    found = archivum.for_paths(box.root, patterns)
+    shown = found if args.limit <= 0 else found[: args.limit]
+    if args.json:
+        print(
+            json.dumps(
+                {"paths": list(patterns), "changes": [archivum.payload(item) for item in shown]},
+                indent=2,
+            )
+        )
+        return 0
+    if not shown:
+        if patterns:
+            print(f"nothing archived touches {', '.join(patterns)}")
+        else:
+            print("nothing archived yet: the archive is written when a change is closed")
+        return 0
+    for index, entry in enumerate(shown):
+        if index:
+            print()
+        print("\n".join(archivum.render(entry)))
+    return 0
 
 
 def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:

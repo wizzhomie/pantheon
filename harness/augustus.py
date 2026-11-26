@@ -23,7 +23,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import aurelius, caesar, contour, debt, executor, frame, rails, records
+from . import archivum, aurelius, caesar, contour, debt, executor, frame, rails, records
 from . import box as boxes
 from . import context as context_pack
 
@@ -3659,13 +3659,59 @@ def _finish(
     # The summary is written from the finished record, not from the one handed in: the frame is
     # read here, and a summary that omitted it would be the quietest gap of all.
     outbox.write_text(_summary(finished, when), encoding="utf-8")
-    record.write_text(json.dumps(dispatch_json(finished), indent=2) + "\n", encoding="utf-8")
+    payload = dispatch_json(finished)
+    record.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
     _event(box.root, when, "task.finished", task, f"{result.state}")
     _event(box.root, when, "acta.written", task, str(outbox.relative_to(box.root)))
+    _archive(box, payload, when)
     # The digest is written after the record, so the task that just ran is in it: a memory that
     # is one run behind would make every dispatch leave a stale index behind it.
     records.write(box)
     return finished
+
+
+def _archive(box: boxes.Box, payload: dict[str, object], when: datetime) -> None:
+    """Project a closed change into the box's archive, and say so either way.
+
+    The verdict is already written; a failure here cannot change it, and swallowing the failure
+    would hide a change whose reason was never kept. So the loss is an event with the reason.
+    """
+    try:
+        folder = archivum.write(box.root, payload, when)
+    except (OSError, ValueError) as error:
+        _event(
+            box.root,
+            when,
+            "archive.failed",
+            _payload_task(box, payload),
+            f"the change was closed but not archived: {error}",
+        )
+        return
+    if folder is None:
+        return
+    _event(
+        box.root,
+        when,
+        "archive.written",
+        _payload_task(box, payload),
+        str(folder.relative_to(box.root)),
+    )
+
+
+def _payload_task(box: boxes.Box, payload: dict[str, object]) -> Task:
+    """A task stand-in for an event about the record: the id is all the event needs."""
+    name = str(payload.get("task") or "?")
+    return Task(
+        path=box.root / "tabularium" / name / SNAPSHOT_FILE,
+        id=name,
+        goal=None,
+        kind=None,
+        paths=(),
+        expected=None,
+        change=None,
+        forbidden=(),
+        budget={},
+    )
 
 
 def _timings(result: Dispatch, began: float) -> dict[str, float]:

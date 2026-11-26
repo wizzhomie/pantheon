@@ -28,6 +28,7 @@ BOX_DIRS = (
     "tabularium",  # run directories: report.json/md, check logs
     "mandata",  # tasks and execution contracts
     "acta",  # summaries for the owner's own assistant
+    "archivum",  # closed changes with their reasons, indexed by path
 )
 """Every box has these, empty on day one; ``status`` names the ones that are missing."""
 
