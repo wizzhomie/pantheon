@@ -239,7 +239,9 @@ def test_the_outbox_names_the_checks_the_plan_passed_over(
     task.write_text(
         'schema_version = 1\nid = "t-docs"\ngoal = "add a note"\nkind = "docs"\n'
         'paths = ["docs/**"]\nexpected = "the note exists"\n'
-        f'change = "{patch}"\n\n[budget]\nmax_cents = 2\nmax_seconds = 60\n',
+        f'change = "{patch}"\n\n[budget]\nmax_cents = 2\nmax_seconds = 60\n'
+        '\n[contract]\nsymptom = "the note is not there"\n'
+        'visible = "docs/note.md has the note"\nboundaries = "docs/**"\nmissing = ""\n',
         encoding="utf-8",
     )
     monkeypatch.setenv("FAKE_DOCKER_AGENT", REVIEW)

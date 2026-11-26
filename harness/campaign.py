@@ -45,6 +45,7 @@ STEP_KEYS = frozenset(
         "max_cents",
         "max_read_chars",
         "records",
+        "contract",
     }
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
@@ -72,6 +73,9 @@ class Step:
     max_read_chars: int | None = None
     records: tuple[str, ...] = ()
     """Digest addresses this step wants in front of the model, beyond what its paths find."""
+
+    contract: augustus.Contract | None = None
+    """The step's contract, in the owner's words: the same five points a task carries."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -238,6 +242,11 @@ def problems(
         if step.id in seen:
             found.append(f"step {step.id}: declared twice")
         seen.add(step.id)
+        if step.contract is None:
+            found.append(
+                f"step {step.id}: declares no contract, so the criterion is not in the owner's "
+                "words; the box will refuse it"
+            )
         if not step.paths:
             found.append(f"step {step.id}: declares no paths, so nothing is in scope")
         if not routes.get(step.kind, ()):
@@ -366,6 +375,7 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
         mode=campaign.mode,
         role=step.role,
         records=step.records,
+        contract=step.contract,
     )
 
 
@@ -819,6 +829,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         max_cents=max_cents,
         max_read_chars=max_read_chars,
         records=augustus.record_addresses(entry.get("records", []), where),
+        contract=augustus._contract(entry.get("contract"), Path(where)),
     )
 
 

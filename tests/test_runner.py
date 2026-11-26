@@ -59,6 +59,11 @@ goal = "add a note to src/app.py"
 kind = "bugfix"
 paths = ["src/**"]
 expected = "the file still parses"
+[step.contract]
+symptom = "the work is not done"
+visible = "the file still parses"
+boundaries = "src/**"
+missing = ""
 
 {second}
 
@@ -79,6 +84,12 @@ kind = "bugfix"
 paths = ["src/**"]
 expected = "the file still parses"
 depends_on = ["s1"]
+
+[step.contract]
+symptom = "the work is not done"
+visible = "the file still parses"
+boundaries = "src/**"
+missing = ""
 """
 
 FAKE = '''#!/usr/bin/env python3

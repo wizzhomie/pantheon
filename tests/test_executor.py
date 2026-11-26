@@ -44,6 +44,12 @@ expected = "the value is two"
 [budget]
 max_cents = 5
 max_seconds = 60
+
+[contract]
+symptom = "the value is one"
+visible = "src/app.py says value = 2"
+boundaries = "src/**"
+missing = ""
 """
 
 DIFF = """\
@@ -672,7 +678,9 @@ def test_the_dispatch_output_names_what_was_read(
 @requires_trajan
 def test_a_task_read_budget_reaches_the_executor(tmp_path: Path) -> None:
     _project, box, _script, task = probe(tmp_path, ANSWER)
-    text = task.read_text() + "\nmax_read_chars = 400\n"
+    text = task.read_text().replace(
+        "max_seconds = 60", "max_seconds = 60\nmax_read_chars = 400"
+    )
     task.write_text(text, encoding="utf-8")
     assert dispatch(box, task) == 0
     request = json.loads(

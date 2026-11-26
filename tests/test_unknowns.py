@@ -37,6 +37,12 @@ kind = "bugfix"
 paths = ["src/**"]
 expected = "the value is two"
 
+[contract]
+symptom = "the value is one"
+visible = "src/app.py says value = 2"
+boundaries = "src/**"
+missing = ""
+
 [budget]
 max_cents = 2
 max_seconds = 60
@@ -83,10 +89,10 @@ def make_patch(tmp_path: Path, project: Path) -> Path:
 
 
 def with_change(patch: Path, text: str = TASK) -> str:
-    """A task that carries its own patch: `change` belongs before the `[budget]` table."""
-    body = text.split("\n[budget]")[0]
-    rest = "\n[budget]" + text.split("\n[budget]")[1]
-    return body + f'change = "{patch}"\n' + rest
+    """A task that carries its own patch: `change` belongs before the tables, not inside one."""
+    marker = "\n[contract]" if "\n[contract]" in text else "\n[budget]"
+    head, tail = text.split(marker, 1)
+    return head + f'change = "{patch}"\n' + marker + tail
 
 
 def write_task(tmp_path: Path, text: str, name: str = "t-1.toml") -> Path:
@@ -179,7 +185,8 @@ def test_a_task_without_a_budget_is_named(
     task = write_task(
         tmp_path,
         'schema_version = 1\nid = "t-1"\ngoal = "look"\nkind = "docs"\npaths = ["src/**"]\n'
-        'expected = "the checks pass"\n',
+        'expected = "the checks still pass"\n[contract]\nsymptom = "the checks are not run"\n'
+        'visible = "the policy checks pass"\nboundaries = "src/**"\nmissing = ""\n',
     )
     assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     body = outbox(box, capsys)

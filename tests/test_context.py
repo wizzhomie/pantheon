@@ -53,6 +53,12 @@ expected = "the value is two"
 [budget]
 max_seconds = 60
 max_cents = 1
+
+[contract]
+symptom = "the value is one"
+visible = "src/app.py says value = 2"
+boundaries = "src/**"
+missing = ""
 """
 
 DIFF = """\
@@ -74,6 +80,12 @@ expected = "a line in docs/note.md"
 [budget]
 max_seconds = 60
 max_cents = 1
+
+[contract]
+symptom = "the note does not mention the pack"
+visible = "docs/note.md carries the line"
+boundaries = "docs/**"
+missing = ""
 """
 
 DOCS_DIFF = """\

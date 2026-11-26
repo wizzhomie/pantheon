@@ -45,9 +45,16 @@ id = "t-frame"
 goal = "check the project against the frame"
 kind = "docs"
 paths = ["docs/**"]
+expected = "the dispatch names the frame it rested on"
 
 [budget]
 max_seconds = 60
+
+[contract]
+symptom = "the project is not checked against the frame"
+visible = "the dispatch names the frame it rested on"
+boundaries = "docs/**"
+missing = ""
 """
 
 

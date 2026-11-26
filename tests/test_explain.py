@@ -38,6 +38,12 @@ self_check = ["python", "-c", "print('ok')"]
 [budget]
 max_cents = 3
 max_seconds = 60
+
+[contract]
+symptom = "the value is one"
+visible = "src/app.py says value = 2"
+boundaries = "src/**"
+missing = ""
 """
 
 

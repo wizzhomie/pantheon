@@ -276,6 +276,13 @@ schema_version = 1
 id = "t-rails"
 kind = "docs"
 paths = ["docs/**"]
+expected = "the milestone is named and checked"
+
+[contract]
+symptom = "the milestone is not named"
+visible = "the dispatch names the milestone the task serves"
+boundaries = "docs/**"
+missing = ""
 """
 
 
@@ -330,14 +337,14 @@ def test_rails_that_are_not_approved_do_not_refuse_but_leave_a_gap(tmp_path: Pat
 def test_a_task_cannot_name_a_milestone_and_stand_outside_the_plan(tmp_path: Path) -> None:
     path = write_task(
         tmp_path,
-        TASK + 'milestone = "M1"\noutside_plan = "because"\n',
+        TASK.replace("[contract]", 'milestone = "M1"\noutside_plan = "because"\n\n[contract]'),
     )
     with pytest.raises(boxes.HarnessError, match="not both"):
         augustus.read_task(path)
 
 
 def test_the_task_file_carries_the_milestone(tmp_path: Path) -> None:
-    path = write_task(tmp_path, TASK + 'milestone = "M5"\n')
+    path = write_task(tmp_path, TASK.replace("[contract]", 'milestone = "M5"\n\n[contract]'))
     task = augustus.read_task(path)
     assert task.milestone == "M5" and task.outside_plan is None
 

@@ -925,6 +925,23 @@ def dispatch(
             notes=[detail],
             exit_code=1,
         )
+    readiness = intake(task)
+    if not readiness.ready:
+        detail = (
+            "the task is not handed on: "
+            + "; ".join(readiness.refusals)
+            + ". The contract is read before the work — `pantheon intake` shows the same five "
+            "points — so nothing was asked and nothing was paid for"
+        )
+        _event(box.root, stamp, "task.refused", task, detail)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[detail],
+            exit_code=1,
+        )
     blocked = refusal(task, routes, driven=driven)
     if blocked is not None:
         _event(box.root, stamp, "task.refused", task, blocked)
@@ -3452,9 +3469,10 @@ class Intake:
 def intake(task: Task) -> Intake:
     """Check the task's contract before any work: five points, no open questions.
 
-    This is not a refusal to run — ``dispatch`` still runs what it is given. It asks whether
-    the task is ready to be *handed on*: the owner's words are complete, and nothing is left
-    for the owner to answer. It reads only and writes nothing.
+    ``dispatch`` asks the same question before it runs anything and refuses a task that is not
+    ready: the contract is the first gate, not a formality, and a task whose criterion is missing
+    must not spend a call. This reading answers whether the task is ready to be *handed on* — the
+    owner's words are complete, and nothing is left for the owner to answer — and writes nothing.
     """
     refusals: list[str] = []
     gaps: list[str] = []

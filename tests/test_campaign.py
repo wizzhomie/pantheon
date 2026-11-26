@@ -49,6 +49,11 @@ goal = "write the note"
 kind = "docs"
 paths = ["docs/**"]
 expected = "a section in the docs"
+[step.contract]
+symptom = "the work is not done"
+visible = "a section in the docs"
+boundaries = "docs/**"
+missing = ""
 
 [[step]]
 id = "s2"
@@ -57,6 +62,11 @@ kind = "docs"
 paths = ["docs/**"]
 expected = "the note is checked"
 depends_on = ["s1"]
+[step.contract]
+symptom = "the work is not done"
+visible = "the note is checked"
+boundaries = "docs/**"
+missing = ""
 
 [[acceptance]]
 id = "a1"

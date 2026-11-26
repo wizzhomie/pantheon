@@ -247,7 +247,9 @@ def test_a_dispatch_reuses_a_verdict_about_the_same_tree(
     task = box.root / "mandata" / "t-docs.toml"
     task.write_text(
         'schema_version = 1\nid = "t-docs"\ngoal = "look at the project"\nkind = "docs"\n'
-        'paths = ["src/**"]\nexpected = "the checks still pass"\n',
+        'paths = ["src/**"]\nexpected = "the checks still pass"\n'
+        '\n[contract]\nsymptom = "the checks are not run"\n'
+        'visible = "the policy checks pass"\nboundaries = "src/**"\nmissing = ""\n',
         encoding="utf-8",
     )
     code = main(

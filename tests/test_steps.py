@@ -60,6 +60,11 @@ goal = "bump the value in src/app.py"
 kind = "bugfix"
 paths = ["src/**"]
 expected = "the value is two"
+[step.contract]
+symptom = "the work is not done"
+visible = "the value is two"
+boundaries = "src/**"
+missing = ""
 
 [[step]]
 id = "s2"
@@ -68,6 +73,11 @@ kind = "bugfix"
 paths = ["src/**"]
 expected = "the value is still two, and checked"
 depends_on = ["s1"]
+[step.contract]
+symptom = "the work is not done"
+visible = "the value is still two, and checked"
+boundaries = "src/**"
+missing = ""
 
 [[acceptance]]
 id = "a1"

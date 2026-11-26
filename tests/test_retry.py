@@ -53,6 +53,11 @@ goal = "bump the value in src/app.py"
 kind = "bugfix"
 paths = ["src/**"]
 expected = "the value is two"
+[step.contract]
+symptom = "the work is not done"
+visible = "the value is two"
+boundaries = "src/**"
+missing = ""
 
 [[acceptance]]
 id = "a1"

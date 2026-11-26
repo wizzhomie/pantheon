@@ -68,7 +68,23 @@ def make_patch(tmp_path: Path, project: Path, content: str) -> Path:
     return patch
 
 
+CONTRACT = """
+[contract]
+symptom = "the value is one"
+visible = "src/app.py says value = 2"
+boundaries = "src/**"
+missing = ""
+"""
+
+
 def write_task(tmp_path: Path, text: str = TASK, name: str = "t-1.toml") -> Path:
+    """The task a dispatch accepts: the contract is appended unless the test is about it.
+
+    The variants in this module are built by appending keys to ``TASK``; the contract has to be
+    a table and goes last, after them, or the appended key would land inside it.
+    """
+    if "[contract]" not in text:
+        text = text + CONTRACT
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     return path
@@ -233,6 +249,26 @@ def test_a_task_without_a_scope_is_refused_before_anything_runs(
     out = capsys.readouterr().out
     assert "state      refused" in out and "nothing is in scope" in out
     assert not list((box.root / "acta").glob("*.md"))
+    events = (box.root / "fasti" / f"{_today()}.jsonl").read_text()
+    assert "task.refused" in events
+    assert (project / "src" / "app.py").read_text() == "value = 1\n"
+
+
+def test_a_task_without_a_contract_is_refused_before_it_is_handed_on(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """D45's first gate, in the dispatch itself: no contract, no call, no money."""
+    project, box = make_box(tmp_path)
+    path = tmp_path / "t-bare.toml"
+    path.write_text(TASK, encoding="utf-8")
+    assert main(
+        ["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(path), "--json"]
+    ) == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["state"] == "refused"
+    assert any("not handed on" in note and "no contract" in note for note in payload["notes"])
+    assert payload["attempt"] is None and payload["executor"] is None
+    assert not list((box.root / "tabularium" / "t-1").glob("proposal-*"))
     events = (box.root / "fasti" / f"{_today()}.jsonl").read_text()
     assert "task.refused" in events
     assert (project / "src" / "app.py").read_text() == "value = 1\n"

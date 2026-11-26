@@ -51,6 +51,12 @@ expected = "the model names the layer that exists"
 
 [budget]
 max_seconds = 60
+
+[contract]
+symptom = "the model does not name the layer that exists"
+visible = ".pantheon/architecture.toml names the layer"
+boundaries = ".pantheon/**"
+missing = ""
 """
 
 

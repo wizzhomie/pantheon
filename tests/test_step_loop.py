@@ -51,6 +51,10 @@ def task(*, check: str = FIXED, max_steps: int = 6, repro: str | None = None) ->
     body = f'{HEAD}self_check = ["python", "-c", "{check}"]\nmax_steps = {max_steps}\n'
     if repro is not None:
         body += f'repro = ["python", "-c", "{repro}"]\n'
+    body += (
+        '\n[contract]\nsymptom = "the value is not three"\n'
+        'visible = "src/app.py says value = 3"\nboundaries = "src/**"\nmissing = ""\n'
+    )
     return body + '\n[budget]\nmax_cents = 6\nmax_seconds = 60\n'
 
 
