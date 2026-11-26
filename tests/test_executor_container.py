@@ -149,3 +149,74 @@ def test_a_failing_agent_is_reported_not_swallowed(
     code, answer = run(monkeypatch, capsys, request_for(box))
     assert code == 1
     assert "agent in the container failed" in str(answer["error"])
+
+
+def _session_store(box: boxes.Box, *, tokens: int, cents: float, started: float) -> Path:
+    """A box whose agent left a bill in its own session store, as a killed turn does."""
+    import sqlite3
+
+    (box.root / "cella").mkdir(parents=True, exist_ok=True)
+    path = box.root / "cella" / "state.db"
+    db = sqlite3.connect(path)
+    db.execute(
+        "create table session_model_usage (session_id text, model text, billing_provider text, "
+        "billing_base_url text, billing_mode text, task text, api_call_count integer, "
+        "input_tokens integer, output_tokens integer, cache_read_tokens integer, "
+        "cache_write_tokens integer, reasoning_tokens integer, estimated_cost_usd real, "
+        "actual_cost_usd real, cost_status text, cost_source text, first_seen real, "
+        "last_seen real)"
+    )
+    db.execute(
+        "insert into session_model_usage (session_id, model, api_call_count, input_tokens, "
+        "output_tokens, cache_read_tokens, estimated_cost_usd, first_seen, last_seen) "
+        "values ('local-x', 'deepseek-flash', 3, ?, 40, 4000, ?, ?, ?)",
+        (tokens, cents / 100, started, started),
+    )
+    db.commit()
+    db.close()
+    return path
+
+
+def test_a_failed_call_names_what_it_spent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import time
+
+    box = make_box(tmp_path)
+    _session_store(box, tokens=900, cents=0.05, started=time.time())
+    monkeypatch.setenv("FAKE_DOCKER_FAIL", "1")
+    code, answer = run(monkeypatch, capsys, request_for(box))
+    assert code == 1
+    assert answer["billing_status"] == "billed"
+    assert answer["usage"] == {
+        "prompt_tokens": 900,
+        "completion_tokens": 40,
+        "cost_cents": 0.05,
+    }
+
+
+def test_a_failed_call_without_a_bill_is_still_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box = make_box(tmp_path)
+    monkeypatch.setenv("FAKE_DOCKER_FAIL", "1")
+    code, answer = run(monkeypatch, capsys, request_for(box))
+    assert code == 1
+    assert answer["billing_status"] == "unknown"
+    assert "usage" not in answer
+
+
+def test_the_agents_own_usage_file_wins_over_the_session_store(tmp_path: Path) -> None:
+    import time
+
+    box = make_box(tmp_path)
+    _session_store(box, tokens=900, cents=0.05, started=time.time())
+    usage = box.root / "cella" / ".cache" / "executor-usage.json"
+    usage.parent.mkdir(parents=True, exist_ok=True)
+    usage.write_text(
+        json.dumps({"input_tokens": 10, "output_tokens": 2, "estimated_cost_usd": 0.001}),
+        encoding="utf-8",
+    )
+    bill, billing = executor._bill(usage, box.root, time.time())
+    assert billing == "billed"
+    assert bill == {"prompt_tokens": 10, "completion_tokens": 2, "cost_cents": 0.1}

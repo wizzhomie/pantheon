@@ -19,8 +19,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import sqlite3
 import subprocess
 import sys
+import time
 from pathlib import Path
 
 from harness import container
@@ -33,6 +35,8 @@ SERVICE = "augustus"
 USAGE_PATH = "/opt/data/.cache/executor-usage.json"
 """Where the agent writes its own bill; read back from the box's state directory."""
 USAGE_IN_BOX = Path("cella") / ".cache" / "executor-usage.json"
+STATE_DB = Path("cella") / "state.db"
+"""The agent's own session store: a turn that never wrote its usage file still left a bill here."""
 CARD = Path("persona") / "environment.md"
 """The environment card: what stays true between tasks, so the agent does not rediscover it."""
 
@@ -95,19 +99,28 @@ def main() -> int:
         "--usage-file",
         USAGE_PATH,
     ]
+    started = time.time()
     try:
         done = subprocess.run(
             command, capture_output=True, text=True, check=False, timeout=float(seconds)
         )
     except subprocess.TimeoutExpired:
-        return _fail(f"the agent did not answer within {seconds} s", billing="unknown")
+        usage, billing = _bill(usage_file, root, started)
+        return _fail(
+            f"the agent did not answer within {seconds} s", billing=billing, usage=usage
+        )
     except (OSError, subprocess.SubprocessError) as error:
-        return _fail(f"the container could not be asked: {error}", billing="unknown")
+        usage, billing = _bill(usage_file, root, started)
+        return _fail(
+            f"the container could not be asked: {error}", billing=billing, usage=usage
+        )
     if done.returncode != 0:
         detail = (done.stderr or done.stdout).strip().splitlines()
+        usage, billing = _bill(usage_file, root, started)
         return _fail(
             "the agent in the container failed: " + ("; ".join(detail[-3:]) or "no message"),
-            billing="unknown",
+            billing=billing,
+            usage=usage,
         )
     notes = ["executor: hermes in the box's container"]
     if card is not None:
@@ -127,10 +140,12 @@ def main() -> int:
     diff = extract_diff(done.stdout)
     if diff is None:
         problem = _error_line(done.stdout)
+        usage = usage or _state_usage(root, started)
         return _fail(
             problem or "the agent answered without a unified diff",
             notes=[done.stdout[:400]],
             billing="billed",
+            usage=usage,
         )
     cached = _cached_tokens(usage_file)
     if cached:
@@ -308,8 +323,70 @@ def _error_line(text: str) -> str | None:
     return None
 
 
-def _fail(message: str, notes: list[str] | None = None, *, billing: str = "unknown") -> int:
+def _bill(
+    usage_file: Path, root: Path, started: float
+) -> tuple[dict[str, object] | None, str]:
+    """What a failed call cost, and whether that is known.
+
+    The agent's usage file is written when a turn ends normally; a killed turn leaves nothing
+    there, and the ceiling is the most the call could have cost, not what it did cost. The
+    agent's own session store answers the same question after a turn that never reported: the
+    rows that started with this call carry tokens and the price the provider named.
+    """
+    usage = _usage(usage_file)
+    if usage is not None and usage.get("cost_cents") is not None:
+        return usage, "billed"
+    from_store = _state_usage(root, started)
+    if from_store is not None:
+        return from_store, "billed"
+    if usage is not None:
+        return usage, "billed"
+    return None, "unknown"
+
+
+def _state_usage(root: Path, started: float) -> dict[str, object] | None:
+    """The call's bill from the agent's session store, when the store has a row for it.
+
+    Read-only, and only the rows that began with this call: a box runs one turn at a time, so
+    anything that started after ``started`` belongs to it.
+    """
+    path = root / STATE_DB
+    if not path.is_file():
+        return None
+    try:
+        db = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=1.0)
+        try:
+            row = db.execute(
+                "select sum(input_tokens), sum(output_tokens), sum(estimated_cost_usd), "
+                "count(*) from session_model_usage where first_seen >= ?",
+                (started - 2.0,),
+            ).fetchone()
+        finally:
+            db.close()
+    except sqlite3.Error:
+        return None
+    if not row or not row[3]:
+        return None
+    prompt, completion, cost, _calls = row
+    if not isinstance(cost, (int, float)):
+        return None
+    return {
+        "prompt_tokens": int(prompt) if isinstance(prompt, (int, float)) else None,
+        "completion_tokens": int(completion) if isinstance(completion, (int, float)) else None,
+        "cost_cents": round(float(cost) * 100, 4),
+    }
+
+
+def _fail(
+    message: str,
+    notes: list[str] | None = None,
+    *,
+    billing: str = "unknown",
+    usage: dict[str, object] | None = None,
+) -> int:
     payload: dict[str, object] = {"error": message, "billing_status": billing}
+    if usage is not None:
+        payload["usage"] = usage
     if notes:
         payload["notes"] = notes
     print(json.dumps(payload))
