@@ -1408,6 +1408,7 @@ def _request(
     paraphrase of it. ``room_tokens`` is the generation room the box computed from the money
     that is left; it is a resource allowance, not a property of the change's shape.
     """
+    contract = getattr(task, "contract", None)
     return {
         "schema_version": SCHEMA_VERSION,
         "attempt": number,
@@ -1420,6 +1421,14 @@ def _request(
             "role": task.role,
             "paths": list(task.paths),
             "expected": task.expected,
+            "contract": None
+            if contract is None
+            else {
+                "symptom": contract.symptom,
+                "visible": contract.visible,
+                "boundaries": contract.boundaries,
+                "missing": contract.missing,
+            },
             "shape": task.shape,
             "self_check": list(task.self_check),
             "forbidden": list(task.forbidden),

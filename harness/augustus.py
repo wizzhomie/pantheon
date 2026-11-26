@@ -36,6 +36,7 @@ TASK_KEYS = frozenset(
         "kind",
         "paths",
         "expected",
+        "contract",
         "change",
         "forbidden",
         "budget",
@@ -57,6 +58,8 @@ MODES = ("manual", "auto")
 ROLES = ("executor", "architect")
 """Who is asked for the change: the builder, or the advisor that writes the frame and no code."""
 BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
+CONTRACT_KEYS = frozenset({"symptom", "visible", "boundaries", "missing"})
+"""The four points of a task contract besides the expected behaviour, which stays `expected`."""
 ROUTES_ENV = "PANTHEON_ROUTES"
 SNAPSHOT_FILE = "task.json"
 """The task as dispatched, frozen beside its artifacts: a resume reads this, not the file."""
@@ -82,6 +85,22 @@ DEFAULT_ROUTES: dict[str, tuple[str, ...]] = {
 }
 """Scope kind to contours. A table, not a model call: the same task must route the same way."""
 KIND_HINT = ", ".join(sorted(DEFAULT_ROUTES))
+
+
+@dataclass(frozen=True, slots=True)
+class Contract:
+    """The owner's words around the expected behaviour: symptom, visibility, boundaries, gaps.
+
+    The expected behaviour stays the task's own ``expected``: the contract repeats nothing. These
+    four points are the frame the criterion must fit into, and ``missing`` is the material an
+    escalation is written from — a contract that names what it does not know is honest, not
+    incomplete.
+    """
+
+    symptom: str | None = None
+    visible: str | None = None
+    boundaries: str | None = None
+    missing: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -152,6 +171,13 @@ class Task:
 
     why: str | None = None
     """Why the successor differs: written by ``pantheon amend`` with the diff it recorded."""
+
+    contract: Contract | None = None
+    """The owner's words about the defect, beyond the expected behaviour.
+
+    In the file it is a ``[contract]`` table; it freezes with the task, so a dispatch and its
+    resumption read the same words even after the original is edited.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,6 +377,7 @@ def read_task(path: Path) -> Task:
         if isinstance(steps_raw, bool) or not isinstance(steps_raw, int) or steps_raw <= 0:
             raise boxes.HarnessError(f"{path}: max_steps must be a positive whole number")
         max_steps = steps_raw
+    contract = _contract(data.get("contract"), path)
     parent = _text(data.get("parent"))
     why = _text(data.get("why"))
     for key, value in (("parent", data.get("parent")), ("why", data.get("why"))):
@@ -375,6 +402,7 @@ def read_task(path: Path) -> Task:
         kind=_text(data.get("kind")),
         paths=tuple(item.strip() for item in paths),
         expected=_text(data.get("expected")),
+        contract=contract,
         change=Path(change).expanduser() if isinstance(change, str) else None,
         forbidden=tuple(forbidden),
         budget={key: int(value) for key, value in budget.items()},
@@ -390,6 +418,28 @@ def read_task(path: Path) -> Task:
         parent=parent,
         why=why,
     )
+
+
+def _contract(raw: object, path: Path) -> Contract | None:
+    """Read the ``[contract]`` table: the four points the expected behaviour is framed by."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(
+            f"{path}: contract must be a table with {', '.join(sorted(CONTRACT_KEYS))}"
+        )
+    unknown = set(raw) - CONTRACT_KEYS
+    if unknown:
+        raise boxes.HarnessError(f"{path}: contract does not take {', '.join(sorted(unknown))}")
+    for key, value in raw.items():
+        if value is not None and not isinstance(value, str):
+            raise boxes.HarnessError(f"{path}: contract.{key} must be a string")
+    points = {key: _text(raw.get(key)) for key in CONTRACT_KEYS}
+    if all(value is None for value in points.values()):
+        raise boxes.HarnessError(
+            f"{path}: contract is empty: name at least one of {', '.join(sorted(CONTRACT_KEYS))}"
+        )
+    return Contract(**points)
 
 
 def read_routes(path: Path | None) -> dict[str, tuple[str, ...]]:
@@ -1501,6 +1551,12 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         lines.append("repro = [" + ", ".join(_quote(item) for item in task.repro) + "]")
     if task.budget:
         lines += ["", "[budget]"] + [f"{key} = {value}" for key, value in task.budget.items()]
+    if task.contract is not None:
+        lines += ["", "[contract]"]
+        for key in ("symptom", "visible", "boundaries", "missing"):
+            value = getattr(task.contract, key)
+            if value is not None:
+                lines.append(f"{key} = {_quote(value)}")
     return "\n".join(lines) + "\n"
 
 
@@ -2929,6 +2985,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "role": result.task.role,
         "paths": list(result.task.paths),
         "parent": result.task.parent,
+        "contract": _contract_json(result.task.contract),
         "why": result.task.why,
         "stages": list(result.stages),
         "engine": result.engine,
@@ -3144,12 +3201,45 @@ def _command_words(command: tuple[str, ...]) -> str:
     return " ".join(parts)
 
 
+def _contract_words(contract: Contract | None) -> str:
+    """The contract as one line: each point named, the absent ones left out, absence named."""
+    if contract is None:
+        return "not declared — the criterion is not in the owner's words"
+    parts = [
+        f"{key}: {value}"
+        for key, value in (
+            ("symptom", contract.symptom),
+            ("visible", contract.visible),
+            ("boundaries", contract.boundaries),
+            ("missing", contract.missing),
+        )
+        if value is not None
+    ]
+    return "; ".join(parts)
+
+
+def _contract_json(contract: Contract | None) -> dict[str, str] | None:
+    if contract is None:
+        return None
+    return {
+        key: value
+        for key, value in (
+            ("symptom", contract.symptom),
+            ("visible", contract.visible),
+            ("boundaries", contract.boundaries),
+            ("missing", contract.missing),
+        )
+        if value is not None
+    }
+
+
 def render_explanation(result: Explanation) -> list[str]:
     """The explanation as a person reads it, with the record's own field names."""
     lines = [
         f"task       {result.task.id}  ({result.task.path})",
         f"kind       {result.task.kind or 'not declared'}",
         f"goal       {result.task.goal or 'not declared'}",
+        f"contract   {_contract_words(result.task.contract)}",
     ]
     if result.task.parent is not None:
         lines.append(
@@ -3401,6 +3491,11 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"expected: {task.expected or 'not declared'}",
         f"resumed: {result.resumed_from or 'no — this dispatch started the task'}",
     ]
+    if task.contract is not None:
+        for key in ("symptom", "visible", "boundaries", "missing"):
+            value = getattr(task.contract, key)
+            if value is not None:
+                lines.append(f"contract {key}: {value}")
     if task.parent is not None:
         lines.append(f"parent: {task.parent} — {task.why or 'no reason recorded'}")
     if result.stop_reason is not None:

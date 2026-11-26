@@ -111,6 +111,33 @@ def test_a_task_is_read_strictly(tmp_path: Path) -> None:
         augustus.read_task(write_task(tmp_path, TASK + 'records = ["t-old"]\n'))
 
 
+def test_a_task_contract_is_read_and_frozen_with_the_task(tmp_path: Path) -> None:
+    text = TASK + (
+        "\n[contract]\n"
+        'symptom = "the table says 042, the file has 043"\n'
+        'visible = "docs/README.md, the 05-adr row"\n'
+        'boundaries = "do not edit 05-adr.md"\n'
+        'missing = "none"\n'
+    )
+    task = augustus.read_task(write_task(tmp_path, text))
+    assert task.contract is not None
+    assert task.contract.symptom == "the table says 042, the file has 043"
+    assert task.contract.boundaries == "do not edit 05-adr.md"
+    frozen = augustus.task_text(task)
+    again = augustus.read_task(write_task(tmp_path, frozen, name="frozen.toml"))
+    assert again.contract == task.contract
+    with pytest.raises(boxes.HarnessError, match="contract does not take"):
+        augustus.read_task(
+            write_task(tmp_path, TASK + '\n[contract]\nwrong = "x"\n', name="a.toml")
+        )
+    with pytest.raises(boxes.HarnessError, match="contract is empty"):
+        augustus.read_task(write_task(tmp_path, TASK + "\n[contract]\n", name="b.toml"))
+    with pytest.raises(boxes.HarnessError, match="must be a string"):
+        augustus.read_task(
+            write_task(tmp_path, TASK + "\n[contract]\nsymptom = 3\n", name="c.toml")
+        )
+
+
 def test_the_routing_table_is_data_and_a_kind_without_a_route_is_a_refusal(
     tmp_path: Path,
 ) -> None:
