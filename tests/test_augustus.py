@@ -138,6 +138,80 @@ def test_a_task_contract_is_read_and_frozen_with_the_task(tmp_path: Path) -> Non
         )
 
 
+def made_dispatch(
+    *,
+    state: str,
+    verify: str | None = "fail",
+    own: str | None = None,
+    arch: str | None = None,
+) -> augustus.Dispatch:
+    task = augustus.Task(
+        path=Path("t-1.toml"),
+        id="t-1",
+        goal=None,
+        kind=None,
+        paths=(),
+        expected=None,
+        change=None,
+        forbidden=(),
+        budget={},
+    )
+    outcome = (
+        None
+        if verify is None
+        else contour.VerifyResult(
+            run=Path("run"),
+            report=Path("report"),
+            run_id="r-1",
+            status=verify,
+            reasons=(),
+            findings=0,
+            blocking=0,
+            checks=1,
+            exit_code=0 if verify == "pass" else 1,
+        )
+    )
+    return augustus.Dispatch(
+        task=task,
+        state=state,
+        stages=(),
+        verify=outcome,
+        self_check=None if own is None else {"status": own},
+        arch=None
+        if arch is None
+        else aurelius.Result(
+            status=arch,
+            kept=0,
+            broken=1,
+            tool="lint-imports",
+            version="1",
+            directory=Path("."),
+            exit_code=1,
+            digest="d",
+        ),
+    )
+
+
+def test_the_failure_class_says_which_checks_disagreed() -> None:
+    assert augustus.failure_class(made_dispatch(state="closed", verify="pass")) is None
+    assert (
+        augustus.failure_class(made_dispatch(state="returned", own="fail"))
+        == augustus.FAILURE_INCOMPLETE
+    )
+    assert augustus.failure_class(made_dispatch(state="returned")) == augustus.FAILURE_INCOMPLETE
+    assert (
+        augustus.failure_class(made_dispatch(state="returned", own="pass"))
+        == augustus.FAILURE_NARROWED
+    )
+    assert (
+        augustus.failure_class(made_dispatch(state="returned", verify="pass", arch="broken"))
+        == augustus.FAILURE_ARCHITECTURE
+    )
+    assert augustus.FAILURE_INCOMPLETE in augustus.RETRYABLE_FAILURES
+    assert augustus.FAILURE_NARROWED in augustus.RETRYABLE_FAILURES
+    assert augustus.FAILURE_ARCHITECTURE not in augustus.RETRYABLE_FAILURES
+
+
 def test_the_routing_table_is_data_and_a_kind_without_a_route_is_a_refusal(
     tmp_path: Path,
 ) -> None:

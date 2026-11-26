@@ -58,6 +58,11 @@ MODES = ("manual", "auto")
 ROLES = ("executor", "architect")
 """Who is asked for the change: the builder, or the advisor that writes the frame and no code."""
 BUDGET_KEYS = frozenset({"max_seconds", "max_cents", "max_read_chars"})
+FAILURE_INCOMPLETE = "incomplete"
+FAILURE_NARROWED = "narrowed"
+FAILURE_ARCHITECTURE = "architecture"
+RETRYABLE_FAILURES = frozenset({FAILURE_INCOMPLETE, FAILURE_NARROWED})
+"""The failures a second attempt may address: the others are not about the change."""
 CONTRACT_KEYS = frozenset({"symptom", "visible", "boundaries", "missing"})
 """The four points of a task contract besides the expected behaviour, which stays `expected`."""
 ROUTES_ENV = "PANTHEON_ROUTES"
@@ -2966,6 +2971,9 @@ def render_dispatch(result: Dispatch) -> list[str]:
         f"time       {_time_line(result)}",
         f"state      {result.state}",
     ]
+    failed = failure_class(result)
+    if failed is not None:
+        lines.append(f"class      {failed}")
     if result.resumed_from is not None:
         lines.append(f"resumed    from {result.resumed_from}")
     if result.stop_reason is not None:
@@ -3002,6 +3010,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "reading": None if result.proposal is None else result.proposal.reading,
         "repeated": result.repeated,
         "stop_reason": result.stop_reason,
+        "failure_class": failure_class(result),
         "self_check": result.self_check,
         "shape": result.shape,
         "verify": None
@@ -3420,6 +3429,25 @@ def _state(verify: contour.VerifyResult | None, arch: aurelius.Result | None) ->
     return "closed"
 
 
+def failure_class(result: Dispatch) -> str | None:
+    """Which checks disagreed, as one deterministic fact — the retry policy rests on it.
+
+    The class is read from what the record already says: the verdict, the visible check, the
+    architecture. No model is asked, so the same run always gets the same class. ``None`` is a
+    run that has no failed verdict — closed, refused, stopped before its checks.
+    """
+    if result.state != "returned":
+        return None
+    if result.arch is not None and result.arch.status == "broken":
+        return FAILURE_ARCHITECTURE
+    if result.verify is None or result.verify.passed:
+        return None
+    own = result.self_check or {}
+    if str(own.get("status")) == "pass":
+        return FAILURE_NARROWED
+    return FAILURE_INCOMPLETE
+
+
 def _check_architecture(box: boxes.Box, tool: str | None) -> aurelius.Result:
     model = box.project / aurelius.MODEL_FILE
     if not model.is_file():
@@ -3583,6 +3611,9 @@ def _summary(result: Dispatch, when: datetime) -> str:
         lines.append(f"parent: {task.parent} — {task.why or 'no reason recorded'}")
     if result.stop_reason is not None:
         lines.append(f"stopped: {result.stop_reason}")
+    failed = failure_class(result)
+    if failed is not None:
+        lines.append(f"class: {failed}")
     amendment = _amendment(result.directory)
     if amendment is not None:
         lines += ["", "## what changed from the parent"]
