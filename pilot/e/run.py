@@ -431,6 +431,12 @@ model = "deepseek-flash"
 price_in = 0.27
 price_out = 1.10
 max_output_tokens = 32768
+
+[models.docs]
+model = "deepseek-flash"
+price_in = 0.27
+price_out = 1.10
+max_output_tokens = 32768
 """
 
 
