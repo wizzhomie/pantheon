@@ -165,6 +165,12 @@ itself, and computes one of four answers:
 
 A model may propose findings; it cannot change the verdict. That is the whole point of the project.
 
+Fresh measurements (2026-11-26) name the price of that trust: on five click tasks the box matched a
+bare agent given the same check (5/5) and cost 45% more — about 0.4¢ per task. What it buys is not
+better patches but a guarantee (red never enters the tree), a record (who, what, why, how much) and
+bounds; the archive and the context pack have not paid for themselves yet — see
+[docs/09-evaluation.md](docs/09-evaluation.md).
+
 ## Documents
 
 - [Concept](docs/concept.md) — the master context, in Russian, as written by the owner.
