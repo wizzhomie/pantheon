@@ -1,0 +1,15 @@
+{
+  "what": "a hand-written patch that changes harness/cli.py, dispatched with a task whose only path is docs/09-evaluation.md",
+  "model_called": false,
+  "state": "returned",
+  "attempt_status": "refused",
+  "violations": [
+    {
+      "code": "outside-scope",
+      "detail": "harness/cli.py: not under any allowed path of the contract"
+    }
+  ],
+  "tree_changed": false,
+  "exit_code": 1,
+  "note": "the model was not asked: this is the gate checked on a patch that is known to be valid, so the refusal is the gate's and not the model's"
+}
