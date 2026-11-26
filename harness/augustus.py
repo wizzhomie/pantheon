@@ -23,7 +23,18 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from . import archivum, aurelius, caesar, contour, debt, executor, frame, rails, records
+from . import (
+    archivum,
+    aurelius,
+    caesar,
+    contour,
+    contradiction,
+    debt,
+    executor,
+    frame,
+    rails,
+    records,
+)
 from . import box as boxes
 from . import context as context_pack
 
@@ -955,6 +966,28 @@ def dispatch(
         task,
         "retry" if resumed_from is not None else " -> ".join(stages),
     )
+
+    compared = _compare_with_archive(box, task, notes)
+    if compared is not None and compared.escalated:
+        escalated = contradiction.reason(compared)
+        assert escalated is not None
+        _event(box.root, stamp, "contract.contradiction", task, escalated)
+        return _finish(
+            box,
+            task,
+            Dispatch(
+                task=task,
+                state="refused",
+                stages=stages,
+                directory=directory,
+                notes=notes,
+                exit_code=1,
+                resumed_from=resumed_from,
+            ),
+            stamp,
+            began,
+            rail=rail,
+        )
 
     if "arch" in stages:
         arch = _check_architecture(box, tool)
@@ -3554,6 +3587,53 @@ def failure_class(result: Dispatch) -> str | None:
     if str(own.get("status")) == "pass":
         return FAILURE_NARROWED
     return FAILURE_INCOMPLETE
+
+
+def _compare_with_archive(
+    box: boxes.Box, task: Task, notes: list[str]
+) -> contradiction.Comparison | None:
+    """The new contract against the decisions kept on its paths, before anything is paid.
+
+    Nothing to compare costs nothing: a task whose paths no closed change touched is not sent to
+    a reader at all. When there is history and no validator is declared, the record says the
+    contracts were not compared — a gap named, not a gap that looks like a pass.
+    """
+    if not task.paths:
+        return None
+    config = contradiction.read_config(box.root / contradiction.PROFILE_FILE)
+    ask = None
+    if config.declared and config.enabled:
+        ask = contradiction.command_ask(
+            config.command or contradiction.default_command(),
+            box_root=box.root,
+            model=config.model,
+            seconds=config.seconds,
+        )
+    contract = {key: value for key, value in _contract_points(task)}
+    compared = contradiction.compare(
+        box.root,
+        task.paths,
+        lambda history: contradiction.prompt(
+            task.goal or "", task.expected or "", contract, history
+        ),
+        ask=ask,
+    )
+    if compared.history:
+        notes.append(contradiction.note(compared))
+    return compared
+
+
+def _contract_points(task: Task) -> tuple[tuple[str, str], ...]:
+    """The four contract points as words; a point left out is absent, not empty."""
+    contract = task.contract
+    if contract is None:
+        return ()
+    points: list[tuple[str, str]] = []
+    for key in ("symptom", "visible", "boundaries", "missing"):
+        value = getattr(contract, key)
+        if value:
+            points.append((key, value))
+    return tuple(points)
 
 
 def _check_architecture(box: boxes.Box, tool: str | None) -> aurelius.Result:

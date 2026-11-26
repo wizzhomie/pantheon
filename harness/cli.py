@@ -25,6 +25,7 @@ from . import (
     campaign,
     container,
     contour,
+    contradiction,
     debt,
     executor,
     fluxus,
@@ -585,12 +586,17 @@ def _new(args: argparse.Namespace, root: Path) -> int:
     reader = box.root / reviewer.EXAMPLE_FILE
     if not reader.exists():
         reader.write_text(reviewer.EXAMPLE, encoding="utf-8")
+    validator = box.root / contradiction.EXAMPLE_FILE
+    if not validator.exists():
+        validator.write_text(contradiction.EXAMPLE, encoding="utf-8")
     print(f"castrum {box.name} created at {box.root}")
     print(f"  project  {box.project}")
     print(f"  image    {box.image or 'not pinned yet (`pantheon up` pins it)'}")
     print(f"  executor {executor.describe(executor.read_config(box.root / executor.PROFILE_FILE))}")
     print(f"  example  {example}")
     print(f"  reader   {reviewer.describe(reviewer.read_config(box.root / reviewer.PROFILE_FILE))}")
+    checker = contradiction.read_config(box.root / contradiction.PROFILE_FILE)
+    print(f"  check    {contradiction.describe(checker)}")
     print(f"next: pantheon status {box.name}")
     return 0
 

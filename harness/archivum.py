@@ -48,6 +48,7 @@ class Entry:
     at: str
     kind: str
     goal: str
+    expected: str
     verdict: str
     scope: tuple[str, ...]
     touched: tuple[str, ...]
@@ -68,6 +69,7 @@ class Entry:
             "at": self.at,
             "kind": self.kind,
             "goal": self.goal,
+            "expected": self.expected,
             "verdict": self.verdict,
             "scope": list(self.scope),
             "touched": list(self.touched),
@@ -478,6 +480,7 @@ def _read_entry(path: Path) -> Entry | None:
         at=str(data.get("at") or ""),
         kind=str(data.get("kind") or ""),
         goal=str(data.get("goal") or ""),
+        expected=str(data.get("expected") or ""),
         verdict=str(data.get("verdict") or ""),
         scope=tuple(str(item) for item in _list(data.get("scope"))),
         touched=tuple(str(item) for item in _list(data.get("touched"))),
