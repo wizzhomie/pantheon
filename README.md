@@ -43,6 +43,30 @@ Building features is a different scenario and this rule deliberately does not co
 failing defect, the criterion is a specification written before the work and the owner's acceptance.
 Mixing the two would make features invent a defect and repairs accept a green test as proof.
 
+## The task comes first
+
+A change starts with a **task contract**, written before any test or edit: the symptom in the owner's
+words, the expected behaviour (observable, at the same place as the symptom, after the fix), how it
+is visible (command, file, screen), the boundaries (what must not change) and the missing facts
+(questions only the owner can answer). In the task file the expected behaviour is the existing
+`expected`; the other four points are a `[contract]` table. The contract is frozen with the task, and
+a task without one is not handed on: if the criterion cannot be derived — reading the repository is
+allowed for that question only, never for the cause — the owner is asked instead of guessing.
+
+Acceptance has three marks, not one: the check passed (code), the cause is confirmed (the validator's
+counterexample, which is evidence and not a verdict), the requirement is accepted (the owner). Two
+attempts are paid for, then the task returns with its record; the same failure class twice stops it
+earlier, and the trace stays in the record instead of being fed back to the model.
+
+Every closed change is archived with its reason — contract, diff, both checks with their hashes, the
+verdict, the validator's note, the rejected attempts and the cost — and indexed by path. The archive
+is not a second truth about the code; the repository is. It is read by refactoring (a module's map),
+by a conflict (which changes touched both sides) and by the reproducer (what was changed here
+before, and why). A contract that contradicts a clause of an old one is a change of decision and goes
+to the owner before any work.
+
+These are decided and recorded (D45, D46, D47); the code is being built in that order.
+
 ## What runs today
 
 | Part | State |
