@@ -1,0 +1,36 @@
+diff --git a/src/click/_compat.py b/src/click/_compat.py
+index 8d17918..0e5e7a5 100644
+--- a/src/click/_compat.py
++++ b/src/click/_compat.py
+@@ -499,19 +499,6 @@ def _is_jupyter_kernel_output(stream: t.IO[t.Any]) -> bool:
+     return stream.__class__.__module__.startswith("ipykernel.")
+ 
+ 
+-def _env_color_default() -> bool | None:
+-    """Color preference from ``FORCE_COLOR`` / ``NO_COLOR``, if any."""
+-    force_color = os.environ.get("FORCE_COLOR")
+-
+-    if force_color is not None:
+-        return force_color not in ("", "0")
+-
+-    if "NO_COLOR" in os.environ:
+-        return False
+-
+-    return None
+-
+-
+ def should_strip_ansi(
+     stream: t.IO[t.Any] | None = None, color: bool | None = None
+ ) -> bool:
+@@ -522,12 +509,6 @@ def should_strip_ansi(
+             # ._termui_impl._PagerWriter handles stripping ansi itself,
+             # so we don't need to strip it here
+             return False
+-
+-        env_color = _env_color_default()
+-
+-        if env_color is not None:
+-            return not env_color
+-
+         return not isatty(stream) and not _is_jupyter_kernel_output(stream)
+     return not color
