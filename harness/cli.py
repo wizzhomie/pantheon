@@ -572,6 +572,19 @@ def _parser() -> argparse.ArgumentParser:
     history.add_argument("--json", action="store_true", help="the same answer as one object")
     history.set_defaults(handler=_history)
 
+    accept = commands.add_parser(
+        "accept", help="the owner's mark on a closed change: accepted, or not"
+    )
+    accept.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    accept.add_argument("address", help="a closed change: <task>/<stamp>, as `history` prints it")
+    accept.add_argument(
+        "--reject", action="store_true", help="record a refusal instead of an acceptance"
+    )
+    accept.add_argument("--note", default="", help="why, in the owner's words")
+    accept.add_argument("--by", default="owner", help="who decided (owner)")
+    accept.add_argument("--json", action="store_true", help="the mark as one object")
+    accept.set_defaults(handler=_accept)
+
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
 
@@ -1478,6 +1491,31 @@ def _sensitivity(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def _accept(args: argparse.Namespace, root: Path) -> int:
+    """The third acceptance mark: the owner says the requirement is the one he wanted.
+
+    The box cannot compute this one — the check passing and the reason being confirmed are the
+    first two marks. The mark is written beside the archived change, with the diff it is about,
+    and is read back by `history`; it does not touch the verdict, which was computed by code.
+    """
+    box = boxes.find_box(root, args.name, Path.cwd())
+    decision = archivum.REJECTED if args.reject else archivum.ACCEPTED
+    made = augustus.accept(box, args.address, decision=decision, by=args.by, note=args.note)
+    if args.json:
+        print(json.dumps(made.json(), indent=2, ensure_ascii=False))
+        return 0
+    lines = [
+        f"change     {made.address}",
+        f"decision   {made.decision} by {made.by} at {made.at}",
+    ]
+    if made.note:
+        lines.append(f"note       {made.note}")
+    lines.append(f"commit     {made.commit}")
+    lines.append(f"diff       {made.diff_hash or 'not recorded'}")
+    print("\n".join(lines))
+    return 0
+
+
 def _history(args: argparse.Namespace, root: Path) -> int:
     """The archive's first reader: what touched these paths, and why.
 
@@ -1501,7 +1539,13 @@ def _history(args: argparse.Namespace, root: Path) -> int:
     if args.json:
         print(
             json.dumps(
-                {"paths": list(patterns), "changes": [archivum.payload(item) for item in shown]},
+                {
+                    "paths": list(patterns),
+                    "changes": [
+                        archivum.payload(item, archivum.decisions(box.root, item.address))
+                        for item in shown
+                    ],
+                },
                 indent=2,
             )
         )
@@ -1515,7 +1559,8 @@ def _history(args: argparse.Namespace, root: Path) -> int:
     for index, entry in enumerate(shown):
         if index:
             print()
-        print("\n".join(archivum.render(entry)))
+        marks = archivum.decisions(box.root, entry.address)
+        print("\n".join(archivum.render(entry, marks)))
     return 0
 
 

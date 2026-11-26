@@ -378,3 +378,125 @@ max_seconds = 60
     assert rehearsal is not None, "the record must say whether the check notices the change"
     assert rehearsal["noticed"] == 1 and rehearsal["blind"] == 0
     assert payload["state"] == "closed", "the rehearsal is information, not a verdict"
+
+
+def test_the_owner_s_mark_is_written_beside_the_change(tmp_path: Path) -> None:
+    """The third acceptance mark: a person's yes, about one diff, kept with the entry."""
+    from harness import augustus
+
+    box = make_box(tmp_path)
+    _, record = prepared(tmp_path, box)
+    archivum.write(box.root, record, stamp())
+    entry = archivum.find(box.root, "t-1/20261126T093000Z")
+    assert entry is not None
+    made = augustus.accept(box, entry.address, note="the owner read it and wants it")
+    assert made.decision == archivum.ACCEPTED
+    assert made.commit == entry.commit and made.diff_hash == entry.diff_hash
+    marks = archivum.decisions(box.root, entry.address)
+    assert [item.decision for item in marks] == [archivum.ACCEPTED]
+    stored = json.loads(
+        (box.root / "archivum" / "t-1" / "20261126T093000Z" / "acceptance.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert stored["decisions"][0]["note"] == "the owner read it and wants it"
+    assert stored["decisions"][0]["at"].endswith("Z")
+
+
+def test_a_mark_about_a_change_that_never_closed_is_refused(tmp_path: Path) -> None:
+    from harness import augustus
+
+    box = make_box(tmp_path)
+    with pytest.raises(boxes.HarnessError, match="no archived change"):
+        augustus.accept(box, "t-1/20260101T000000Z")
+
+
+def test_a_second_mark_follows_the_first(tmp_path: Path) -> None:
+    """A later "no" does not erase the earlier "yes": the record keeps the order."""
+    from harness import augustus
+
+    box = make_box(tmp_path)
+    _, record = prepared(tmp_path, box)
+    archivum.write(box.root, record, stamp())
+    address = "t-1/20261126T093000Z"
+    augustus.accept(box, address, note="yes")
+    augustus.accept(box, address, decision=archivum.REJECTED, note="on second look, no")
+    marks = archivum.decisions(box.root, address)
+    assert [item.decision for item in marks] == [archivum.ACCEPTED, archivum.REJECTED]
+    entry = archivum.find(box.root, address)
+    assert entry is not None
+    assert "rejected" in archivum.acceptance_line(entry, marks)
+    assert "(2 marks in all)" in archivum.acceptance_line(entry, marks)
+
+
+def test_the_same_mark_twice_is_not_a_second_decision(tmp_path: Path) -> None:
+    from harness import augustus
+
+    box = make_box(tmp_path)
+    _, record = prepared(tmp_path, box)
+    archivum.write(box.root, record, stamp())
+    address = "t-1/20261126T093000Z"
+    augustus.accept(box, address, note="yes")
+    augustus.accept(box, address, note="yes")
+    assert len(archivum.decisions(box.root, address)) == 1
+    events = [
+        json.loads(line)
+        for path in (box.root / "fasti").glob("*.jsonl")
+        for line in path.read_text(encoding="utf-8").splitlines()
+    ]
+    accepted = [item for item in events if item["type"] == "task.accepted"]
+    assert len(accepted) == 1 and accepted[0]["actor"] == "owner"
+
+
+def test_a_mark_about_another_diff_is_named(tmp_path: Path) -> None:
+    """The mark names its diff: an address reused for another change cannot inherit it."""
+    from harness import augustus
+
+    box = make_box(tmp_path)
+    _, record = prepared(tmp_path, box)
+    archivum.write(box.root, record, stamp())
+    address = "t-1/20261126T093000Z"
+    augustus.accept(box, address)
+    entry_path = box.root / "archivum" / "t-1" / "20261126T093000Z" / "entry.json"
+    entry = json.loads(entry_path.read_text(encoding="utf-8"))
+    entry["diff"]["hash"] = "ffff"
+    entry_path.write_text(json.dumps(entry), encoding="utf-8")
+    changed = archivum.find(box.root, address)
+    assert changed is not None
+    line = archivum.acceptance_line(changed, archivum.decisions(box.root, address))
+    assert "the mark is about another diff" in line
+
+
+def test_history_shows_the_owner_s_mark_or_names_its_absence(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    box = make_box(tmp_path)
+    _, record = prepared(tmp_path, box)
+    archivum.write(box.root, record, stamp())
+    base = ["--castra", str(box.root.parent), "history", box.name]
+    assert main(base) == 0
+    out = capsys.readouterr().out
+    assert "not accepted — the owner has not decided yet" in out
+    assert main([*base, "--json"]) == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["changes"][0]["acceptance"] == []
+    assert (
+        main(
+            [
+                "--castra",
+                str(box.root.parent),
+                "accept",
+                box.name,
+                "t-1/20261126T093000Z",
+                "--note",
+                "yes, this one",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+    assert main(base) == 0
+    out = capsys.readouterr().out
+    assert "accepted" in out and "yes, this one" in out
+    events = (box.root / "fasti" / f"{datetime.now(UTC):%Y-%m-%d}.jsonl").read_text()
+    assert "task.accepted" in events

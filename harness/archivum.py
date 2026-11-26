@@ -26,6 +26,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from . import box as boxes
+
 SCHEMA_VERSION = 1
 """Bumped when an entry grows a field that older readers cannot read correctly."""
 
@@ -37,6 +39,42 @@ DIFF_FILE = "change.diff"
 INDEX_FILE = "index.json"
 SNAPSHOT_FILE = "task.json"
 """The frozen task beside the records: the goal and the two checks are read from it, not guessed."""
+
+ACCEPTANCE_FILE = "acceptance.json"
+"""The owner's mark on one change: written by `pantheon accept`, read by the history."""
+
+ACCEPTED = "accepted"
+REJECTED = "rejected"
+DECISIONS = (ACCEPTED, REJECTED)
+"""The two things an owner may say about a closed change: yes, or not yet / not this way."""
+
+
+@dataclass(frozen=True, slots=True)
+class Decision:
+    """What the owner said about one closed change, and what exactly he said it about.
+
+    The diff hash and the commit are part of the mark: a yes about another change would be a
+    different yes, and the reader can tell the two apart instead of trusting the address.
+    """
+
+    address: str
+    decision: str
+    by: str
+    at: str
+    note: str
+    diff_hash: str
+    commit: str
+
+    def json(self) -> dict[str, object]:
+        return {
+            "address": self.address,
+            "decision": self.decision,
+            "by": self.by,
+            "at": self.at,
+            "note": self.note,
+            "diff_hash": self.diff_hash,
+            "commit": self.commit,
+        }
 
 
 @dataclass(frozen=True, slots=True)
@@ -181,7 +219,112 @@ def diff(box_root: Path, address: str) -> Path | None:
     return path if path.is_file() else None
 
 
-def render(entry: Entry) -> list[str]:
+def decisions(box_root: Path, address: str) -> tuple[Decision, ...]:
+    """Every mark the owner left on one change, oldest first; empty means nobody decided yet."""
+    path = box_root / DIRECTORY / Path(*address.split("/")) / ACCEPTANCE_FILE
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ()
+    items = data.get("decisions") if isinstance(data, dict) else None
+    if not isinstance(items, list):
+        return ()
+    found: list[Decision] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        decision = str(item.get("decision", ""))
+        if decision not in DECISIONS:
+            continue
+        found.append(
+            Decision(
+                address=str(item.get("address", address)),
+                decision=decision,
+                by=str(item.get("by", "")),
+                at=str(item.get("at", "")),
+                note=str(item.get("note", "")),
+                diff_hash=str(item.get("diff_hash", "")),
+                commit=str(item.get("commit", "")),
+            )
+        )
+    return tuple(found)
+
+
+def record(
+    box_root: Path,
+    address: str,
+    entry: Entry,
+    *,
+    decision: str,
+    by: str,
+    note: str,
+    when: datetime,
+) -> Decision:
+    """Write the owner's mark beside the entry: the third acceptance mark, kept as a record.
+
+    A change is accepted only after it closed (there is a commit to accept) and only with a
+    named decision; the file keeps every mark in order, so a later "no" does not erase the
+    earlier "yes" — it follows it.
+    """
+    if decision not in DECISIONS:
+        raise boxes.HarnessError(
+            f"{decision!r} is not a decision: an owner says {', '.join(DECISIONS)}"
+        )
+    if not by.strip():
+        raise boxes.HarnessError("the mark needs a name: who accepted the change is part of it")
+    if not entry.commit:
+        raise boxes.HarnessError(
+            f"{address} has no commit: there is nothing closed to accept — a change that did not "
+            "close is a returned attempt, not a finished one"
+        )
+    made = Decision(
+        address=address,
+        decision=decision,
+        by=by.strip(),
+        at=when.isoformat().replace("+00:00", "Z"),
+        note=note.strip(),
+        diff_hash=entry.diff_hash or "",
+        commit=entry.commit,
+    )
+    folder = box_root / DIRECTORY / Path(*address.split("/"))
+    folder.mkdir(parents=True, exist_ok=True)
+    previous = list(decisions(box_root, address))
+    latest = previous[-1] if previous else None
+    if latest is not None and (
+        latest.decision == made.decision
+        and latest.by == made.by
+        and latest.note == made.note
+        and latest.diff_hash == made.diff_hash
+    ):
+        return latest
+    previous.append(made)
+    data = {
+        "schema_version": SCHEMA_VERSION,
+        "address": address,
+        "decisions": [item.json() for item in previous],
+    }
+    (folder / ACCEPTANCE_FILE).write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )
+    return made
+
+
+def acceptance_line(entry: Entry, marks: tuple[Decision, ...]) -> str:
+    """The owner's mark as one line, with the absence named when there is no mark yet."""
+    if not marks:
+        return "owner     not accepted — the owner has not decided yet"
+    latest = marks[-1]
+    text = f"owner     {latest.decision} {latest.at}  by {latest.by or '?'}"
+    if latest.note:
+        text += f" — {latest.note}"
+    if entry.diff_hash and latest.diff_hash and latest.diff_hash != entry.diff_hash:
+        text += "  (the mark is about another diff: the address was reused)"
+    if len(marks) > 1:
+        text += f"  ({len(marks)} marks in all)"
+    return text
+
+
+def render(entry: Entry, marks: tuple[Decision, ...] = ()) -> list[str]:
     """One entry as a person reads it: what, where, why, what proved it, what was rejected."""
     lines = [
         f"{entry.address}  {entry.kind or 'task'}  {entry.at}",
@@ -226,12 +369,15 @@ def render(entry: Entry) -> list[str]:
     )
     if entry.diff_hash:
         lines.append(f"diff      {entry.diff_hash}  reads with `pantheon history --diff`")
+    lines.append(acceptance_line(entry, marks))
     return lines
 
 
-def payload(entry: Entry) -> dict[str, object]:
-    """The same entry for a machine."""
-    return entry.json()
+def payload(entry: Entry, marks: tuple[Decision, ...] = ()) -> dict[str, object]:
+    """The same entry for a machine, with the owner's marks when there are any."""
+    data = entry.json()
+    data["acceptance"] = [item.json() for item in marks]
+    return data
 
 
 def _frozen(box_root: Path, task: str) -> dict[str, object]:

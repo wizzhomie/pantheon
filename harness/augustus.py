@@ -4310,6 +4310,41 @@ def _verify_line(
     return line
 
 
+def event(
+    box_root: Path,
+    when: datetime,
+    kind: str,
+    *,
+    task: str,
+    detail: str,
+    actor: str = "augustus",
+    links: tuple[str, ...] = (),
+    data: dict[str, object] | None = None,
+) -> None:
+    """One line in the box's journal: the box does not act silently.
+
+    A person's decision is an event too, and its actor is the person: the journal says who did
+    what, so "the owner accepted it" is a fact with a name and a time, like every other.
+    """
+    ledger = box_root / "fasti"
+    ledger.mkdir(parents=True, exist_ok=True)
+    path = ledger / f"{when:%Y-%m-%d}.jsonl"
+    existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    entry: dict[str, object] = {
+        "id": f"e-{when:%Y-%m-%d}-{len(existing) + 1}",
+        "type": kind,
+        "at": when.isoformat().replace("+00:00", "Z"),
+        "task": task,
+        "actor": actor,
+        "reason": detail,
+        "links": list(links),
+    }
+    if data is not None:
+        entry["data"] = data
+    with path.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(entry) + "\n")
+
+
 def _event(
     box_root: Path,
     when: datetime,
@@ -4318,23 +4353,60 @@ def _event(
     detail: str,
     data: dict[str, object] | None = None,
 ) -> None:
-    ledger = box_root / "fasti"
-    ledger.mkdir(parents=True, exist_ok=True)
-    path = ledger / f"{when:%Y-%m-%d}.jsonl"
-    existing = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
-    event: dict[str, object] = {
-        "id": f"e-{when:%Y-%m-%d}-{len(existing) + 1}",
-        "type": kind,
-        "at": when.isoformat().replace("+00:00", "Z"),
-        "task": task.id,
-        "actor": "augustus",
-        "reason": detail,
-        "links": [f"tasks/{task.id}.contract.toml"],
-    }
-    if data is not None:
-        event["data"] = data
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(event) + "\n")
+    event(
+        box_root,
+        when,
+        kind,
+        task=task.id,
+        detail=detail,
+        links=(f"tasks/{task.id}.contract.toml",),
+        data=data,
+    )
+
+
+def accept(
+    box: boxes.Box,
+    address: str,
+    *,
+    decision: str = archivum.ACCEPTED,
+    by: str = "owner",
+    note: str = "",
+    when: datetime | None = None,
+) -> archivum.Decision:
+    """The owner's mark on a closed change: the third acceptance mark, written as a record.
+
+    The first two marks are the box's: the check passed (code) and the reason is confirmed (the
+    validator's counterexample, when there is a reader). This one cannot be computed — it says
+    the requirement is the one the owner wanted, and a person says it. The mark names the diff
+    it is about, so an address reused for another change cannot inherit it.
+    """
+    entry = archivum.find(box.root, address)
+    if entry is None:
+        raise boxes.HarnessError(
+            f"no archived change at {address}: the archive keeps closed changes, and an attempt "
+            "that never closed has nothing to accept"
+        )
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    before = len(archivum.decisions(box.root, address))
+    made = archivum.record(
+        box.root, address, entry, decision=decision, by=by, note=note, when=stamp
+    )
+    if len(archivum.decisions(box.root, address)) == before:
+        return made
+    event(
+        box.root,
+        stamp,
+        "task.accepted" if made.decision == archivum.ACCEPTED else "task.rejected",
+        task=entry.task,
+        detail=(
+            f"the owner {made.decision} the change at {address}"
+            + (f": {made.note}" if made.note else "")
+        ),
+        actor=made.by,
+        links=(f"archivum/{address}/acceptance.json",),
+        data={"address": address, "decision": made.decision, "diff_hash": made.diff_hash},
+    )
+    return made
 
 
 def _identifier(value: object, path: Path) -> str:
