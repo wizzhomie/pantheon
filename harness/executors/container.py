@@ -142,22 +142,6 @@ def main() -> int:
     return 0
 
 
-ARCHITECT = """\
-Ты — архитектор коробки: вторая роль того же агента, советник, а не исполнитель.
-Твоя работа — документы и модель, а не код: бриф, аудит, ADR, модель слоёв, требования.
-Задача: {goal}
-Критерий: {expected}
-Объём (пути относительно корня проекта): {scope}
-Проект смонтирован только на чтение в /work/project. Ты не пишешь код и тесты и не пушишь:
-файлы вне объёма ворота всё равно откажут.
-Верни ОДИН унифицированный диф в формате git (пути a/<файл> и b/<файл>, заголовки @@), который
-применяется командой `git apply` от корня проекта и меняет только файлы из объёма. Никаких
-пояснений и markdown-заборов. Если для вывода не хватает данных проекта — одна строка:
-ERROR: <чего не хватает>.
-"""
-"""The architect's brief: the same agent, a different job — the frame, not the code."""
-
-
 CONTEXT_HEAD = (
     "Контекст, собранный коробкой (пути записей — от корня коробки; "
     "в контейнере артефакты лежат в /work/tabularium):"
@@ -185,7 +169,7 @@ def _prompt(
     card: str | None = None,
 ) -> str:
     if task.get("role") == "architect":
-        return _architect_prompt(task, context, previous)
+        return _architect_prompt(task, context, previous, card=card)
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
     # The first block is the same for every task in the box: the environment card and the
@@ -227,30 +211,44 @@ def _prompt(
 
 
 def _architect_prompt(
-    task: dict[str, object], context: list[str] | None = None, previous: object = None
+    task: dict[str, object],
+    context: list[str] | None = None,
+    previous: object = None,
+    *,
+    card: str | None = None,
 ) -> str:
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
-    prompt = ARCHITECT.format(
-        goal=task.get("goal") or "цель не объявлена",
-        expected=task.get("expected") or "не объявлен",
-        scope=scope,
-    )
-    if context:
-        block = CONTEXT_HEAD + "\n" + "\n".join(context) + "\n"
-        prompt = prompt.replace("Проект смонтирован", block + "Проект смонтирован")
-    prior = previous_lines(previous)
-    if prior:
-        block = PREVIOUS_HEAD + "\n" + "\n".join(prior) + "\n"
-        prompt = prompt.replace("Проект смонтирован", block + "Проект смонтирован")
+    lines = [
+        "Ты — архитектор коробки: вторая роль того же агента, советник, а не исполнитель.",
+        "Твоя работа — документы и модель, а не код: бриф, аудит, ADR, модель слоёв, требования.",
+        "Проект смонтирован только на чтение в /work/project. Ты не пишешь код и тесты и не "
+        "пушишь: файлы вне объёма ворота всё равно откажут.",
+    ]
+    if card:
+        lines += ["", "Среда проекта, как её видит коробка:", card]
+    lines += [
+        "",
+        f"Задача: {task.get('goal') or 'цель не объявлена'}",
+        f"Критерий: {task.get('expected') or 'не объявлен'}",
+        f"Объём (пути относительно корня проекта): {scope}",
+    ]
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
-        prompt = prompt.replace(
-            "Проект смонтирован только на чтение",
-            f"Запрещено: {', '.join(str(item) for item in forbidden)}.\n"
-            "Проект смонтирован только на чтение",
-        )
-    return prompt
+        lines.append(f"Запрещено: {', '.join(str(item) for item in forbidden)}")
+    if context:
+        lines += ["", CONTEXT_HEAD, *context]
+    prior = previous_lines(previous)
+    if prior:
+        lines += ["", PREVIOUS_HEAD, *prior]
+    lines += [
+        "",
+        "Верни ОДИН унифицированный диф в формате git (пути a/<файл> и b/<файл>, заголовки @@), "
+        "который применяется командой `git apply` от корня проекта и меняет только файлы из "
+        "объёма. Никаких пояснений и markdown-заборов. Если для вывода не хватает данных "
+        "проекта — одна строка: ERROR: <чего не хватает>.",
+    ]
+    return "\n".join(lines)
 
 
 def _card(root: Path) -> tuple[str, str] | None:

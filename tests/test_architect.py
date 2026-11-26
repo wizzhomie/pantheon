@@ -147,12 +147,14 @@ def test_the_architect_prompt_says_what_it_may_not_do() -> None:
             "kind": "architecture",
             "paths": [".pantheon/**"],
             "expected": "a model",
-        }
+        },
+        card="# Среда\n- проект probe\n",
     )
     assert "архитектор" in prompt
     assert "не пишешь код и тесты" in prompt
     assert "declare the layers" in prompt and ".pantheon/**" in prompt
     assert "ERROR:" in prompt
+    assert "# Среда" in prompt
     builder = box_agent._prompt({"role": "executor", "goal": "fix", "paths": ["src/**"]})
     assert "архитектор" not in builder and "ERROR:" in builder
 
