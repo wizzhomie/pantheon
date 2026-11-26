@@ -3322,6 +3322,8 @@ def _finish(
         self_check=result.self_check,
         shape=result.shape,
         engine=result.engine,
+        level=result.level,
+        route_reason=result.route_reason,
         steps=result.steps,
         timings=_timings(result, began),
     )
@@ -3419,6 +3421,7 @@ def _summary(result: Dispatch, when: datetime) -> str:
         f"- frame: {_frame_line(result.frame)}",
         f"- rails: {_rails_line(result.rails)}",
         f"- architecture: {_arch_line(result.arch)}",
+        f"- level: {_level_line(result)}",
         f"- engine: {_engine_line(result)}",
         f"- executor: {_executor_line(result.proposal)}",
         f"- context: {_context_line(result.context)}",
@@ -3688,6 +3691,13 @@ def _arch_line(result: aurelius.Result | None) -> str:
     if result is None:
         return "not run"
     return f"{result.status} ({result.kept} kept, {result.broken} broken)"
+
+
+def _level_line(result: Dispatch) -> str:
+    """The one-shot/steps/agent level, when the box declares a policy that fixes it."""
+    if result.level is None:
+        return "not declared: the box has no execution policy, so the level is not enforced"
+    return f"level {result.level} — {result.route_reason}"
 
 
 def _engine_line(result: Dispatch) -> str:

@@ -1170,3 +1170,28 @@ def test_a_level_three_task_is_refused_before_the_executor(
     assert not list((box.root / "tabularium" / "t-1").glob("proposal-*")), (
         "nothing should have been asked"
     )
+
+
+@requires_trajan
+def test_the_record_keeps_the_level_the_route_put_the_task_in(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The level is a fact about the run: the record must name the route, not only a note."""
+    _project, box, _script, _task = probe(
+        tmp_path,
+        ANSWER,
+        "\n[execution]\none_shot_max_files = 2\none_shot_max_changed_lines = 30\n"
+        "[shapes.patch]\nmax_changed_lines = 30\nmax_files = 2\n",
+    )
+    task = write_task(
+        tmp_path, TASK.replace('paths = ["src/**"]\n', 'paths = ["src/**"]\nshape = "patch"\n')
+    )
+    assert dispatch(box, task, "--json") == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["level"] == 1
+    assert "level 1" in payload["route"]
+    record = json.loads(
+        sorted((box.root / "tabularium" / "t-1").glob("dispatch-*.json"))[-1].read_text()
+    )
+    assert record["level"] == 1
+    assert "level 1" in record["route"]
