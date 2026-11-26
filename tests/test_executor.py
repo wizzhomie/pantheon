@@ -1090,3 +1090,48 @@ def test_an_answer_inside_the_shape_goes_through_the_gate(
     out = capsys.readouterr().out
     assert "shape      file — at most 100 changed line(s), at most 1 file(s)" in out
     assert (box.project / "src" / "app.py").read_text() == "one!\ntwo!\nthree!\n"
+
+
+def test_thinking_can_be_disabled_for_one_call(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reasoning model can spend the answer room before writing: ask it not to, per call."""
+    request = {"task": {"id": "t"}, "project": {"path": str(tmp_path)}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request)))
+    monkeypatch.setenv(deepseek.KEY_ENV, "k")
+    monkeypatch.setenv(deepseek.THINKING_ENV, "disabled")
+    seen: dict[str, object] = {}
+
+    def fake_post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
+        seen.update(payload)
+        return {
+            "choices": [{"message": {"content": DIFF}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        }
+
+    monkeypatch.setattr(deepseek, "_post", fake_post)
+    assert deepseek.main() == 0
+    capsys.readouterr()
+    assert seen["thinking"] == {"type": "disabled"}
+
+
+def test_thinking_is_left_to_the_provider_by_default(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    request = {"task": {"id": "t"}, "project": {"path": str(tmp_path)}}
+    monkeypatch.setattr(sys, "stdin", io.StringIO(json.dumps(request)))
+    monkeypatch.setenv(deepseek.KEY_ENV, "k")
+    monkeypatch.delenv(deepseek.THINKING_ENV, raising=False)
+    seen: dict[str, object] = {}
+
+    def fake_post(url: str, key: str, payload: dict[str, object]) -> dict[str, Any]:
+        seen.update(payload)
+        return {
+            "choices": [{"message": {"content": DIFF}, "finish_reason": "stop"}],
+            "usage": {"prompt_tokens": 10, "completion_tokens": 20},
+        }
+
+    monkeypatch.setattr(deepseek, "_post", fake_post)
+    assert deepseek.main() == 0
+    capsys.readouterr()
+    assert "thinking" not in seen

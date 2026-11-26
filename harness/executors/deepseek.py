@@ -18,7 +18,9 @@ Configuration is environment, never a file in the repository:
 * ``PANTHEON_MODEL_MAX_TOKENS`` — the cap when no box computes a room, default 4096;
 * ``PANTHEON_MODEL_PRICE_IN`` / ``PANTHEON_MODEL_PRICE_OUT`` — dollars per million tokens.
   Without them the answer carries no money, and the box records "cost not reported" instead
-  of inventing a number.
+  of inventing a number;
+* ``PANTHEON_MODEL_THINKING`` — ``disabled`` asks the endpoint not to spend the answer room
+  on thinking. Unset leaves the provider's default alone.
 """
 
 from __future__ import annotations
@@ -47,6 +49,7 @@ MODEL_ENV = "PANTHEON_MODEL"
 MAX_TOKENS_ENV = "PANTHEON_MODEL_MAX_TOKENS"
 PRICE_IN_ENV = "PANTHEON_MODEL_PRICE_IN"
 PRICE_OUT_ENV = "PANTHEON_MODEL_PRICE_OUT"
+THINKING_ENV = "PANTHEON_MODEL_THINKING"
 DEFAULT_MAX_TOKENS = 4096
 FILE_LIST_LIMIT = 300
 CONTEXT_CHARS = 120_000
@@ -112,20 +115,19 @@ def main() -> int:
             billing="not_billed",
         )
     started = time.monotonic()
+    payload: dict[str, object] = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": prompt.text},
+        ],
+        "temperature": 0,
+        "max_tokens": _max_tokens(request),
+    }
+    if os.environ.get(THINKING_ENV, "").strip().lower() == "disabled":
+        payload["thinking"] = {"type": "disabled"}
     try:
-        answer = _post(
-            os.environ.get(URL_ENV) or DEFAULT_URL,
-            key,
-            {
-                "model": model,
-                "messages": [
-                    {"role": "system", "content": SYSTEM},
-                    {"role": "user", "content": prompt.text},
-                ],
-                "temperature": 0,
-                "max_tokens": _max_tokens(request),
-            },
-        )
+        answer = _post(os.environ.get(URL_ENV) or DEFAULT_URL, key, payload)
     except ApiError as error:
         # The request was sent; whether the provider billed it cannot be known from here.
         return _fail(str(error), billing="unknown")

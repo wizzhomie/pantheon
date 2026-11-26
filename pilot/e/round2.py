@@ -277,11 +277,19 @@ def run_c(case_id: str, case: dict[str, object]) -> None:
     started = time.monotonic()
     saved = {
         key: os.environ.get(key)
-        for key in ("PYTHON", "PYTHONPATH", "PATH", "PYTEST_DISABLE_PLUGIN_AUTOLOAD")
+        for key in (
+            "PYTHON",
+            "PYTHONPATH",
+            "PATH",
+            "PYTEST_DISABLE_PLUGIN_AUTOLOAD",
+            "PANTHEON_MODEL_THINKING",
+        )
     }
     os.environ["PYTHON"] = PYTHON
     os.environ["PYTHONPATH"] = str(tree)
     os.environ["PATH"] = f"{ROOT / 'trajan' / '.venv' / 'bin'}:{os.environ['PATH']}"
+    if case.get("thinking") == "disabled":
+        os.environ["PANTHEON_MODEL_THINKING"] = "disabled"
     try:
         with redirect_stdout(buffer):
             code = cli.main(
