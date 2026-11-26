@@ -70,6 +70,8 @@ def test_the_prompt_says_read_only_scope_and_one_diff_only() -> None:
     assert "только на чтение" in prompt
     assert "git apply" in prompt and "ERROR:" in prompt
     assert "Запрещено: delete" in prompt
+    assert "не запускай набор тестов" in prompt
+    assert "пути в дифе всё равно от корня проекта" in prompt
 
 
 def test_the_agent_bill_is_read_in_cents(tmp_path: Path) -> None:
