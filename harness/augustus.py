@@ -20,7 +20,7 @@ import shlex
 import time
 import tomllib
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from . import aurelius, caesar, contour, debt, executor, frame, rails, records
@@ -63,6 +63,8 @@ FAILURE_NARROWED = "narrowed"
 FAILURE_ARCHITECTURE = "architecture"
 RETRYABLE_FAILURES = frozenset({FAILURE_INCOMPLETE, FAILURE_NARROWED})
 """The failures a second attempt may address: the others are not about the change."""
+REPAIR_ATTEMPTS = 2
+"""How many times one task is asked: the second is paid only for a retryable class."""
 CONTRACT_KEYS = frozenset({"symptom", "visible", "boundaries", "missing"})
 """The four points of a task contract besides the expected behaviour, which stays `expected`."""
 ROUTES_ENV = "PANTHEON_ROUTES"
@@ -1843,6 +1845,7 @@ def resume(
     retry: bool = False,
     review: contour.Reviewer | None = None,
     commit_requested: bool = True,
+    notes_prefix: tuple[str, ...] = (),
 ) -> Dispatch:
     """Continue a dispatch that stopped before its verdict, from the artifacts it left.
 
@@ -1952,7 +1955,7 @@ def resume(
             when=stamp,
             executor_config=config,
             resumed_from=record[0] if record is not None else None,
-            notes_prefix=tuple(notes),
+            notes_prefix=(*notes_prefix, *notes),
             review=review,
             commit_requested=commit_requested,
             continuing=True,
@@ -1980,7 +1983,7 @@ def resume(
             )
             if record is not None
             else None,
-            notes_prefix=tuple(notes),
+            notes_prefix=(*notes_prefix, *notes),
             review=review,
             commit_requested=commit_requested,
         )
@@ -2117,6 +2120,111 @@ def resume(
         began,
         rail=rail,
     )
+
+
+def dispatch_with_attempts(
+    box: boxes.Box,
+    task: Task,
+    *,
+    routes: dict[str, tuple[str, ...]],
+    trajan_root: Path,
+    trajan_python: Path,
+    tool: str | None = None,
+    when: datetime | None = None,
+    executor_config: executor.ExecutorConfig | None = None,
+    review: contour.Reviewer | None = None,
+    commit_requested: bool = True,
+    attempts: int = REPAIR_ATTEMPTS,
+) -> Dispatch:
+    """Ask for the change, and ask once more when the class says a repair can work.
+
+    The first attempt is the ordinary dispatch; a second one is paid only when the checks
+    disagreed in a way the change can address (``RETRYABLE_FAILURES``). A broken architecture or
+    a refused task is not a bad answer — asking again would buy the same refusal.
+
+    The same class twice in a row stops earlier than the ceiling: a repair that failed the same
+    way is not learning, and the next paid call would be a guess (D47).
+
+    The stop is written as a box event, not as a note: an attempt's record is written when it
+    finishes, and a note added afterwards would make the record and the run disagree.
+    """
+    if attempts < 1:
+        raise boxes.HarnessError(
+            f"a task is asked at least once: attempts is {attempts}, and the box will not run a "
+            "task zero times"
+        )
+    seen: list[str] = []
+    config = executor_config or executor.read_config(box.root / executor.PROFILE_FILE)
+    result = dispatch(
+        box,
+        task,
+        routes=routes,
+        trajan_root=trajan_root,
+        trajan_python=trajan_python,
+        tool=tool,
+        when=when,
+        executor_config=executor_config,
+        review=review,
+        commit_requested=commit_requested,
+    )
+    while True:
+        reached = failure_class(result)
+        if result.state != "returned" or reached not in RETRYABLE_FAILURES:
+            return result
+        assert reached is not None
+        if result.engine != "one-shot":
+            _retry_stopped(
+                box,
+                result,
+                f"the {result.engine or 'declared'} engine has its own loop and its own fuses: a "
+                "second attempt would start it over, so the box does not add one",
+            )
+            return result
+        if not config.declared:
+            _retry_stopped(
+                box,
+                result,
+                "the box declares no executor: there is nothing to ask again, and the verdict "
+                "stands as it is",
+            )
+            return result
+        if len(seen) + 1 >= attempts:
+            _retry_stopped(
+                box,
+                result,
+                f"the attempts are spent ({attempts} of {attempts}) and the class is still "
+                f"{reached}",
+            )
+            return result
+        if seen and seen[-1] == reached:
+            _retry_stopped(
+                box,
+                result,
+                f"the same class twice ({reached}): a third attempt would repeat the second",
+            )
+            return result
+        seen.append(reached)
+        result = resume(
+            box,
+            result.task.id,
+            routes=routes,
+            trajan_root=trajan_root,
+            trajan_python=trajan_python,
+            tool=tool,
+            executor_config=executor_config,
+            retry=True,
+            review=review,
+            commit_requested=commit_requested,
+            notes_prefix=(
+                f"attempt {len(seen) + 1} of {attempts}: the previous one ended {reached}, "
+                "and the box asks again",
+            ),
+        )
+
+
+def _retry_stopped(box: boxes.Box, result: Dispatch, why: str) -> None:
+    """The box decided not to pay for another call: the fact goes where stops are kept."""
+    _event(box.root, datetime.now(UTC).replace(microsecond=0), "retry.stopped", result.task, why)
 
 
 def _steps_unfinished(
@@ -3497,6 +3605,26 @@ def _finish(
     record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
     outbox = box.root / "acta" / f"{when:%Y-%m-%d}-{task.id}.md"
     outbox.parent.mkdir(parents=True, exist_ok=True)
+    notes = list(result.notes)
+    if record.exists():
+        # Two attempts can finish inside one second; the record is named by the second, so the
+        # second attempt would overwrite the first and the box would keep one of the two. The
+        # stamp moves to the next free second and the record says it moved: a name that hides
+        # the collision is the quiet loss this box refuses.
+        began_stamp = when
+        while record.exists():
+            when += timedelta(seconds=1)
+            record = result.directory / f"dispatch-{when:%Y%m%dT%H%M%SZ}.json"
+        moved = int((when - began_stamp).total_seconds())
+        notes.append(
+            f"the record stamp moved by {moved} s: another attempt finished in the second this "
+            "run ended in, and both records must stay"
+        )
+    if outbox.exists():
+        # The day's summary is one file per task, and a second attempt in the same day would
+        # overwrite the first attempt's summary — the acta a person reads. The later one takes
+        # the time in its name instead, so both remain and the name says which is which.
+        outbox = box.root / "acta" / f"{when:%Y-%m-%d}-{task.id}-{when:%H%M%SZ}.md"
     finished = Dispatch(
         task=result.task,
         state=result.state,
@@ -3511,7 +3639,7 @@ def _finish(
         else rails.check(box, milestone=task.milestone, outside=task.outside_plan),
         outbox=outbox,
         directory=result.directory,
-        notes=result.notes,
+        notes=notes,
         exit_code=result.exit_code,
         proposal=result.proposal,
         resumed_from=result.resumed_from,

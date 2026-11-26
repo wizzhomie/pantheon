@@ -174,13 +174,13 @@ def test_a_task_budget_is_a_total_across_calls(
     task = write_task(tmp_path)
     assert dispatch(box, task) == 1, "the change applied, the check failed: returned"
     capsys.readouterr()
-    # 0.6 of the 1 cent is spent, so the next call may spend 0.4 and the 0.6 answer is refused
-    assert resume(box, "--retry") == 1
+    # The box itself asked once more: 0.6 of the 1 cent was left as 0.4 of room, the answer
+    # cost 0.6, so the second answer is over budget and only recorded, never applied.
+    assert calls(tmp_path) == 2
     payload = record(box)
     engine = payload["executor"]
     assert isinstance(engine, dict) and engine["status"] == "over-budget"
-    assert calls(tmp_path) == 2
-    # 1.2 cents are already on the record: the third call is not made at all
+    # 1.2 cents are already on the record: another retry is not made at all
     assert resume(box, "--retry") == 2
     out = capsys.readouterr().out
     assert "stopped" in out and "declared 1 cents" in out and "1.20 cents" in out
@@ -197,7 +197,6 @@ def test_the_next_call_is_given_only_what_is_left(
     task = write_task(tmp_path)
     assert dispatch(box, task) == 1
     capsys.readouterr()
-    assert resume(box, "--retry") == 1
     request = json.loads(
         (box.root / "tabularium" / "t-1" / "proposal-2" / "request.json").read_text(
             encoding="utf-8"
@@ -217,9 +216,9 @@ def test_a_task_may_not_make_more_calls_than_it_allows(
     task = write_task(
         tmp_path, TASK.replace('expected = "the value is two"', 'expected = "x"\nmax_steps = 1')
     )
-    assert dispatch(box, task) == 1
-    capsys.readouterr()
-    assert resume(box, "--retry") == 2
+    # The task allows one call; the box asked once, then wanted a second attempt and was
+    # refused before asking: the stop is the last word of the run.
+    assert dispatch(box, task) == 2
     out = capsys.readouterr().out
     assert "allows 1 call(s)" in out and "already made 1" in out
     assert calls(tmp_path) == 1
@@ -237,8 +236,7 @@ def test_two_attempts_that_fail_the_same_visible_check_stop_the_third(
     capsys.readouterr()
     own = record(box)["self_check"]
     assert isinstance(own, dict) and own["status"] == "failed"
-    assert resume(box, "--retry") == 1, "the second attempt still applies and still fails"
-    capsys.readouterr()
+    assert calls(tmp_path) == 2, "the box asked twice on its own (D47)"
     assert resume(box, "--retry") == 2
     out = capsys.readouterr().out
     assert "same exit code and the same words" in out

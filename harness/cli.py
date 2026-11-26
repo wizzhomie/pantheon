@@ -1036,7 +1036,7 @@ def _flow_next(box: boxes.Box, args: argparse.Namespace) -> int:
                 max_cents=config.max_cents,
                 max_steps=config.max_steps,
             )
-        result = augustus.dispatch(
+        result = augustus.dispatch_with_attempts(
             box,
             task,
             routes=_executor_routes(
@@ -1194,7 +1194,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
             max_cents=config.max_cents,
             max_steps=config.max_steps,
         )
-    result = augustus.dispatch(
+    result = augustus.dispatch_with_attempts(
         box,
         task,
         routes=_executor_routes(

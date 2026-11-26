@@ -54,9 +54,10 @@ a task without one is not handed on: if the criterion cannot be derived — read
 allowed for that question only, never for the cause — the owner is asked instead of guessing.
 
 Acceptance has three marks, not one: the check passed (code), the cause is confirmed (the validator's
-counterexample, which is evidence and not a verdict), the requirement is accepted (the owner). Two
-attempts are paid for, then the task returns with its record; the same failure class twice stops it
-earlier, and the trace stays in the record instead of being fed back to the model.
+counterexample, which is evidence and not a verdict), the requirement is accepted (the owner). The
+box asks twice by itself: after a retryable failure class `dispatch` pays for one more attempt, then
+the task returns with its record; the same class twice stops it earlier, and the trace stays in the
+record instead of being fed back to the model.
 
 Every closed change is archived with its reason — contract, diff, both checks with their hashes, the
 verdict, the validator's note, the rejected attempts and the cost — and indexed by path. The archive
@@ -65,7 +66,8 @@ by a conflict (which changes touched both sides) and by the reproducer (what was
 before, and why). A contract that contradicts a clause of an old one is a change of decision and goes
 to the owner before any work.
 
-These are decided and recorded (D45, D46, D47); the code is being built in that order.
+These are decided and recorded (D45, D46, D47). The two attempts are built; the change archive is
+the next piece.
 
 ## What runs today
 
