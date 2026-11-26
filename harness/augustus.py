@@ -223,6 +223,12 @@ class Dispatch:
     timings: dict[str, float] = field(default_factory=dict)
     """Wall time in seconds per stage and in total, measured around the work, not guessed."""
 
+    level: int | None = None
+    """The execution level the route put the task in, when the box declares a policy."""
+
+    route_reason: str = ""
+    """Why that level: the shape, the paths, the visible check, or the missing agent."""
+
 
 @dataclass(frozen=True, slots=True)
 class StepsRun:
@@ -922,6 +928,9 @@ def dispatch(
     shape: executor.Shape | None = None
     shape_record: dict[str, object] | None = None
     engine_name = "one-shot"
+    execution = executor.ExecutionRoute(
+        None, "one-shot", "the task carries its own patch: no executor route was taken"
+    )
     changed_paths: tuple[str, ...] | None = None
     steps: tuple[dict[str, object], ...] = ()
     applied: tuple[caesar.Attempt, ...] = ()
@@ -967,7 +976,31 @@ def dispatch(
                     }
                 )
                 notes.append(f"shape: {shape_reason}")
-                engine_name, engine_reason = executor.engine_for(config, task.kind)
+                execution = executor.route_for(config, task)
+                notes.append(f"level: {execution.reason}")
+                if execution.refusal is not None:
+                    notes.append(execution.refusal)
+                    return _finish(
+                        box,
+                        task,
+                        Dispatch(
+                            task=task,
+                            state="refused",
+                            stages=stages,
+                            arch=arch,
+                            directory=directory,
+                            notes=notes,
+                            exit_code=1,
+                            resumed_from=resumed_from,
+                            engine=execution.engine,
+                            level=execution.level,
+                            route_reason=execution.reason,
+                        ),
+                        stamp,
+                        began,
+                        rail=rail,
+                    )
+                engine_name, engine_reason = execution.engine, execution.reason
                 notes.append(f"engine: {engine_reason}")
                 if engine_name == "steps" and executor.step_ceiling(task, config) is None:
                     notes.append(
@@ -988,6 +1021,8 @@ def dispatch(
                             exit_code=1,
                             resumed_from=resumed_from,
                             engine=engine_name,
+                            level=execution.level,
+                            route_reason=execution.reason,
                         ),
                         stamp,
                         began,
@@ -1072,6 +1107,8 @@ def dispatch(
                                 resumed_from=resumed_from,
                                 context=pack,
                                 engine=engine_name,
+                                level=execution.level,
+                                route_reason=execution.reason,
                                 steps=steps,
                             ),
                             stamp,
@@ -1096,6 +1133,8 @@ def dispatch(
                                     context=pack,
                                     stop_reason=loop_stop,
                                     engine=engine_name,
+                                    level=execution.level,
+                                    route_reason=execution.reason,
                                     steps=steps,
                                     shape=shape_record,
                                 ),
@@ -1118,6 +1157,8 @@ def dispatch(
                                 resumed_from=resumed_from,
                                 context=pack,
                                 engine=engine_name,
+                                level=execution.level,
+                                route_reason=execution.reason,
                                 steps=steps,
                                 shape=shape_record,
                             ),
@@ -1148,6 +1189,8 @@ def dispatch(
                                 resumed_from=resumed_from,
                                 stop_reason=guard.stop,
                                 engine=engine_name,
+                                level=execution.level,
+                                route_reason=execution.reason,
                             ),
                             stamp,
                             began,
@@ -1192,6 +1235,8 @@ def dispatch(
                                 context=pack,
                                 shape=shape_record,
                                 engine=engine_name,
+                                level=execution.level,
+                                route_reason=execution.reason,
                             ),
                             stamp,
                             began,
@@ -1217,6 +1262,8 @@ def dispatch(
                                     context=pack,
                                     shape=shape_record,
                                     engine=engine_name,
+                                    level=execution.level,
+                                    route_reason=execution.reason,
                                 ),
                                 stamp,
                                 began,
@@ -1247,6 +1294,8 @@ def dispatch(
                                     repeated=digest,
                                     shape=shape_record,
                                     engine=engine_name,
+                                    level=execution.level,
+                                    route_reason=execution.reason,
                                 ),
                                 stamp,
                                 began,
@@ -1278,6 +1327,8 @@ def dispatch(
                         resumed_from=resumed_from,
                         context=pack,
                         engine=engine_name,
+                        level=execution.level,
+                        route_reason=execution.reason,
                     ),
                     stamp,
                     began,
@@ -1373,6 +1424,8 @@ def dispatch(
             self_check=own_check,
             shape=shape_record,
             engine=engine_name,
+            level=execution.level,
+            route_reason=execution.reason,
             steps=steps,
             stop_reason=loop_stop,
             repeated=repeated,
@@ -2841,6 +2894,8 @@ def render_dispatch(result: Dispatch) -> list[str]:
     lines += [
         f"stages     {' -> '.join(result.stages) or 'none'}",
         f"engine     {_engine_line(result)}",
+        f"level      {result.level if result.level is not None else 'legacy'} — "
+        f"{result.route_reason or 'no execution policy'}",
         f"frame      {_frame_line(result.frame)}",
         f"rails      {_rails_line(result.rails)}",
         f"arch       {_arch_line(result.arch)}",
@@ -2877,6 +2932,8 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
         "why": result.task.why,
         "stages": list(result.stages),
         "engine": result.engine,
+        "level": result.level,
+        "route": result.route_reason,
         "steps": list(result.steps),
         "arch": None
         if result.arch is None
@@ -2959,6 +3016,8 @@ class Explanation:
     refusal: str | None
     parked: str | None
     gaps: tuple[str, ...]
+    level: int | None = None
+    route_reason: str = ""
 
 
 def explain(
@@ -2982,13 +3041,16 @@ def explain(
         if parked_record is not None
         else None
     )
+    execution = executor.route_for(config, task)
     blocked = refusal(task, routes)
+    if blocked is None and execution.refusal is not None:
+        blocked = execution.refusal
     if blocked is None and rail.refusal is not None:
         blocked = rail.refusal
     if parked is not None:
         blocked = f"the task is parked ({parked}): it does not run; amend writes a successor"
     base, extended = _with_write_gate(route(task, routes), task)
-    engine, engine_reason = executor.engine_for(config, task.kind)
+    engine, engine_reason = execution.engine, execution.reason
     model, model_reason = executor.model_for(config, task.kind)
     seconds, cents = executor.limits(config, task.budget)
     calls = _steps(task, config)
@@ -3024,6 +3086,11 @@ def explain(
         )
     if not task.self_check:
         gaps.append("no visible check: the model will not see what its change did")
+    if execution.level is None:
+        gaps.append(
+            "no execution policy: one-shot may run a task above level 1; declare [execution] "
+            "to enforce the one-shot/steps/agent boundary"
+        )
     declared_cents = task.budget.get("max_cents")
     if declared_cents is None:
         gaps.append("no money budget: the call's cost is not bounded before it is made")
@@ -3059,6 +3126,8 @@ def explain(
         refusal=blocked,
         parked=parked,
         gaps=tuple(gaps),
+        level=execution.level,
+        route_reason=execution.reason,
     )
 
 
@@ -3096,6 +3165,8 @@ def render_explanation(result: Explanation) -> list[str]:
         f"route      {' -> '.join(result.stages) or 'none'}"
         + (" (write gate added)" if result.write_gate_added else ""),
         f"engine     {result.engine} — {result.engine_reason}",
+        f"level      {result.level if result.level is not None else 'legacy'} — "
+        f"{result.route_reason or 'no execution policy'}",
         f"model      {result.model or 'not declared'}"
         + (f" — {result.model_reason}" if result.model_reason else ""),
         f"limits     {limits}",
@@ -3128,6 +3199,8 @@ def explanation_json(result: Explanation) -> dict[str, object]:
         "rails": result.rails.json(),
         "engine": result.engine,
         "engine_reason": result.engine_reason,
+        "level": result.level,
+        "route": result.route_reason,
         "model": result.model,
         "model_reason": result.model_reason,
         "limits": {

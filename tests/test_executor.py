@@ -335,9 +335,7 @@ def test_the_change_an_executor_proposed_is_the_change_a_reader_reads(
         repro: tuple[str, ...] = (),
     ) -> contour.VerifyResult:
         seen["change"] = change
-        return real(
-            box_, directory, stamp, root, python, review=None, change=change, paths=paths
-        )
+        return real(box_, directory, stamp, root, python, review=None, change=change, paths=paths)
 
     monkeypatch.setattr(augustus, "_verify", spy)
     assert dispatch(box, task) == 0
@@ -911,12 +909,18 @@ def test_the_box_holds_a_change_to_the_shape_it_declared(tmp_path: Path) -> None
     assert missing is None and "declares no limits for it" in why
 
     for text, match in (
-        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.huge]\nmax_files = 1\n',
-         "is not one of"),
-        ('schema_version = 1\ncommand = "/bin/true"\n[shapes.patch]\nmax_cents = 2\n',
-         "unknown key"),
-        ('schema_version = 1\ncommand = "/bin/true"\n'
-         "[shapes.patch]\nmax_answer_tokens = 1\n", "unknown key"),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n[shapes.huge]\nmax_files = 1\n',
+            "is not one of",
+        ),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n[shapes.patch]\nmax_cents = 2\n',
+            "unknown key",
+        ),
+        (
+            'schema_version = 1\ncommand = "/bin/true"\n[shapes.patch]\nmax_answer_tokens = 1\n',
+            "unknown key",
+        ),
     ):
         path.write_text(text, encoding="utf-8")
         with pytest.raises(boxes.HarnessError, match=match):
@@ -982,9 +986,7 @@ def test_the_request_carries_the_answer_room_and_the_adapter_uses_it(tmp_path: P
     )
     directory = box.root / "tabularium" / "t-1" / "proposal-1"
     directory.mkdir(parents=True)
-    request = executor._request(
-        task, box, directory, 1, "m", 60, 2.0, room_tokens=16384
-    )
+    request = executor._request(task, box, directory, 1, "m", 60, 2.0, room_tokens=16384)
     seen = cast(dict[str, Any], request["task"])
     assert seen["shape"] == "file"
     limits = cast(dict[str, Any], request["limits"])
@@ -1012,7 +1014,7 @@ def test_a_task_declaring_a_shape_the_box_does_not_price_is_refused_before_the_c
 
     (box.root / "persona" / "executor.toml").write_text(
         (box.root / "persona" / "executor.toml").read_text(encoding="utf-8")
-        + '\n[shapes.multi]\nmax_changed_lines = 4000\nmax_files = 20\n',
+        + "\n[shapes.multi]\nmax_changed_lines = 4000\nmax_files = 20\n",
         encoding="utf-8",
     )
     assert dispatch(box, task) == 0, "the fake change passes its checks: the run closes"
@@ -1036,8 +1038,18 @@ print(json.dumps({
 def _longer_project(box: boxes.Box) -> None:
     (box.project / "src" / "app.py").write_text("one\ntwo\nthree\n", encoding="utf-8")
     subprocess.run(
-        ["git", "-C", str(box.project), "-c", "user.email=t@t", "-c", "user.name=t",
-         "commit", "-qam", "longer"],
+        [
+            "git",
+            "-C",
+            str(box.project),
+            "-c",
+            "user.email=t@t",
+            "-c",
+            "user.name=t",
+            "commit",
+            "-qam",
+            "longer",
+        ],
         check=True,
     )
 
@@ -1135,3 +1147,26 @@ def test_thinking_is_left_to_the_provider_by_default(
     assert deepseek.main() == 0
     capsys.readouterr()
     assert "thinking" not in seen
+
+
+def test_a_level_three_task_is_refused_before_the_executor(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A task above the one-shot/steps boundary must not quietly run as one-shot."""
+    _project, box, _script, _task = probe(
+        tmp_path,
+        ANSWER,
+        "\n[execution]\none_shot_max_files = 2\none_shot_max_changed_lines = 30\n"
+        "steps_max_files = 3\nsteps_max_changed_lines = 100\n"
+        "[shapes.multi]\nmax_changed_lines = 100\nmax_files = 3\n",
+    )
+    task = write_task(
+        tmp_path, TASK.replace('paths = ["src/**"]\n', 'paths = ["src/**"]\nshape = "multi"\n')
+    )
+    assert dispatch(box, task) == 1
+    out = capsys.readouterr().out
+    assert "level 3" in out
+    assert "needs an agent" in out
+    assert not list((box.root / "tabularium" / "t-1").glob("proposal-*")), (
+        "nothing should have been asked"
+    )

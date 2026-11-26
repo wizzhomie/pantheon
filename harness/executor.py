@@ -57,6 +57,15 @@ CONFIG_KEYS = frozenset(
         "max_output_tokens",
         "max_steps",
         "shapes",
+        "execution",
+    }
+)
+EXECUTION_KEYS = frozenset(
+    {
+        "one_shot_max_files",
+        "one_shot_max_changed_lines",
+        "steps_max_files",
+        "steps_max_changed_lines",
     }
 )
 ENGINES = ("one-shot", "steps")
@@ -167,6 +176,14 @@ EXAMPLE = """\
 # max_changed_lines = 40
 # max_files = 1
 #
+# The one-shot/steps/agent boundary. With this table the box refuses to run a task above
+# level 2 as one-shot; without it the engine table is the only decision.
+# [execution]
+# one_shot_max_files = 2
+# one_shot_max_changed_lines = 30
+# steps_max_files = 3
+# steps_max_changed_lines = 100
+#
 # How a kind of task is run: `one-shot` asks once; `steps` asks again after applying the
 # answer and running the visible check, up to `max_steps` calls. The engine is the box's
 # decision, like the model, and the record names it.
@@ -247,6 +264,36 @@ class ModelChoice:
 
 
 @dataclass(frozen=True, slots=True)
+class ExecutionPolicy:
+    """The boundary between one call, a loop of calls, and an agent.
+
+    The numbers are the box's, not the task's: a task may ask for less work, never for a
+    cheaper level than its size allows. The policy is absent on old boxes, and then the engine
+    table is the only decision, exactly as before.
+    """
+
+    one_shot_max_files: int = 2
+    one_shot_max_changed_lines: int = 30
+    steps_max_files: int = 3
+    steps_max_changed_lines: int = 100
+
+
+@dataclass(frozen=True, slots=True)
+class ExecutionRoute:
+    """The level a task falls into, the engine that level needs, and why.
+
+    ``engine`` is ``one-shot`` or ``steps``; an agent is not an engine the box can run yet, so
+    a level-3 task carries a refusal instead of a call. ``level is None`` means the box has no
+    execution policy and the old engine table still decides.
+    """
+
+    level: int | None
+    engine: str
+    reason: str
+    refusal: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class ExecutorConfig:
     """What the box declared: the command, its model name, and the limits it may spend."""
 
@@ -268,6 +315,9 @@ class ExecutorConfig:
 
     shapes: dict[str, Shape] = field(default_factory=dict)
     """What each shape of change may spend, when the box declares shapes."""
+
+    execution: ExecutionPolicy | None = None
+    """The one-shot/steps/agent boundary, when the box declares it; absent means legacy."""
 
     @property
     def declared(self) -> bool:
@@ -475,6 +525,7 @@ def read_config(path: Path) -> ExecutorConfig:
     models = _models(path, data.get("models"))
     shapes = _shapes(path, data.get("shapes"))
     engines = _engines(path, data.get("engines"))
+    execution = _execution(path, data.get("execution"))
     engine = data.get("engine", "one-shot")
     if not isinstance(engine, str) or engine not in ENGINES:
         raise boxes.HarnessError(
@@ -515,6 +566,7 @@ def read_config(path: Path) -> ExecutorConfig:
         max_cents=cents,
         max_output_tokens=output,
         max_steps=steps,
+        execution=execution,
     )
 
 
@@ -608,6 +660,29 @@ def _shapes(path: Path, raw: object) -> dict[str, Shape]:
         files = _size_limit(path, name, entry.get("max_files"), "max_files")
         table[name] = Shape(name, lines, files)
     return table
+
+
+def _execution(path: Path, raw: object) -> ExecutionPolicy | None:
+    """The boundary table: whole, positive limits, or no policy at all."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(
+            f"{path}: execution must be a table of limits, not {type(raw).__name__}"
+        )
+    extra = set(raw) - EXECUTION_KEYS
+    if extra:
+        raise boxes.HarnessError(
+            f"{path}: execution has unknown key(s) {', '.join(sorted(extra))}"
+        )
+    default = ExecutionPolicy()
+    values: dict[str, int] = {}
+    for name in sorted(EXECUTION_KEYS):
+        value = raw.get(name, getattr(default, name))
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise boxes.HarnessError(f"{path}: execution.{name} must be a positive whole number")
+        values[name] = value
+    return ExecutionPolicy(**values)
 
 
 def _size_limit(path: Path, shape: str, raw: object, name: str) -> int | None:
@@ -712,6 +787,80 @@ def _scope_words(shape: Shape) -> str:
     if shape.max_files is not None:
         bits.append(f"at most {shape.max_files} file(s)")
     return ", ".join(bits) if bits else "no size limit declared"
+
+
+def route_for(config: ExecutorConfig, task: TaskView) -> ExecutionRoute:
+    """The level the task falls into, and the engine that level needs.
+
+    The policy is the box's, not the model's guess: a small declared patch with no visible
+    check gets one call; a task with a visible check gets a loop that can see the failure; and
+    anything bigger, or without a check to steer the loop, needs an agent the box cannot run.
+    A box without the policy keeps the old engine table, and the route says so.
+    """
+    declared, declared_reason = engine_for(config, task.kind)
+    policy = config.execution
+    if policy is None:
+        return ExecutionRoute(
+            None,
+            declared,
+            f"{declared_reason}; no execution policy: the level is not enforced",
+        )
+    shape, shape_reason = shape_for(config, task.shape)
+    paths = len(task.paths)
+    lines = None if shape is None else shape.max_changed_lines
+    in_files = paths <= policy.one_shot_max_files
+    in_lines = lines is None or lines <= policy.one_shot_max_changed_lines
+    if (
+        task.shape == "patch"
+        and shape is not None
+        and not task.self_check
+        and in_files
+        and in_lines
+    ):
+        engine = "steps" if declared == "steps" else "one-shot"
+        reason = f"level 1: shape patch, no visible check, {paths} path(s)"
+        if declared == "steps":
+            reason += "; the box declares steps, so it runs steps"
+        return ExecutionRoute(1, engine, reason)
+    steps_files = paths <= policy.steps_max_files
+    steps_lines = lines is None or lines <= policy.steps_max_changed_lines
+    known = shape is not None or task.shape is None
+    if task.self_check and known and steps_files and steps_lines:
+        reason = f"level 2: visible check, {paths} path(s)"
+        if declared == "one-shot":
+            reason += "; the declared one-shot was escalated to steps by the execution policy"
+        if step_ceiling(task, config) is None:
+            return ExecutionRoute(
+                2,
+                "steps",
+                reason,
+                "level 2 needs steps, but no call ceiling is declared (max_steps in the task "
+                "or the profile): a loop without a cap is not allowed, so nothing was asked",
+            )
+        return ExecutionRoute(2, "steps", reason)
+    bits: list[str] = []
+    if task.shape is None:
+        bits.append("no shape declared")
+    elif shape is None:
+        bits.append(shape_reason)
+    else:
+        bits.append(shape_reason)
+    if not task.self_check:
+        bits.append("no visible check to steer a loop")
+    if paths > policy.steps_max_files:
+        bits.append(f"{paths} path(s), above the step limit of {policy.steps_max_files}")
+    if lines is not None and lines > policy.steps_max_changed_lines:
+        bits.append(
+            f"the shape allows {lines} changed line(s), above the step limit of "
+            f"{policy.steps_max_changed_lines}"
+        )
+    return ExecutionRoute(
+        3,
+        "agent",
+        "level 3: " + "; ".join(bits),
+        "level 3: " + "; ".join(bits) + ". This task needs an agent, and the box has no "
+        "agent executor: nothing was asked.",
+    )
 
 
 def limits(config: ExecutorConfig, budget: dict[str, int]) -> tuple[int, float | None]:

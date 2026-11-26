@@ -135,9 +135,7 @@ def test_the_explanation_matches_what_the_dispatch_record_says(tmp_path: Path) -
     patch.write_text(git(project, "diff", "--cached"), encoding="utf-8")
     git(project, "reset", "-q")
     git(project, "checkout", "--", ".")
-    task = write_task(
-        tmp_path, TASK.replace("[budget]", f'change = "{patch}"\n\n[budget]')
-    )
+    task = write_task(tmp_path, TASK.replace("[budget]", f'change = "{patch}"\n\n[budget]'))
     config = executor.read_config(box.root / executor.PROFILE_FILE)
     resolution = augustus.explain(
         box,
@@ -159,11 +157,51 @@ def test_the_explanation_matches_what_the_dispatch_record_says(tmp_path: Path) -
 def test_explain_names_the_box_ceiling_that_binds(tmp_path: Path) -> None:
     _, box = make_box(tmp_path)
     task = augustus.read_task(write_task(tmp_path))
-    config = executor.ExecutorConfig(
-        path=tmp_path / "executor.toml", max_seconds=60, max_cents=1.0
-    )
-    result = augustus.explain(
-        box, task, routes=augustus.read_routes(None), config=config
-    )
+    config = executor.ExecutorConfig(path=tmp_path / "executor.toml", max_seconds=60, max_cents=1.0)
+    result = augustus.explain(box, task, routes=augustus.read_routes(None), config=config)
     assert result.cents == 1.0
     assert any("the box's ceiling is what binds" in gap for gap in result.gaps)
+
+
+def test_explain_names_the_execution_level_and_refuses_an_agent_task(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The boundary is visible before a call, not discovered from a failed one-shot."""
+    _, box = make_box(tmp_path)
+    (box.root / "persona" / "executor.toml").write_text(
+        'schema_version = 1\ncommand = "/bin/true"\n'
+        "[execution]\n"
+        "one_shot_max_files = 2\none_shot_max_changed_lines = 30\n"
+        "steps_max_files = 3\nsteps_max_changed_lines = 100\n"
+        "[shapes.patch]\nmax_changed_lines = 30\nmax_files = 2\n"
+        "[shapes.multi]\nmax_changed_lines = 100\nmax_files = 3\n",
+        encoding="utf-8",
+    )
+    small = write_task(
+        tmp_path,
+        TASK.replace('paths = ["src/**"]', 'paths = ["src/**"]\nshape = "patch"').replace(
+            'self_check = ["python", "-c", "print(\'ok\')"]\n', ""
+        ),
+    )
+    code = main(
+        ["--castra", str(box.root.parent), "explain", "probe", "--task", str(small), "--json"]
+    )
+    assert code == 0
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["level"] == 1
+    assert payload["engine"] == "one-shot"
+    assert "level 1" in payload["route"]
+
+    large = write_task(
+        tmp_path,
+        TASK.replace('paths = ["src/**"]', 'paths = ["src/**"]\nshape = "multi"').replace(
+            'self_check = ["python", "-c", "print(\'ok\')"]\n', ""
+        ),
+    )
+    code = main(
+        ["--castra", str(box.root.parent), "explain", "probe", "--task", str(large), "--json"]
+    )
+    assert code == 1
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["level"] == 3
+    assert "needs an agent" in str(payload["refusal"])
