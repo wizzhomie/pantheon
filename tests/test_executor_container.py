@@ -7,6 +7,7 @@ agent fails. The live path is covered by the box's own record, not here.
 
 from __future__ import annotations
 
+import hashlib
 import io
 import json
 import sys
@@ -72,6 +73,33 @@ def test_the_prompt_says_read_only_scope_and_one_diff_only() -> None:
     assert "Запрещено: delete" in prompt
     assert "не запускай набор тестов" in prompt
     assert "пути в дифе всё равно от корня проекта" in prompt
+
+
+def test_the_card_is_read_from_the_box_and_hashed(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    card = box.root / "persona" / "environment.md"
+    card.write_text("# Среда\n- проект probe\n", encoding="utf-8")
+    read = executor._card(box.root)
+    assert read is not None
+    text, digest = read
+    assert text.startswith("# Среда") and "probe" in text
+    assert digest == hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def test_two_tasks_share_the_card_and_the_rules_before_the_task() -> None:
+    card = "# Среда\n- проект probe\n- проверка: pytest\n"
+    first = executor._prompt(
+        {"goal": "первая", "kind": "docs", "paths": ["docs/**"], "expected": "раз"},
+        card=card,
+    )
+    second = executor._prompt(
+        {"goal": "вторая", "kind": "bugfix", "paths": ["src/**"], "expected": "два"},
+        card=card,
+    )
+    head = first.split("Задача:", 1)[0]
+    assert head == second.split("Задача:", 1)[0]
+    assert card.strip() in head
+    assert "первая" not in head and "вторая" not in head
 
 
 def test_the_agent_bill_is_read_in_cents(tmp_path: Path) -> None:

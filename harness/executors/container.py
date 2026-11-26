@@ -16,6 +16,7 @@ host's files.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import subprocess
@@ -32,6 +33,8 @@ SERVICE = "augustus"
 USAGE_PATH = "/opt/data/.cache/executor-usage.json"
 """Where the agent writes its own bill; read back from the box's state directory."""
 USAGE_IN_BOX = Path("cella") / ".cache" / "executor-usage.json"
+CARD = Path("persona") / "environment.md"
+"""The environment card: what stays true between tasks, so the agent does not rediscover it."""
 
 
 def main() -> int:
@@ -60,6 +63,7 @@ def main() -> int:
     usage_file = root / USAGE_IN_BOX
     usage_file.parent.mkdir(parents=True, exist_ok=True)
     usage_file.unlink(missing_ok=True)
+    card = _card(root)
     command = [
         *container.docker_prefix(),
         "compose",
@@ -82,6 +86,7 @@ def main() -> int:
             turns=request.get("turns"),
             ceiling=ceiling(request),
             steps=request.get("engine") == "steps",
+            card=card[0] if card else None,
         ),
         "-m",
         model,
@@ -105,6 +110,8 @@ def main() -> int:
             billing="unknown",
         )
     notes = ["executor: hermes in the box's container"]
+    if card is not None:
+        notes.append(f"environment card {card[1][:12]}")
     usage = _usage(usage_file)
     if done.stdout.strip().upper() == "DONE":
         answer: dict[str, object] = {
@@ -175,23 +182,31 @@ def _prompt(
     turns: object = None,
     ceiling: object = None,
     steps: bool = False,
+    card: str | None = None,
 ) -> str:
     if task.get("role") == "architect":
         return _architect_prompt(task, context, previous)
     paths = task.get("paths")
     scope = ", ".join(str(item) for item in paths) if isinstance(paths, list) else "none declared"
+    # The first block is the same for every task in the box: the environment card and the
+    # rules of the trade sit before the task so the provider can keep them in its prefix cache.
     lines = [
-        f"Ты — Август коробки. Задача: {task.get('goal') or 'цель не объявлена'}",
-        f"Тип: {task.get('kind') or 'не объявлен'}",
-        f"Объём (пути относительно корня проекта): {scope}",
-        f"Критерий: {task.get('expected') or 'не объявлен'}",
-        "Проект смонтирован только на чтение в /work/project.",
+        "Ты — Август коробки. Проект смонтирован только на чтение в /work/project.",
         "Проверки прогонит коробка после твоего ответа: не запускай набор тестов и не ищи "
         "интерпретатор проекта — этого окружения у тебя нет, а попытки съедают время вызова.",
     ]
+    if card:
+        lines += ["", "Среда проекта, как её видит коробка:", card]
+    lines += [
+        "",
+        f"Задача: {task.get('goal') or 'цель не объявлена'}",
+        f"Тип: {task.get('kind') or 'не объявлен'}",
+        f"Объём (пути относительно корня проекта): {scope}",
+        f"Критерий: {task.get('expected') or 'не объявлен'}",
+    ]
     forbidden = task.get("forbidden")
     if isinstance(forbidden, list) and forbidden:
-        lines.insert(4, f"Запрещено: {', '.join(str(item) for item in forbidden)}")
+        lines.append(f"Запрещено: {', '.join(str(item) for item in forbidden)}")
     if context:
         lines += ["", CONTEXT_HEAD, *context]
     prior = previous_lines(previous)
@@ -236,6 +251,18 @@ def _architect_prompt(
             "Проект смонтирован только на чтение",
         )
     return prompt
+
+
+def _card(root: Path) -> tuple[str, str] | None:
+    """The box's environment card and its digest, or nothing when it was never written."""
+    path = root / CARD
+    try:
+        text = path.read_text(encoding="utf-8").strip()
+    except OSError:
+        return None
+    if not text:
+        return None
+    return text, hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
 def _context_lines(request: dict[str, object]) -> list[str]:
