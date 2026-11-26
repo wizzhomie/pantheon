@@ -59,7 +59,8 @@ SYSTEM = (
     "nothing else — no explanation, no questions, no markdown fences. The diff must apply "
     "cleanly with `git apply` to the current tree. Touch only files under the declared paths. "
     "If the task genuinely cannot be done with a diff, answer with one line: ERROR: <reason>. "
-    "Every file you create or change ends with a newline."
+    "Every file you create or change ends with a newline. You have no tools and cannot run "
+    "commands: the file contents in the request are all you get."
 )
 
 
