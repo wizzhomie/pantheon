@@ -138,11 +138,11 @@ def check(
     attempts: list[Attempt] = []
     began = _now()
     try:
-        _fix_tree(project, patch, tree, base)
+        work = _fix_tree(project, patch, tree, base)
         venv = project / ".venv"
         if venv.is_dir():
-            (tree / ".venv").symlink_to(venv)
-        code, tail = contour.run_repro(tree, repro, root=root, python=python, timeout=seconds)
+            (work / ".venv").symlink_to(venv)
+        code, tail = contour.run_repro(work, repro, root=root, python=python, timeout=seconds)
         if code != 0:
             raise boxes.HarnessError(
                 f"the check is already red on the change itself ({tail}): a check that fails "
@@ -152,7 +152,7 @@ def check(
             if item.kind == "skipped":
                 attempts.append(Attempt(item, SKIPPED, item.note))
         for piece in tested:
-            attempt = _one_piece(tree, piece, repro, root, python, seconds, parent)
+            attempt = _one_piece(work, piece, repro, root, python, seconds, parent)
             attempts.append(attempt)
     finally:
         _remove_worktree(project, tree)
@@ -377,10 +377,17 @@ def _groups(flat: list[tuple[str, str]]) -> list[list[tuple[str, str]]]:
     return groups
 
 
-def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> None:
-    """The base commit plus the patch: the tree the change is about, not the working tree."""
+def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> Path:
+    """The base commit plus the patch: the tree the change is about, not the working tree.
+
+    A box may serve a project that sits inside a bigger repository. The worktree is built from
+    the repository root, but the change and the check speak the project's own paths: applying a
+    patch at the repository root would look for ``docs/guide.md`` where the repository keeps
+    ``app/docs/guide.md``. The returned path is the project inside the worktree.
+    """
+    top = _toplevel(project)
     added = subprocess.run(
-        ["git", "-C", str(project), "worktree", "add", "--detach", str(tree), base],
+        ["git", "-C", str(top), "worktree", "add", "--detach", str(tree), base],
         capture_output=True,
         text=True,
         check=False,
@@ -390,8 +397,10 @@ def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> None:
             "cannot build the tree the change is about: "
             f"{added.stderr.strip()[-300:] or 'git refused the worktree'}"
         )
+    here = project.resolve()
+    work = tree if here == top else tree / here.relative_to(top)
     applied = subprocess.run(
-        ["git", "-C", str(tree), "apply", str(patch)],
+        ["git", "-C", str(work), "apply", str(patch)],
         capture_output=True,
         text=True,
         check=False,
@@ -401,6 +410,22 @@ def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> None:
             f"the patch does not apply to {base}: "
             f"{applied.stderr.strip()[-300:] or 'git refused it'}"
         )
+    return work
+
+
+def _toplevel(project: Path) -> Path:
+    """The repository the project lives in; the project itself when it is the whole checkout."""
+    done = subprocess.run(
+        ["git", "-C", str(project), "rev-parse", "--show-toplevel"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if done.returncode != 0 or not done.stdout.strip():
+        raise boxes.HarnessError(
+            f"{project} is not inside a git repository: there is no base to build the change on"
+        )
+    return Path(done.stdout.strip()).resolve()
 
 
 def _one_piece(

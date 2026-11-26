@@ -176,3 +176,34 @@ def test_the_command_reads_and_writes_nothing(
     assert payload["task"] == "t-1"
     assert payload["blind"] == 1 and payload["skipped"] == 2
     assert git(project, "status", "--porcelain") == before, "the project is left as it was"
+
+
+def test_a_project_inside_a_bigger_repository_reads_its_own_paths(tmp_path: Path) -> None:
+    """The box may serve a subdirectory: the patch and the check speak that directory's paths.
+
+    A live run found this: the trajan box serves ``trajan/`` inside a bigger repository, and the
+    patch, written against the project, was applied at the repository root, where the file at
+    ``docs/guide.md`` does not exist. The worktree is still built from the repository; the project
+    inside it is what the change and the check talk about.
+    """
+    repo = tmp_path / "monorepo"
+    app = repo / "app"
+    (app / "docs").mkdir(parents=True)
+    (app / "docs" / "guide.md").write_text("# Guide\n\nOld line.\n", encoding="utf-8")
+    git(repo, "init", "-q")
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "add", "-A")
+    git(repo, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-qm", "base")
+    patch = tmp_path / "change.diff"
+    patch.write_text(
+        "--- a/docs/guide.md\n"
+        "+++ b/docs/guide.md\n"
+        "@@ -1,3 +1,4 @@\n"
+        " # Guide\n"
+        " \n"
+        " Old line.\n"
+        "+Rule: the check notices.\n",
+        encoding="utf-8",
+    )
+    report = run(app, patch, check="grep -q 'Rule: the check notices' docs/guide.md")
+    assert [item.status for item in report.attempts] == [sensitivity.NOTICED]
+    assert report.attempts[0].piece.path == "docs/guide.md"
