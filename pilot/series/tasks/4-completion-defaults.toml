@@ -1,0 +1,62 @@
+schema_version = 1
+id = "t-20261126-series-4"
+kind = "bugfix"
+goal = "Дополнение в оболочке вычисляет значения по умолчанию: фабрика из `default=` вызывается на каждый запрос подсказок, поэтому дорогие умолчания тормозят табуляцию. Сделай так, чтобы при разборе ради дополнения (`resilient_parsing`) умолчания не вычислялись, а обычный запуск команды их по-прежнему вычислял. Правь `src/click/core.py`."
+expected = "`ShellComplete(...).get_completions([...])` не вызывает фабрику умолчания (счётчик 0) и отдаёт варианты выбора; обычный вызов команды вычисляет умолчание один раз."
+paths = ["src/click/core.py"]
+self_check = [
+  "python",
+  "-c",
+  """import click
+from click.shell_completion import ShellComplete
+
+calls = []
+
+def lazy_default():
+    calls.append(1)
+    return "x"
+
+@click.command()
+@click.option("--cfg", default=lazy_default)
+@click.option("--mode", type=click.Choice(["fast", "slow"]))
+def cmd(cfg, mode):
+    pass
+
+items = ShellComplete(cmd, {}, "cmd", "_CMD_COMPLETE").get_completions(["--mode"], "")
+assert [i.value for i in items] == ["fast", "slow"], items
+assert calls == [], calls""",
+]
+repro = [
+  "python",
+  "-c",
+  """import click
+from click.shell_completion import ShellComplete
+from click.testing import CliRunner
+
+calls = []
+
+def lazy_default():
+    calls.append(1)
+    return "x"
+
+@click.command()
+@click.option("--name", default=lazy_default)
+@click.option("--color", type=click.Choice(["auto", "always", "never"]))
+def cmd(name, color):
+    pass
+
+items = ShellComplete(cmd, {}, "cmd", "_CMD_COMPLETE").get_completions(["--color"], "")
+assert [i.value for i in items] == ["auto", "always", "never"], items
+assert calls == [], calls
+CliRunner().invoke(cmd, [])
+assert calls == [1], calls""",
+]
+
+[budget]
+max_cents = 6
+max_seconds = 300
+
+[contract]
+symptom = "на каждый запрос дополнения вызывается фабрика умолчания, и подсказки ждут дорогое вычисление, которое при дополнении не нужно."
+visible = "у опции `--cfg` с фабрикой умолчания дополнение по `--mode` не вызывает фабрику и отдаёт `fast`/`slow`."
+boundaries = "только вычисление умолчания при разборе в `src/click/core.py`; сам разбор, значения по умолчанию и тесты не меняются."

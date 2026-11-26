@@ -1,0 +1,49 @@
+schema_version = 1
+id = "t-20261126-series-3"
+kind = "bugfix"
+goal = "При `show_envvar=True` и `auto_envvar_prefix` справка показывает производную переменную окружения (`[env var: MYAPP_PORT]`), а сообщение об ошибке её не называет: `Error: Missing option '--port'.`; с явным `envvar=` имя в ошибке есть. Сделай так, чтобы подсказка к ошибке называла ту же переменную, что и справка. Правь `src/click/core.py`."
+expected = "ошибка отсутствующей опции при `auto_envvar_prefix='MYAPP'` содержит `MYAPP_PORT`; явный `envvar` по-прежнему называется; текст `Missing option '--port'` сохраняется."
+paths = ["src/click/core.py"]
+self_check = [
+  "python",
+  "-c",
+  """import click
+from click.testing import CliRunner
+
+@click.command()
+@click.option("--host", required=True, show_envvar=True)
+def serve(host):
+    pass
+
+help_out = CliRunner().invoke(serve, ["--help"], auto_envvar_prefix="SVC").output
+assert "[env var: SVC_HOST" in help_out, help_out
+err = CliRunner().invoke(serve, [], auto_envvar_prefix="SVC").output
+assert "SVC_HOST" in err, err""",
+]
+repro = [
+  "python",
+  "-c",
+  """import click
+from click.testing import CliRunner
+
+@click.command()
+@click.option("--port", required=True, show_envvar=True)
+def run(port):
+    pass
+
+runner = CliRunner()
+help_out = runner.invoke(run, ["--help"], auto_envvar_prefix="MYAPP").output
+assert "[env var: MYAPP_PORT" in help_out, help_out
+err = runner.invoke(run, [], auto_envvar_prefix="MYAPP").output
+assert "Missing option '--port'" in err, err
+assert "MYAPP_PORT" in err, err""",
+]
+
+[budget]
+max_cents = 6
+max_seconds = 300
+
+[contract]
+symptom = "подсказка к ошибке знает только явный `envvar` и не учитывает `auto_envvar_prefix`, поэтому справка и ошибка расходятся."
+visible = "у опции `--host` с префиксом `SVC` ошибка называет `SVC_HOST`."
+boundaries = "только подсказка к ошибке параметра в `src/click/core.py`; справка, порядок опций и тесты не меняются."

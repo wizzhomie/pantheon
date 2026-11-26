@@ -1,0 +1,53 @@
+schema_version = 1
+id = "t-20261126-series-1"
+kind = "bugfix"
+goal = "`Context.to_info_dict()` собирает словарь для генераторов документации, но не содержит строки использования команды. Добавь в словарь команды ключ `usage` со строкой, которую возвращает `Command.get_usage()`, без префикса `Usage: ` и без завершающего перевода строки (например, `cmd [OPTIONS]`); то же для групп и подкоманд. Ничего другого не меняй и тесты не трогай."
+expected = "`click.Context(cmd, info_name='cmd').to_info_dict()['command']['usage']` равно `cmd [OPTIONS]`; у группы — `grp [OPTIONS] COMMAND [ARGS]...`; у подкоманды строка содержит её путь и оканчивается на `sub [OPTIONS]`."
+paths = ["src/click/core.py"]
+self_check = [
+  "python",
+  "-c",
+  """import click
+
+@click.command()
+@click.argument("name")
+def greet(name):
+    pass
+
+info = click.Context(greet, info_name="greet").to_info_dict()["command"]
+assert info.get("usage") == "greet [OPTIONS] NAME", info.get("usage")""",
+]
+repro = [
+  "python",
+  "-c",
+  """import click
+
+@click.command()
+@click.option("--x")
+def cmd(x):
+    pass
+
+info = click.Context(cmd, info_name="cmd").to_info_dict()["command"]
+assert info.get("usage") == "cmd [OPTIONS]", info.get("usage")
+
+@click.group()
+def grp():
+    pass
+
+@grp.command()
+def sub():
+    pass
+
+info2 = click.Context(grp, info_name="grp").to_info_dict()["command"]
+assert info2["usage"] == "grp [OPTIONS] COMMAND [ARGS]...", info2["usage"]
+assert info2["commands"]["sub"]["usage"].endswith("sub [OPTIONS]"), info2["commands"]["sub"]""",
+]
+
+[budget]
+max_cents = 6
+max_seconds = 300
+
+[contract]
+symptom = "генератор документации получает из словаря всё, кроме строки использования, и вынужден собирать её обходом контекста."
+visible = "у команды с аргументом в словаре появляется `usage`, равное `greet [OPTIONS] NAME`."
+boundaries = "только `src/click/core.py`; `get_usage` и форматтер не меняются, тесты не трогаются."

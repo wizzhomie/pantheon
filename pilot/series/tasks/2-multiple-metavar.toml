@@ -1,0 +1,46 @@
+schema_version = 1
+id = "t-20261126-series-2"
+kind = "bugfix"
+goal = "Справка не показывает, что опция с `multiple=True` принимает несколько значений: `--tag TEXT` выглядит так же, как одиночная. Сделай так, чтобы в справке метавар такой опции оканчивался на `...` (`--tag TEXT...`), а у одиночной опции оставался прежним (`--name TEXT`). Правь метавар в `src/click/core.py`, ничего другого не меняй."
+expected = "в выводе `--help` у опции с `multiple=True` метавар с `...` (`--tag TEXT...`), у одиночной — без; уже выводимый `...` при `nargs != 1` не меняется."
+paths = ["src/click/core.py"]
+self_check = [
+  "python",
+  "-c",
+  """import click
+from click.testing import CliRunner
+
+@click.command()
+@click.option("--num", type=int, multiple=True)
+def cmd(num):
+    pass
+
+help_out = CliRunner().invoke(cmd, ["--help"]).output
+assert "--num INTEGER..." in help_out, help_out""",
+]
+repro = [
+  "python",
+  "-c",
+  """import click
+from click.testing import CliRunner
+
+@click.command()
+@click.option("--tag", multiple=True, help="a tag")
+@click.option("--name", help="one name")
+def cmd(tag, name):
+    pass
+
+help_out = CliRunner().invoke(cmd, ["--help"]).output
+assert "--tag TEXT..." in help_out, help_out
+assert "--name TEXT" in help_out, help_out
+assert "--name TEXT..." not in help_out, help_out""",
+]
+
+[budget]
+max_cents = 6
+max_seconds = 300
+
+[contract]
+symptom = "в справке многоразовая опция неотличима от одиночной, и пользователь узнаёт о повторе только из документации."
+visible = "у опции `--num` с `multiple=True` и типом `int` в справке появляется `INTEGER...`."
+boundaries = "только метавар опции в `src/click/core.py`; показ значений по умолчанию, типы и тесты не меняются."

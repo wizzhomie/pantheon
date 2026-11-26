@@ -1,0 +1,50 @@
+schema_version = 1
+id = "t-20261126-series-5"
+kind = "bugfix"
+goal = "`click.echo`/`secho` решают о цвете только по потоку и игнорируют `FORCE_COLOR`/`NO_COLOR`: в CI цвет теряется, хотя переменная задана. Сделай так, чтобы при явно не заданном цвете `FORCE_COLOR=1` включал цвет даже для потока-трубы, а `FORCE_COLOR=0` или пустой его выключал; `NO_COLOR` выключает. Правь `src/click/**`, ничего другого не меняй."
+expected = "подпроцесс с `FORCE_COLOR=1` и потоком-трубой печатает ANSI-код (`\\x1b[31m` в shell-записи), с `FORCE_COLOR=0` — без ANSI; явный `color=True/False` по-прежнему главнее."
+paths = ["src/click/**"]
+self_check = [
+  "python",
+  "-c",
+  """import os
+import subprocess
+import sys
+
+code = "import click\\nclick.secho('ok', fg='green')"
+env = dict(os.environ, FORCE_COLOR="1")
+out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, env=env).stdout
+assert "\\x1b[32m" in out, repr(out)""",
+]
+repro = [
+  "python",
+  "-c",
+  """import os
+import subprocess
+import sys
+
+code = "import click\\nclick.echo(click.style('hi', fg='red'))"
+
+
+def run(extra):
+    env = dict(os.environ)
+    env.update(extra)
+    return subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, env=env
+    ).stdout
+
+
+forced = run({"FORCE_COLOR": "1"})
+assert "\\x1b[31m" in forced, repr(forced)
+plain = run({"FORCE_COLOR": "0"})
+assert "\\x1b[" not in plain, repr(plain)""",
+]
+
+[budget]
+max_cents = 6
+max_seconds = 300
+
+[contract]
+symptom = "в CI и любом перенаправленном выводе цвет пропадает, хотя окружение прямо просит его включить; переменные, на которые смотрит Python и другие библиотеки, click не читает."
+visible = "подпроцесс с `FORCE_COLOR=1` печатает зелёный `\\x1b[32m`."
+boundaries = "только решение о цвете вывода в `src/click/**`; стиль, форматирование и тесты не меняются."
