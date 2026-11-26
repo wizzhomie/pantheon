@@ -408,6 +408,24 @@ max_seconds = 300
 max_cents = {cents}
 max_output_tokens = 32768
 
+[execution]
+one_shot_max_files = 2
+one_shot_max_changed_lines = 30
+steps_max_files = 3
+steps_max_changed_lines = 100
+
+[shapes.patch]
+max_changed_lines = 30
+max_files = 2
+
+[shapes.file]
+max_changed_lines = 100
+max_files = 1
+
+[shapes.multi]
+max_changed_lines = 100
+max_files = 3
+
 [models.bugfix]
 model = "deepseek-flash"
 price_in = 0.27
