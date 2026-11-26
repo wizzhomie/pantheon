@@ -35,6 +35,7 @@ from . import (
     records,
     reviewer,
     runner,
+    sensitivity,
     study,
 )
 from . import box as boxes
@@ -532,6 +533,27 @@ def _parser() -> argparse.ArgumentParser:
     )
     intake_parser.add_argument("--json", action="store_true", help="the answer as one object")
     intake_parser.set_defaults(handler=_intake)
+
+    sensitivity_parser = commands.add_parser(
+        "sensitivity",
+        help="Augustus: reverse each piece of the change and see whether the check notices",
+    )
+    sensitivity_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    sensitivity_parser.add_argument(
+        "--task", required=True, help="a task file carrying the change and its check"
+    )
+    sensitivity_parser.add_argument(
+        "--max-units", type=int, default=sensitivity.LIMIT_PIECES, help="how many pieces to reverse"
+    )
+    sensitivity_parser.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    sensitivity_parser.add_argument(
+        "--python", default=None, help="the interpreter that runs the check"
+    )
+    sensitivity_parser.add_argument(
+        "--base", default="HEAD", help="the commit the change applies to (default: HEAD)"
+    )
+    sensitivity_parser.add_argument("--json", action="store_true", help="the answer as one object")
+    sensitivity_parser.set_defaults(handler=_sensitivity)
 
     history = commands.add_parser(
         "history", help="Augustus: what was changed here and why, from the box's archive"
@@ -1424,6 +1446,36 @@ def _intake(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_intake(result)))
     return 0 if result.ready else 1
+
+
+def _sensitivity(args: argparse.Namespace, root: Path) -> int:
+    """Reverse the change piece by piece: does the check notice any of it?
+
+    Reads only — every piece is reversed in a throwaway copy, and the project is left as it was.
+    """
+    box = boxes.find_box(root, args.name, Path.cwd())
+    task = _resolve_task(box, args.task)
+    if task.change is None:
+        raise boxes.HarnessError(
+            f"{task.id} carries no change: this step reverses the change it is given, and a task "
+            "without a patch has nothing to reverse"
+        )
+    trajan = contour.trajan_root(args.trajan)
+    report = sensitivity.check(
+        box.project,
+        task=task.id,
+        patch=task.change,
+        repro=task.repro,
+        root=trajan,
+        python=contour.trajan_python(trajan, args.python),
+        limit=max(1, args.max_units),
+        base=args.base,
+    )
+    if args.json:
+        print(json.dumps(sensitivity.payload(report), indent=2))
+    else:
+        print("\n".join(sensitivity.render(report)))
+    return 0
 
 
 def _history(args: argparse.Namespace, root: Path) -> int:
