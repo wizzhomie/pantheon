@@ -26,6 +26,20 @@ computes the verdict, a stop is a fact from the records rather than an opinion, 
 from every applied step in order. What the box enforces for both is the boundary — no change reaches
 the project without the gate, whichever mode proposed it.
 
+## The repair scenario
+
+All live cases so far are repairs: a defect exists now, and someone can write a command that fails
+because of it. The criterion of done is that command — not a sentence and not a scope. `repro` is
+the task's own check; the paths are only the boundary of the edit, and the project's policy checks
+are regression. `pantheon preflight` checks the check before any model is paid for: it must fail on
+the base tree and, when a known fix is named, pass on that commit. A reproduction that is already
+green does not describe a live defect, and the preflight says so instead of letting the box spend a
+call and record a failure.
+
+Building features is a different scenario and this rule deliberately does not cover it: there is no
+failing defect, the criterion is a specification written before the work and the owner's acceptance.
+Mixing the two would make features invent a defect and repairs accept a green test as proof.
+
 ## What runs today
 
 | Part | State |
@@ -36,11 +50,12 @@ the project without the gate, whichever mode proposed it.
 | **Aurelius** — architecture model and deterministic drift check | **works**: `.pantheon/architecture.toml` compiles into one `import-linter` layers contract plus a forbidden contract per rule, and `pantheon arch` runs it. Two models are in the repository (trajan, the harness) and both hold; a third project was checked by hand. Without the tool the answer is `unchecked` with exit 2, never a silent pass |
 | **Augustus** — orchestration inside the box | **works with a declared executor**: `pantheon dispatch` validates a task, routes it by its declared kind through a table, has the box's executor produce the change when the task carries none, forces every change through the write gate, calls the contours, and writes the record, the events in `fasti/`, one `acta/` summary and the task's state in `status` — including what the run did not check. A run that stopped before its verdict — the executor killed, the budget spent, the machine rebooted — is continued by `pantheon resume`, which reuses the recorded change instead of asking the model again and refuses to verify a tree that no longer holds it |
 | **Executor** — the command that produces the change | **works**: the box declares `persona/executor.toml` — a command, a model name, a time and a cent limit. The harness hands it the task as JSON, checks the project was not written behind the gate, applies the returned diff through Caesar, and records tokens and money in the event, the dispatch record and the `acta/` summary. The budget a task declares is a total for the task, not a per-attempt quota: the next call gets only what is left, `max_steps` counts the calls, and a task that spent its money, used its calls, or failed the same visible check twice is stopped with a reason and exit code 2. `one-shot` asks once; `steps` applies the answer, runs the visible check and asks again, up to the call ceiling, handing the model what the last answer did. `bin/pantheon-executor-container` asks the agent inside the box; `bin/pantheon-executor` is the host adapter for an OpenAI-compatible endpoint, kept as a fallback for a box without an agent |
+| **Preflight** — the check before the check | **works**: `pantheon preflight <box> --task <file> [--fix <ref>]` runs the task's own reproduction on the working tree (it must fail) and, when a known fix is named, in a worktree of that commit (it must pass) — and writes nothing. A reproduction that already passes is refused before any model is paid for; a check that does not pass on the fix names the disagreement. Files git does not track are not in the fix worktree, and the project's venv is linked in, so the check runs with the project's interpreter |
 | **Rails** — the owner's frame: brief, goals, milestones, metrics, principles | **works**: `.pantheon/rails.toml` says what the project serves, `pantheon rails` shows it and names every part that is not filled, and `pantheon rails --approve` writes a record carrying the digest the owner accepted and the questions he left to the box. Once the frame is approved, a task names the milestone it serves: no milestone and an unknown one are refused before anything runs, `outside_plan = "why"` records a decision to stand out, and the dispatch record and `acta/` carry the answer. A departure from the frame is also a record: `add`, `replace` or `revisit`, with the two risk answers for the heavy ones; a heavy revision refuses tasks until the new frame is accepted, and the record names the tasks still on the old one. Closing a milestone is a record too: `rails --close M1 --note "why"` writes the closure with the frame's digest and leaves the frame file alone, so the digest does not move; `rails` shows the milestone as closed and names who closed it and why. A project that never wrote rails still runs — the verdict names that no milestone holds it |
 | **Flow** — the stream: brief, attempts, queue | **works without a daemon**: `pantheon flow` shows the brief (what is being built and why, serving a milestone the accepted frame declares), the queue of frozen task copies and the feed of attempts; `--enqueue` puts a task down, `--next` runs the oldest through the same dispatch under a lock, `--discard` keeps the reason an approach was abandoned, and `--mark-read` says the verdicts were read. The operator drives `--next`; there is no background worker yet |
 | **Study** — the R&D cycle: question, experiments, numbers | **works for command runs**: a study is `.pantheon/studia/<id>.toml` — one question, when it counts as closed, and experiments with a hypothesis, metrics (unit, direction, threshold, expected number, extraction pattern, aggregate) and runs (command, parameter matrix, repeats, cwd, env, time limit). `pantheon study --run` expands the matrix, runs the commands, pulls the numbers, aggregates them, gives the hypothesis a verdict against the thresholds and follows the declared `on_confirmed` / `on_refuted` table. A run without a number is `failed`, not `refuted`. An experiment cannot declare a change yet, so the code verdict says no gate ran |
 
-The table is the honest status, not a roadmap promise: eight rows are running code today, and both
+The table is the honest status, not a roadmap promise: nine rows are running code today, and both
 engines run. The steps engine fixed live defect `c-d11` in one step: 15 498 thinking tokens,
 1.95 cents, a pass by the hidden check. The rails are new: the frame is
 recorded and accepted, and a task now names the milestone it serves; revisions with a risk note
@@ -59,6 +74,7 @@ $ ./bin/pantheon run <box> --contract mandata/T1.contract.toml --patch change.di
 $ ./bin/pantheon dispatch <box> --task mandata/t-1.toml   # the whole path: arch, gate, verdict, acta
 $ ./bin/pantheon dispatch <box> --task mandata/t-2.toml   # with persona/executor.toml: it produces the patch
 $ ./bin/pantheon resume <box> --task t-2                # continue a run that stopped before its verdict
+$ ./bin/pantheon preflight <box> --task mandata/t-1.toml --fix <known-fix>  # the check, checked before any call
 $ ./bin/pantheon up <box> --image <pinned-digest>   # starts the box's container (mount only)
 $ ./bin/pantheon down <box>          # stops it; the box's tasks and reports stay
 $ ./bin/pantheon rails               # the owner's frame: brief, milestones, metrics, principles

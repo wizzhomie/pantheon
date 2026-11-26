@@ -28,6 +28,7 @@ from . import (
     executor,
     fluxus,
     frame,
+    preflight,
     rails,
     records,
     reviewer,
@@ -498,6 +499,26 @@ def _parser() -> argparse.ArgumentParser:
     )
     explain.add_argument("--json", action="store_true", help="the explanation as one object")
     explain.set_defaults(handler=_explain)
+
+    preflight_parser = commands.add_parser(
+        "preflight",
+        help="Augustus: run the task's own reproduction on the base and on a fix (reads only)",
+    )
+    preflight_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    preflight_parser.add_argument(
+        "--task", required=True, help="a task file (mandata/<id>.toml) or a frozen task id"
+    )
+    preflight_parser.add_argument(
+        "--fix",
+        default=None,
+        help="a commit known to fix the defect: the check must pass there",
+    )
+    preflight_parser.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    preflight_parser.add_argument(
+        "--python", default=None, help="the interpreter that runs the check"
+    )
+    preflight_parser.add_argument("--json", action="store_true", help="the answer as one object")
+    preflight_parser.set_defaults(handler=_preflight)
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
@@ -1337,6 +1358,25 @@ def _explain(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_explanation(result)))
     return 1 if result.refusal is not None else 0
+
+
+def _preflight(args: argparse.Namespace, root: Path) -> int:
+    """Check the task's own reproduction before any model is paid for."""
+    box = boxes.find_box(root, args.name, Path.cwd())
+    task = _resolve_task(box, args.task)
+    trajan = contour.trajan_root(args.trajan)
+    result = preflight.check(
+        box.project,
+        task,
+        fix=args.fix,
+        root=trajan,
+        python=contour.trajan_python(trajan, args.python),
+    )
+    if args.json:
+        print(json.dumps(preflight.payload(result), indent=2))
+    else:
+        print("\n".join(preflight.render(result)))
+    return 0 if result.ok else 1
 
 
 def _reviewer(args: argparse.Namespace, box: boxes.Box) -> contour.Reviewer | None:
