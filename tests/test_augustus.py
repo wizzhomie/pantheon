@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from harness import augustus, aurelius, contour
+from harness import augustus, aurelius, contour, spec
 from harness import box as boxes
 from harness.cli import main
 
@@ -66,6 +66,37 @@ def make_patch(tmp_path: Path, project: Path, content: str) -> Path:
     git(project, "reset", "-q")
     git(project, "checkout", "--", ".")
     return patch
+
+
+SPEC_PACKAGE = """\
+schema_version = 1
+id = "pkg-t-1"
+milestone = "M1"
+source = "the test"
+why = "the feature test needs a package the owner accepted"
+spec = "spec.md"
+
+[[task]]
+id = "t-1"
+kind = "feature"
+goal = "change the app value"
+paths = ["src/**"]
+expected = "the value is two"
+contract = { symptom = "the value is one", visible = "app says two", boundaries = "src/**" }
+repro = ["python", "-c", "assert True"]
+"""
+
+
+def accept_spec(box: boxes.Box, tmp_path: Path) -> str:
+    """A real imported and accepted package: the basis a feature task now needs to start."""
+    source = tmp_path / "spec-source"
+    source.mkdir()
+    (source / "manifest.toml").write_text(SPEC_PACKAGE, encoding="utf-8")
+    (source / "spec.md").write_text("# the intent\n", encoding="utf-8")
+    package = spec.read_package(source)
+    spec.import_package(box, package)
+    spec.accept(box, package.id, note="the test accepts a real package")
+    return package.id
 
 
 CONTRACT = """
@@ -365,7 +396,13 @@ def test_a_broken_architecture_stops_the_change(
     )
     tool.chmod(0o755)
     monkeypatch.setenv(aurelius.TOOL_ENV, str(tool))
-    task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
+    package_id = accept_spec(box, tmp_path)
+    task = write_task(
+        tmp_path,
+        TASK.replace(
+            'kind = "bugfix"', f'kind = "feature"\nspec = "{package_id}"'
+        ),
+    )
     assert main(
         [
             "--castra",
@@ -388,7 +425,13 @@ def test_a_task_without_a_change_says_so_in_the_outbox(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _project, box = make_box(tmp_path)
-    task = write_task(tmp_path, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
+    package_id = accept_spec(box, tmp_path)
+    task = write_task(
+        tmp_path,
+        TASK.replace(
+            'kind = "bugfix"', f'kind = "feature"\nspec = "{package_id}"'
+        ),
+    )
     code = main(["--castra", str(box.root.parent), "dispatch", "probe", "--task", str(task)])
     assert code == 0
     out = capsys.readouterr().out

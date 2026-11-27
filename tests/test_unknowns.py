@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pytest
 
-from harness import augustus, caesar, container, contour
+from harness import augustus, caesar, container, contour, spec
 from harness import box as boxes
 from harness.cli import main
 
@@ -47,6 +47,37 @@ missing = ""
 max_cents = 2
 max_seconds = 60
 """
+
+
+SPEC_PACKAGE = """\
+schema_version = 1
+id = "pkg-t-1"
+milestone = "M1"
+source = "the test"
+why = "the feature test needs a package the owner accepted"
+spec = "spec.md"
+
+[[task]]
+id = "t-1"
+kind = "feature"
+goal = "change the app value"
+paths = ["src/**"]
+expected = "the value is two"
+contract = { symptom = "the value is one", visible = "app says two", boundaries = "src/**" }
+repro = ["python", "-c", "assert True"]
+"""
+
+
+def accept_spec(box: boxes.Box, tmp_path: Path) -> str:
+    """A real imported and accepted package: the basis a feature task now needs to start."""
+    source = tmp_path / "spec-source"
+    source.mkdir()
+    (source / "manifest.toml").write_text(SPEC_PACKAGE, encoding="utf-8")
+    (source / "spec.md").write_text("# the intent\n", encoding="utf-8")
+    package = spec.read_package(source)
+    spec.import_package(box, package)
+    spec.accept(box, package.id, note="the test accepts a real package")
+    return package.id
 
 
 def git(project: Path, *args: str) -> str:
@@ -170,7 +201,13 @@ def test_an_unchecked_architecture_is_named(
 ) -> None:
     project, box = make_box(tmp_path)
     patch = make_patch(tmp_path, project)
-    text = with_change(patch, TASK.replace('kind = "bugfix"', 'kind = "feature"'))
+    package_id = accept_spec(box, tmp_path)
+    text = with_change(
+        patch,
+        TASK.replace(
+            'kind = "bugfix"', f'kind = "feature"\nspec = "{package_id}"'
+        ),
+    )
     task = write_task(tmp_path, text)
     assert main(["--castra", str(box.root.parent), "dispatch", box.name, "--task", str(task)]) == 0
     body = outbox(box, capsys)

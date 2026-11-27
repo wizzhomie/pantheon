@@ -35,6 +35,7 @@ from . import (
     rails,
     records,
     sensitivity,
+    spec,
 )
 from . import box as boxes
 from . import context as context_pack
@@ -60,6 +61,7 @@ TASK_KEYS = frozenset(
         "outside_plan",
         "repro",
         "self_check",
+        "spec",
         "shape",
         "max_steps",
         "parent",
@@ -154,6 +156,9 @@ class Task:
 
     outside_plan: str | None = None
     """Why this task is outside the plan, when the owner decided it is."""
+
+    spec: str | None = None
+    """The spec package a feature task rests on; `pantheon spec` imports and accepts it."""
 
     repro: tuple[str, ...] = ()
     """The input the task names, as a command: it must fail before the change and pass after it.
@@ -407,6 +412,9 @@ def read_task(path: Path) -> Task:
             f"{path}: a task either names a milestone or says why it stands outside the plan, "
             "not both"
         )
+    spec_name = data.get("spec")
+    if spec_name is not None and not isinstance(spec_name, str):
+        raise boxes.HarnessError(f"{path}: spec must be the id of a spec package")
     shape = data.get("shape")
     if shape is not None and shape not in executor.SHAPES:
         raise boxes.HarnessError(
@@ -461,6 +469,7 @@ def read_task(path: Path) -> Task:
         records=record_addresses(data.get("records", []), str(path)),
         milestone=_text(milestone),
         outside_plan=_text(outside_plan),
+        spec=_text(spec_name),
         repro=tuple(item.strip() for item in repro_raw),
         self_check=tuple(item.strip() for item in self_check_raw),
         shape=shape if isinstance(shape, str) else None,
@@ -968,6 +977,17 @@ def dispatch(
             stages=(),
             directory=directory,
             notes=[blocked],
+            exit_code=1,
+        )
+    gap = spec.check(box, task)
+    if gap is not None:
+        _event(box.root, stamp, "task.refused", task, gap)
+        return Dispatch(
+            task=task,
+            state="refused",
+            stages=(),
+            directory=directory,
+            notes=[gap],
             exit_code=1,
         )
     rail = rails.check(box, milestone=task.milestone, outside=task.outside_plan)
@@ -1685,6 +1705,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         lines.append(f"milestone = {_quote(task.milestone)}")
     if task.outside_plan is not None:
         lines.append(f"outside_plan = {_quote(task.outside_plan)}")
+    if task.spec is not None:
+        lines.append(f"spec = {_quote(task.spec)}")
     if change is not None:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:
@@ -3270,6 +3292,7 @@ def dispatch_json(result: Dispatch) -> dict[str, object]:
     return {
         "task": result.task.id,
         "kind": result.task.kind,
+        "spec": result.task.spec,
         "role": result.task.role,
         "paths": list(result.task.paths),
         "parent": result.task.parent,
@@ -3397,6 +3420,8 @@ def explain(
     blocked = refusal(task, routes)
     if blocked is None and execution.refusal is not None:
         blocked = execution.refusal
+    if blocked is None:
+        blocked = spec.check(box, task)
     if blocked is None and rail.refusal is not None:
         blocked = rail.refusal
     if parked is not None:

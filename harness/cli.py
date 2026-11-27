@@ -37,6 +37,7 @@ from . import (
     reviewer,
     runner,
     sensitivity,
+    spec,
     study,
 )
 from . import box as boxes
@@ -140,6 +141,33 @@ def _parser() -> argparse.ArgumentParser:
     approve.add_argument("--note", default="", help="why this frame was accepted")
     approve.add_argument("--json", action="store_true", help="the answer as one JSON object")
     approve.set_defaults(handler=_approve)
+
+    spec_parser = commands.add_parser(
+        "spec",
+        help="a spec package: import it, accept it, and show its standing",
+        description=(
+            "A feature task starts only from an accepted spec package. `spec <id> --from <dir>` "
+            "imports a package built from manifest.toml, spec.md and task entries; `spec <id> "
+            '--accept --note "..."` writes the acceptance; `spec <id>` shows the standing.'
+        ),
+    )
+    spec_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    spec_parser.add_argument("package", nargs="?", default=None, help="spec package id")
+    action = spec_parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--from",
+        dest="source",
+        default=None,
+        metavar="DIR",
+        help="import the package in this directory; the id comes from its manifest",
+    )
+    action.add_argument(
+        "--accept", action="store_true", help="accept the imported package as the owner's basis"
+    )
+    spec_parser.add_argument("--note", default="", help="the owner's words on the acceptance")
+    spec_parser.add_argument("--by", default="owner", help="who accepts (owner)")
+    spec_parser.add_argument("--json", action="store_true", help="the answer as one JSON object")
+    spec_parser.set_defaults(handler=_spec)
 
     rails_parser = commands.add_parser(
         "rails",
@@ -1266,6 +1294,59 @@ def _campaign_path(box: boxes.Box, value: str) -> Path:
     raise boxes.HarnessError(
         f"no campaign {value!r}: {found} does not exist; the project declares {known}"
     )
+
+
+def _spec(args: argparse.Namespace, root: Path) -> int:
+    """Import, accept or inspect a spec package: the basis a feature task needs before it runs.
+
+    The positional grammar is ``[name] [package]``, so one argument is ambiguous: it is the
+    package id unless it names a box. The spec commands in the refusals are written without a
+    box name, and they have to work from inside a box as written.
+    """
+    cwd = Path.cwd()
+    name = args.name
+    package_id = args.package
+    box: boxes.Box | None = None
+    if package_id is None and name is not None:
+        try:
+            box = boxes.find_box(root, name, cwd)
+        except boxes.HarnessError:
+            package_id = name
+            name = None
+    if box is None:
+        box = boxes.find_box(root, name, cwd)
+    if args.source is not None:
+        source = Path(args.source).expanduser()
+        package = spec.read_package(source)
+        if package_id is not None and package_id != package.id:
+            raise boxes.HarnessError(
+                f"the manifest at {source} names the package {package.id!r}, not {package_id!r}: "
+                "the id comes from the manifest"
+            )
+        written = spec.import_package(box, package)
+        if args.json:
+            print(json.dumps(spec.payload_import(package, written), indent=2))
+        else:
+            print("\n".join(spec.render_import(package, written)))
+        return 0
+    if package_id is None:
+        raise boxes.HarnessError(
+            "spec needs a package id: `pantheon spec <id>` shows its standing and "
+            "`pantheon spec <id> --from <dir>` imports one"
+        )
+    if args.accept:
+        approval = spec.accept(box, package_id, by=args.by, note=args.note)
+        if args.json:
+            print(json.dumps(spec.payload_approval(approval, package_id), indent=2))
+        else:
+            print("\n".join(spec.render_approval(approval, package_id)))
+        return 0
+    current = spec.standing(box, package_id)
+    if args.json:
+        print(json.dumps(spec.payload_standing(current), indent=2))
+    else:
+        print("\n".join(spec.render_standing(current)))
+    return 0 if current.state == spec.ACCEPTED else 1
 
 
 def _dispatch(args: argparse.Namespace, root: Path) -> int:

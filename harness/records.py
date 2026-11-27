@@ -35,7 +35,7 @@ SCHEMA_VERSION = 1
 RECORDS = Path("tabularium") / "commentarii"
 DIGEST_FILE = "digest.json"
 RESERVED = frozenset(
-    {"commentarii", "forma", "expeditio", "aurelius", "fluxus", "studia", "mutatio"}
+    {"commentarii", "forma", "expeditio", "aurelius", "fluxus", "studia", "mutatio", "spec"}
 )
 """Directories under ``tabularium/`` that are records of other things, not tasks."""
 MAX_ENTRIES = 200
