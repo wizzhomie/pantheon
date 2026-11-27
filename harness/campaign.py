@@ -46,6 +46,7 @@ STEP_KEYS = frozenset(
         "max_read_chars",
         "records",
         "contract",
+        "spec",
     }
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
@@ -76,6 +77,9 @@ class Step:
 
     contract: augustus.Contract | None = None
     """The step's contract, in the owner's words: the same five points a task carries."""
+
+    spec: str | None = None
+    """The spec package this step rests on; a feature step without one is refused."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -376,6 +380,7 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
         role=step.role,
         records=step.records,
         contract=step.contract,
+        spec=step.spec,
     )
 
 
@@ -830,6 +835,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         max_read_chars=max_read_chars,
         records=augustus.record_addresses(entry.get("records", []), where),
         contract=augustus._contract(entry.get("contract"), Path(where)),
+        spec=_text(entry.get("spec")),
     )
 
 

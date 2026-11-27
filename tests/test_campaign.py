@@ -324,6 +324,19 @@ def test_a_step_can_cap_what_it_reads(tmp_path: Path) -> None:
     assert task.budget["max_read_chars"] == 4000
 
 
+def test_a_step_can_name_the_spec_package_it_rests_on(tmp_path: Path) -> None:
+    from harness import campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'expected = "a section in the docs"',
+        'expected = "a section in the docs"\nspec = "pkg-one"',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    task = campaign.task_for(plan, plan.steps[0])
+    assert task.spec == "pkg-one", "a feature step must carry the package the spec gate reads"
+
+
 def test_a_step_can_name_the_records_it_wants(tmp_path: Path) -> None:
     from harness import campaign
 
