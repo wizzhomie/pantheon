@@ -405,6 +405,25 @@ def test_a_feature_step_that_rests_on_a_package_without_repro_is_refused(
     )
 
 
+def test_a_blocked_plan_still_counts_the_steps_the_box_closed(tmp_path: Path) -> None:
+    from harness import augustus, campaign
+
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    text = CAMPAIGN.replace(
+        'kind = "docs"\npaths = ["docs/**"]\nexpected = "a section in the docs"',
+        'kind = "feature"\npaths = ["docs/**"]\nexpected = "a section in the docs"\n'
+        'spec = "pkg-one"',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    write_state(box, {"s1": closed()})
+    report = campaign.report(box, plan, routes=augustus.DEFAULT_ROUTES)
+    assert report.verdict.status == "blocked"
+    assert report.verdict.closed == 1, (
+        "the box closed the step; a blocked plan must not report it as not closed"
+    )
+
+
 def test_a_step_can_name_the_records_it_wants(tmp_path: Path) -> None:
     from harness import campaign
 

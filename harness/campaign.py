@@ -683,8 +683,13 @@ def report(
     current = standing if standing is not None else frame.standing(box)
     state = read_state(box, campaign)
     if found:
+        closed = (
+            0
+            if state is None
+            else sum(1 for step in campaign.steps if _is_closed(state, step))
+        )
         return Report(
-            campaign, current, state, found, Verdict("blocked", (), 0, len(campaign.steps)), ()
+            campaign, current, state, found, Verdict("blocked", (), closed, len(campaign.steps)), ()
         )
     result = verdict(campaign, current, state)
     decisions = {
