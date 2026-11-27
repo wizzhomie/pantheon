@@ -266,6 +266,24 @@ acceptance = [{ id = "a1", statement = "the value is two", step = "t-other" }]
         spec.read_package(write_package(tmp_path, manifest=text))
 
 
+def test_the_core_does_not_name_an_outside_process() -> None:
+    """The package is the port: the harness must not learn a process's name or its directory.
+
+    The adapter lives outside the core — the manifest is ours, and the only trace a process
+    leaves in the box is the ``source`` string it declares. A reference to Spec Kit inside
+    ``harness/`` would be the boundary turning into a dependency.
+    """
+    root = Path(__file__).resolve().parent.parent / "harness"
+    forbidden = ("spec-kit", "speckit", ".specify")
+    hits = [
+        f"{path.name}: {word}"
+        for path in sorted(root.rglob("*.py"))
+        for word in forbidden
+        if word in path.read_text(encoding="utf-8").lower()
+    ]
+    assert not hits, "the core must stay a port, not a client: " + ", ".join(hits)
+
+
 def test_the_cli_imports_accepts_and_shows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
