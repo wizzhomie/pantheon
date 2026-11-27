@@ -26,7 +26,9 @@ from . import caesar
 SCHEMA_VERSION = 1
 RAILS_FILE = ".pantheon/rails.toml"
 RECORD_TYPE = "rails.approval"
+PROPOSAL_TYPE = "rails.proposal"
 REVISION_TYPE = "rails.revision"
+PROPOSAL_PREFIX = "rails-proposal"
 CLOSURE_TYPE = "rails.closure"
 RECORDS = Path("tabularium") / "forma"
 KINDS = ("add", "replace", "revisit")
@@ -115,8 +117,12 @@ class Rails:
 
 
 @dataclass(frozen=True, slots=True)
-class Approval:
-    """A record a person wrote: this digest was the frame they accepted, and what they delegated."""
+class Proposal:
+    """The architect's mark: this digest is the frame offered for acceptance.
+
+    A proposal is a record, not a field: the owner accepts a frame that someone put in front of
+    them, and the road map's dialogue is two records rather than a memory of one conversation.
+    """
 
     path: Path
     at: str
@@ -127,12 +133,26 @@ class Approval:
 
 
 @dataclass(frozen=True, slots=True)
+class Approval:
+    """A record a person wrote: this digest was the frame they accepted, and what they delegated."""
+
+    path: Path
+    at: str
+    digest: str
+    by: str
+    note: str
+    delegations: tuple[Delegation, ...]
+    proposal: Proposal | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Standing:
     """How the rails on disk stand against the newest approval: approved, changed, never, none."""
 
     state: str
     digest: str
     approval: Approval | None = None
+    proposal: Proposal | None = None
 
     def gap(self) -> str | None:
         """What a verdict about this project does not cover, or ``None`` when it is covered."""
@@ -142,9 +162,15 @@ class Standing:
                 "was not checked against anything"
             )
         if self.state == "never":
+            offered = ""
+            if self.proposal is not None:
+                offered = (
+                    f" — proposed by {self.proposal.by} at {self.proposal.at}, waiting for the "
+                    "owner's mark"
+                )
             return (
                 "the rails were never approved: the milestones are a draft nobody accepted "
-                "(`pantheon rails approve` makes that record)"
+                "(`pantheon rails --approve` makes that record)" + offered
             )
         if self.state == "changed" and self.approval is not None:
             return (
@@ -163,6 +189,11 @@ class Standing:
                 f"changed since approval ({_short(self.approval.digest)} -> {_short(self.digest)})"
             )
         if self.state == "never":
+            if self.proposal is not None:
+                return (
+                    f"proposed {self.proposal.at} by {self.proposal.by} "
+                    f"({_short(self.digest)}) — never approved"
+                )
             return "never approved"
         return "nothing declared"
 
@@ -182,6 +213,18 @@ class Standing:
                     {"question": item.question, "default": item.default}
                     for item in self.approval.delegations
                 ],
+                "proposal": None
+                if self.approval.proposal is None
+                else str(self.approval.proposal.path),
+            },
+            "proposal": None
+            if self.proposal is None
+            else {
+                "at": self.proposal.at,
+                "by": self.proposal.by,
+                "digest": self.proposal.digest,
+                "note": self.proposal.note,
+                "record": str(self.proposal.path),
             },
         }
 
@@ -356,6 +399,111 @@ def read(project: Path) -> Rails | None:
     )
 
 
+def propose(
+    box: boxes.Box,
+    *,
+    by: str,
+    note: str = "",
+    delegations: tuple[Delegation, ...] = (),
+    when: datetime | None = None,
+) -> Proposal:
+    """Freeze the frame as it is offered: the architect's mark in the road map's dialogue.
+
+    Proposing is not approving. The record names the digest the proposal is about, so an edit
+    after it makes the proposal stale instead of silently standing for the new bytes.
+    """
+    stamp = (when or datetime.now(UTC)).replace(microsecond=0)
+    current = read(box.project)
+    if current is None:
+        raise boxes.HarnessError(
+            f"there are no rails to propose in {box.project}: {RAILS_FILE} does not exist, so a "
+            "proposal would name nothing"
+        )
+    for item in delegations:
+        if not item.question.strip() or not item.default.strip():
+            raise boxes.HarnessError(
+                "a delegation needs a question and the default that was taken, not an empty one"
+            )
+    existing = latest_proposal(box)
+    if (
+        existing is not None
+        and existing.digest == current.digest
+        and existing.by == by
+        and existing.note == note
+    ):
+        return existing
+    directory = box.root / RECORDS
+    directory.mkdir(parents=True, exist_ok=True)
+    path = _free_path(directory, stamp, prefix=PROPOSAL_PREFIX)
+    record = {
+        "schema_version": SCHEMA_VERSION,
+        "type": PROPOSAL_TYPE,
+        "at": _stamp(stamp),
+        "digest": current.digest,
+        "file": RAILS_FILE,
+        "missing": list(current.missing),
+        "by": by,
+        "note": note,
+        "delegations": [
+            {"question": item.question, "default": item.default} for item in delegations
+        ],
+        "base": caesar.head(box.project),
+    }
+    path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
+    _append_event(box, by, note, path, stamp, kind="rails.proposed")
+    return Proposal(
+        path=path,
+        at=_stamp(stamp),
+        digest=current.digest,
+        by=by,
+        note=note,
+        delegations=delegations,
+    )
+
+
+def latest_proposal(box: boxes.Box) -> Proposal | None:
+    """The newest proposal record, or ``None``. An unreadable record is an error, not a skip."""
+    directory = box.root / RECORDS
+    if not directory.is_dir():
+        return None
+    records = sorted(
+        directory.glob(f"{PROPOSAL_PREFIX}-*.json"),
+        key=lambda item: (item.stat().st_mtime_ns, item.name),
+    )
+    if not records:
+        return None
+    path = records[-1]
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as error:
+        raise boxes.HarnessError(
+            f"the rails proposal {path} does not parse: {error}"
+        ) from error
+    if not isinstance(data, dict) or data.get("type") != PROPOSAL_TYPE:
+        raise boxes.HarnessError(f"{path} is not a rails proposal record")
+    digest = data.get("digest")
+    if not isinstance(digest, str) or not digest:
+        raise boxes.HarnessError(f"{path} names no digest: a proposal of nothing is not one")
+    raw_delegations = data.get("delegations", [])
+    if not isinstance(raw_delegations, list):
+        raise boxes.HarnessError(f"{path} names delegations that are not a list")
+    return Proposal(
+        path=path,
+        at=str(data.get("at", "")),
+        digest=digest,
+        by=str(data.get("by", "")),
+        note=str(data.get("note", "")),
+        delegations=tuple(
+            Delegation(
+                question=str(item.get("question", "")),
+                default=str(item.get("default", "")),
+            )
+            for item in raw_delegations
+            if isinstance(item, dict)
+        ),
+    )
+
+
 def approve(
     box: boxes.Box,
     *,
@@ -382,6 +530,12 @@ def approve(
             raise boxes.HarnessError(
                 "a delegation needs a question and the default that was taken, not an empty one"
             )
+    proposal = latest_proposal(box)
+    if proposal is None or proposal.digest != current.digest:
+        raise boxes.HarnessError(
+            "the frame was not proposed: the owner's mark names a proposal, and there is none "
+            'for this digest; `pantheon rails --propose --note "what and why"` writes it first'
+        )
     directory = box.root / RECORDS
     directory.mkdir(parents=True, exist_ok=True)
     path = _free_path(directory, stamp)
@@ -397,6 +551,13 @@ def approve(
         "delegations": [
             {"question": item.question, "default": item.default} for item in delegations
         ],
+        "proposal": {
+            "path": str(proposal.path.relative_to(box.root)),
+            "at": proposal.at,
+            "by": proposal.by,
+            "digest": proposal.digest,
+            "note": proposal.note,
+        },
         "base": caesar.head(box.project),
     }
     path.write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -408,6 +569,7 @@ def approve(
         by=by,
         note=note,
         delegations=delegations,
+        proposal=proposal,
     )
 
 
@@ -530,6 +692,17 @@ def latest(box: boxes.Box) -> Approval | None:
         for item in raw_delegations
         if isinstance(item, dict)
     )
+    raw_proposal = data.get("proposal")
+    proposal: Proposal | None = None
+    if isinstance(raw_proposal, dict):
+        proposal = Proposal(
+            path=Path(str(raw_proposal.get("path", ""))),
+            at=str(raw_proposal.get("at", "")),
+            digest=str(raw_proposal.get("digest", "")),
+            by=str(raw_proposal.get("by", "")),
+            note=str(raw_proposal.get("note", "")),
+            delegations=(),
+        )
     return Approval(
         path=path,
         at=str(data.get("at", "")),
@@ -537,6 +710,7 @@ def latest(box: boxes.Box) -> Approval | None:
         by=str(data.get("by", "")),
         note=str(data.get("note", "")),
         delegations=delegations,
+        proposal=proposal,
     )
 
 
@@ -687,13 +861,14 @@ def standing(box: boxes.Box) -> Standing:
     """The rails on disk against the newest approval: the answer a dispatch will record."""
     current = read(box.project)
     approval = latest(box)
+    proposal = latest_proposal(box)
     if current is None:
-        return Standing("none", "", approval)
+        return Standing("none", "", approval, proposal)
     if approval is None:
-        return Standing("never", current.digest, None)
+        return Standing("never", current.digest, None, proposal)
     if approval.digest != current.digest:
-        return Standing("changed", current.digest, approval)
-    return Standing("approved", current.digest, approval)
+        return Standing("changed", current.digest, approval, proposal)
+    return Standing("approved", current.digest, approval, proposal)
 
 
 def check(box: boxes.Box, *, milestone: str | None, outside: str | None) -> Check:
@@ -782,6 +957,12 @@ def render(
                 lines.append(f"           because: {principle.why}")
         for absent in current.missing:
             lines.append(f"missing    {absent}")
+    if standing.proposal is not None and standing.state != "approved":
+        offered = standing.proposal
+        lines.append(f"proposed   {offered.at} by {offered.by} ({_short(offered.digest)})")
+        lines.append(f"record     {offered.path}")
+        if offered.note:
+            lines.append(f"note       {offered.note}")
     if standing.approval is not None:
         approval = standing.approval
         lines.append(f"approved   {approval.at} by {approval.by}")

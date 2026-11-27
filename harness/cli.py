@@ -180,7 +180,13 @@ def _parser() -> argparse.ArgumentParser:
     )
     rails_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
     rails_parser.add_argument(
+        "--propose", action="store_true", help="offer the frame for acceptance (the architect)"
+    )
+    rails_parser.add_argument(
         "--approve", action="store_true", help="accept the frame as the basis the work serves"
+    )
+    rails_parser.add_argument(
+        "--proposer", default="architect", help="who offers the frame (architect)"
     )
     rails_parser.add_argument(
         "--close",
@@ -949,6 +955,10 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
         raise boxes.HarnessError(
             "a revision and an approval are two acts: record the revision, then accept the frame"
         )
+    if args.propose and (args.approve or args.revise is not None or args.close is not None):
+        raise boxes.HarnessError(
+            "proposing is its own act: offer the frame first, then accept, revise or close"
+        )
     if args.close is not None and (args.revise is not None or args.approve):
         raise boxes.HarnessError(
             "closing a milestone is its own act: close it first, then revise or accept the frame"
@@ -977,6 +987,34 @@ def _rails(args: argparse.Namespace, root: Path) -> int:
             print(json.dumps({"revision": revision.json()}, indent=2, ensure_ascii=False))
             return 0
         print("\n".join(rails.render(standing, current, revision, rails.closures(box))))
+        return 0
+    if args.propose:
+        delegations = tuple(_delegation(item) for item in args.delegate)
+        proposal = rails.propose(
+            box, by=args.proposer, note=args.note, delegations=delegations
+        )
+        if args.json:
+            print(
+                json.dumps(
+                    {
+                        "proposal": {
+                            "at": proposal.at,
+                            "by": proposal.by,
+                            "digest": proposal.digest,
+                            "note": proposal.note,
+                            "record": str(proposal.path),
+                        }
+                    },
+                    indent=2,
+                    ensure_ascii=False,
+                )
+            )
+            return 0
+        print(f"proposed   {proposal.at} by {proposal.by} ({proposal.digest[:12]})")
+        print(f"record     {proposal.path}")
+        if proposal.note:
+            print(f"note       {proposal.note}")
+        print('next       pantheon rails --approve --note "the words the owner said"')
         return 0
     if args.approve:
         delegations = tuple(_delegation(item) for item in args.delegate)

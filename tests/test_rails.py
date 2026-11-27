@@ -103,6 +103,12 @@ def test_no_file_is_not_an_empty_frame(tmp_path: Path) -> None:
     assert standing.line() == "nothing declared"
 
 
+def approved(box: boxes.Box) -> rails.Approval:
+    """The two marks: the architect offers the frame, the owner accepts it."""
+    rails.propose(box, by="architect", note="the test offers the frame")
+    return rails.approve(box, by="owner")
+
+
 def test_rails_never_approved_are_a_draft_not_a_basis(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
@@ -119,6 +125,8 @@ def test_an_approval_records_the_digest_and_what_was_delegated(
     box = make_box(tmp_path, project)
     current = rails.read(project)
     assert current is not None
+    assert run(box, "rails", box.name, "--propose", "--note", "the architect offers the frame") == 0
+    capsys.readouterr()
     assert run(box, "rails", box.name, "--approve", "--note", "the first rail",
                "--delegate", "how many milestones?=one per stage", "--json") == 0
     answer = json.loads(capsys.readouterr().out)
@@ -146,8 +154,8 @@ def test_an_approval_records_the_digest_and_what_was_delegated(
 def test_approving_the_same_rails_twice_is_two_records(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
-    rails.approve(box, by="owner")
+    approved(box)
+    approved(box)
     records = sorted((box.root / "tabularium" / "forma").glob("rails-approval-*.json"))
     assert len(records) == 2
     assert rails.standing(box).state == "approved"
@@ -156,7 +164,7 @@ def test_approving_the_same_rails_twice_is_two_records(tmp_path: Path) -> None:
 def test_rails_that_moved_after_the_approval_are_stale(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(FRAME + "\n", encoding="utf-8")
     standing = rails.standing(box)
     assert standing.state == "changed"
@@ -186,6 +194,29 @@ why = "there must be something"
     assert not (box.root / "tabularium" / "forma").exists()
 
 
+def test_an_approval_needs_a_proposal_for_this_digest(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    with pytest.raises(boxes.HarnessError, match="was not proposed"):
+        rails.approve(box, by="owner")
+    rails.propose(box, by="architect", note="offer one")
+    (project / ".pantheon" / "rails.toml").write_text(FRAME + "\n", encoding="utf-8")
+    with pytest.raises(boxes.HarnessError, match="was not proposed"):
+        rails.approve(box, by="owner")
+
+
+def test_a_proposal_alone_is_not_an_approval(tmp_path: Path) -> None:
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    proposal = rails.propose(box, by="architect", note="the first offer")
+    how = rails.standing(box)
+    assert how.state == "never"
+    assert how.proposal is not None and how.proposal.digest == proposal.digest
+    assert "proposed" in how.line()
+    record = json.loads(proposal.path.read_text(encoding="utf-8"))
+    assert record["type"] == "rails.proposal" and record["by"] == "architect"
+
+
 def test_approving_missing_rails_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path, None)
     box = make_box(tmp_path, project)
@@ -196,6 +227,7 @@ def test_approving_missing_rails_is_refused(tmp_path: Path) -> None:
 def test_a_delegation_needs_both_sides(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
+    assert run(box, "rails", box.name, "--propose", "--note", "the architect offers the frame") == 0
     assert run(box, "rails", box.name, "--approve", "--delegate", "no default") == 2
     assert "QUESTION=DEFAULT" in capsys.readouterr().err
 
@@ -232,7 +264,7 @@ def test_status_names_the_rails(
     box = make_box(tmp_path, project)
     assert run(box, "status", box.name) == 0
     assert "rails      never approved" in capsys.readouterr().out
-    rails.approve(box, by="owner")
+    approved(box)
     assert run(box, "status", box.name) == 0
     out = capsys.readouterr().out
     fresh = rails.read(project)
@@ -253,6 +285,7 @@ def test_rails_show_renders_the_frame_and_the_approval(
     assert "milestone  M1  rails  (open)" in out
     assert "closed" not in out
 
+    assert run(box, "rails", box.name, "--propose", "--note", "the architect offers the frame") == 0
     assert run(box, "rails", box.name, "--approve") == 0
     capsys.readouterr()
     assert run(box, "rails", box.name, "--json") == 0
@@ -289,7 +322,7 @@ missing = ""
 def test_a_task_naming_a_milestone_is_admitted(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     check = rails.check(box, milestone="M1", outside=None)
     assert check.refusal is None
     assert check.milestone is not None and check.milestone.id == "M1"
@@ -300,7 +333,7 @@ def test_a_task_naming_a_milestone_is_admitted(tmp_path: Path) -> None:
 def test_a_task_naming_no_milestone_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     check = rails.check(box, milestone=None, outside=None)
     assert check.refusal is not None and "names no milestone" in check.refusal
     assert check.milestone is None
@@ -309,7 +342,7 @@ def test_a_task_naming_no_milestone_is_refused(tmp_path: Path) -> None:
 def test_a_task_naming_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     check = rails.check(box, milestone="M9", outside=None)
     assert check.refusal is not None and "M9" in check.refusal
     assert "M1" in check.refusal, "the refusal names the milestones that do exist"
@@ -318,7 +351,7 @@ def test_a_task_naming_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
 def test_a_task_outside_the_plan_keeps_its_reason(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     check = rails.check(box, milestone=None, outside="the owner asked for it by name")
     assert check.refusal is None
     assert check.outside == "the owner asked for it by name"
@@ -352,7 +385,7 @@ def test_the_task_file_carries_the_milestone(tmp_path: Path) -> None:
 def test_dispatch_refuses_a_task_that_serves_no_milestone(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     task = augustus.read_task(write_task(tmp_path, TASK))
     result = augustus.dispatch(
         box,
@@ -381,7 +414,7 @@ def changed_frame() -> str:
 def test_a_revision_names_the_departure_and_what_it_costs(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
     revision = rails.revise(
         box,
@@ -413,7 +446,7 @@ def test_a_revision_names_the_departure_and_what_it_costs(tmp_path: Path) -> Non
 def test_a_revision_that_changes_nothing_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     with pytest.raises(boxes.HarnessError, match="did not change"):
         rails.revise(box, "add", "nothing changed")
 
@@ -421,7 +454,7 @@ def test_a_revision_that_changes_nothing_is_refused(tmp_path: Path) -> None:
 def test_a_heavy_revision_needs_both_risk_answers(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
     with pytest.raises(boxes.HarnessError, match="what breaks"):
         rails.revise(box, "replace", "why", breaks="")
@@ -434,7 +467,7 @@ def test_a_heavy_revision_needs_both_risk_answers(tmp_path: Path) -> None:
 def test_a_light_revision_needs_a_reason_but_no_risk_note(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
     with pytest.raises(boxes.HarnessError, match="names why"):
         rails.revise(box, "add", "  ")
@@ -452,12 +485,12 @@ def test_a_revision_without_an_approval_is_refused(tmp_path: Path) -> None:
 def test_a_heavy_revision_refuses_tasks_until_it_is_accepted_again(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
     rails.revise(box, "replace", "why", breaks="a cost", lose="a loss")
     check = rails.check(box, milestone="M1", outside=None)
     assert check.refusal is not None and "never accepted" in check.refusal
-    rails.approve(box, by="owner")
+    approved(box)
     admitted = rails.check(box, milestone="M1", outside=None)
     assert admitted.refusal is None
 
@@ -465,7 +498,7 @@ def test_a_heavy_revision_refuses_tasks_until_it_is_accepted_again(tmp_path: Pat
 def test_a_revision_names_the_tasks_left_on_the_old_frame(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     record = box.root / "tabularium" / "t-old" / "dispatch-20260101T000000Z.json"
     record.parent.mkdir(parents=True, exist_ok=True)
     record.write_text(
@@ -482,7 +515,7 @@ def test_the_cli_records_a_revision(
 ) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     (project / ".pantheon" / "rails.toml").write_text(changed_frame(), encoding="utf-8")
     assert (
         run(
@@ -512,7 +545,7 @@ def test_the_cli_records_a_revision(
 def test_a_milestone_closes_by_record_not_by_editing_the_frame(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     closure = rails.close(box, "M1", "a task names a milestone and the gate checks it")
     assert closure.milestone == "M1" and closure.by == "owner"
     assert closure.path.name == "milestone-M1-closed.json"
@@ -530,7 +563,7 @@ def test_a_milestone_closes_by_record_not_by_editing_the_frame(tmp_path: Path) -
 def test_the_closed_milestone_reads_as_closed_and_names_the_record(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     rails.close(box, "M1", "the gate names the milestone now")
     lines = rails.render(
         rails.standing(box), rails.read(project), None, rails.closures(box)
@@ -553,7 +586,7 @@ def test_the_closed_milestone_reads_as_closed_and_names_the_record(tmp_path: Pat
 def test_closing_a_milestone_without_a_reason_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     with pytest.raises(boxes.HarnessError) as error:
         rails.close(box, "M1", "  ")
     assert "--note" in str(error.value)
@@ -562,7 +595,7 @@ def test_closing_a_milestone_without_a_reason_is_refused(tmp_path: Path) -> None
 def test_closing_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     with pytest.raises(boxes.HarnessError) as error:
         rails.close(box, "M9", "done")
     assert "M9" in str(error.value) and "M1" in str(error.value)
@@ -571,7 +604,7 @@ def test_closing_an_unknown_milestone_is_refused(tmp_path: Path) -> None:
 def test_closing_a_milestone_twice_is_refused(tmp_path: Path) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     rails.close(box, "M1", "done")
     with pytest.raises(boxes.HarnessError) as error:
         rails.close(box, "M1", "done again")
@@ -591,7 +624,7 @@ def test_closing_a_milestone_is_its_own_act_in_the_cli(
 ) -> None:
     project = make_project(tmp_path)
     box = make_box(tmp_path, project)
-    rails.approve(box, by="owner")
+    approved(box)
     assert (
         run(box, "rails", box.name, "--close", "M1", "--note", "the gate names it", "--json") == 0
     )

@@ -58,6 +58,7 @@ def make_box(tmp_path: Path, *, approved: bool = True) -> boxes.Box:
     (project / ".pantheon" / "rails.toml").write_text(FRAME, encoding="utf-8")
     box = boxes.new_box(tmp_path / "castra", project)
     if approved:
+        rails.propose(box, by="architect", note="the test offers the frame")
         rails.approve(box, by="owner")
     return box
 
