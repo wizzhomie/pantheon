@@ -235,6 +235,37 @@ def test_dispatch_refuses_a_task_the_package_does_not_name(tmp_path: Path) -> No
     assert "t-other" in result.notes[0]
 
 
+def test_a_package_can_write_its_feature_as_a_campaign(tmp_path: Path) -> None:
+    from harness import campaign
+
+    box = make_box(tmp_path)
+    manifest = MANIFEST + """
+[campaign]
+goal = "the value becomes two"
+acceptance = [{ id = "a1", statement = "the value is two", step = "t-feature" }]
+budget = { max_cents = 10 }
+"""
+    imported(box, tmp_path, manifest=manifest)
+    approval = spec.accept(box, PACKAGE_ID, note="accepted")
+    assert approval.plan is not None
+    plan = campaign.read_campaign(approval.plan)
+    assert plan.id == PACKAGE_ID
+    assert plan.goal == "the value becomes two"
+    assert plan.steps[0].spec == PACKAGE_ID, "a step must carry the package the gate reads"
+    assert plan.acceptance[0].step == TASK_ID
+    assert plan.budget == {"max_cents": 10}
+
+
+def test_a_campaign_naming_a_step_the_package_does_not_have_is_refused(tmp_path: Path) -> None:
+    text = MANIFEST + """
+[campaign]
+goal = "the value becomes two"
+acceptance = [{ id = "a1", statement = "the value is two", step = "t-other" }]
+"""
+    with pytest.raises(boxes.HarnessError, match="which the package does not declare"):
+        spec.read_package(write_package(tmp_path, manifest=text))
+
+
 def test_the_cli_imports_accepts_and_shows(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

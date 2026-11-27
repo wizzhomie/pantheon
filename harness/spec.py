@@ -34,7 +34,13 @@ SCHEMA_VERSION = 1
 PACKAGES = Path("tabularium") / "spec"
 MANIFEST = "manifest.toml"
 
-MANIFEST_KEYS = frozenset({"schema_version", "id", "milestone", "source", "why", "spec", "task"})
+MANIFEST_KEYS = frozenset(
+    {"schema_version", "id", "milestone", "source", "why", "spec", "task", "campaign"}
+)
+CAMPAIGN_KEYS = frozenset({"goal", "acceptance", "mode", "attempts", "budget"})
+ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
+BUDGET_KEYS = frozenset({"max_cents", "max_seconds"})
+MODES = ("manual", "auto")
 TASK_KEYS = frozenset(
     {"id", "kind", "goal", "paths", "expected", "repro", "self_check", "contract"}
 )
@@ -104,6 +110,26 @@ class Task:
 
 
 @dataclass(frozen=True, slots=True)
+class Acceptance:
+    """One statement the owner wants from the feature, and the step whose verdict covers it."""
+
+    id: str
+    statement: str
+    step: str
+
+
+@dataclass(frozen=True, slots=True)
+class CampaignPlan:
+    """The feature as a campaign: the goal, the acceptance, and how each step closes."""
+
+    goal: str
+    acceptance: tuple[Acceptance, ...]
+    mode: str = "manual"
+    attempts: int = 1
+    budget: dict[str, int] | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class Package:
     """A package directory as it is on disk, with every file's digest and one tree digest."""
 
@@ -116,6 +142,7 @@ class Package:
     files: tuple[FileDigest, ...]
     digest: str
     path: Path
+    campaign: CampaignPlan | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -131,6 +158,7 @@ class Approval:
     tasks: tuple[str, ...]
     source: str
     milestone: str
+    plan: Path | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -243,6 +271,7 @@ def read_package(directory: Path) -> Package:
     files = _tree(directory)
     if not files:
         raise boxes.HarnessError(f"{path}: the package has no files")
+    campaign = _read_campaign_block(data.get("campaign"), tuple(tasks), path)
     return Package(
         id=identifier,
         milestone=milestone,
@@ -253,6 +282,80 @@ def read_package(directory: Path) -> Package:
         files=files,
         digest=_digest(files),
         path=directory,
+        campaign=campaign,
+    )
+
+
+def _read_campaign_block(raw: object, tasks: tuple[Task, ...], path: Path) -> CampaignPlan | None:
+    """The feature as a campaign, when the package offers one: steps are its own tasks."""
+    if raw is None:
+        return None
+    if not isinstance(raw, dict):
+        raise boxes.HarnessError(f"{path}: campaign must be a table")
+    unknown = sorted(set(raw) - CAMPAIGN_KEYS)
+    if unknown:
+        raise boxes.HarnessError(
+            f"{path}: campaign: unknown key(s) {', '.join(unknown)}; it reads "
+            + ", ".join(sorted(CAMPAIGN_KEYS))
+        )
+    goal = _required(raw, "goal", path)
+    raw_acceptance = raw.get("acceptance")
+    if not isinstance(raw_acceptance, list) or not raw_acceptance:
+        raise boxes.HarnessError(
+            f"{path}: campaign has no acceptance: a feature nobody can accept is not planned"
+        )
+    names = {task.id for task in tasks}
+    acceptance: list[Acceptance] = []
+    for index, item in enumerate(raw_acceptance, start=1):
+        where = f"{path}: campaign acceptance #{index}"
+        if not isinstance(item, dict):
+            raise boxes.HarnessError(f"{where} must be a table")
+        unknown = sorted(set(item) - ACCEPTANCE_KEYS)
+        if unknown:
+            raise boxes.HarnessError(
+                f"{where}: unknown key(s) {', '.join(unknown)}; it reads "
+                + ", ".join(sorted(ACCEPTANCE_KEYS))
+            )
+        identifier = _name(item.get("id"), f"{where}: id")
+        statement = _required(item, "statement", path)
+        step = _required(item, "step", path)
+        if step not in names:
+            raise boxes.HarnessError(
+                f"{where}: names step {step!r}, which the package does not declare; the steps "
+                f"are {', '.join(sorted(names))}"
+            )
+        acceptance.append(Acceptance(id=identifier, statement=statement, step=step))
+    mode = raw.get("mode", "manual")
+    if mode not in MODES:
+        raise boxes.HarnessError(
+            f"{path}: campaign mode {mode!r} is not one of {', '.join(MODES)}"
+        )
+    attempts = raw.get("attempts", 1)
+    if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        raise boxes.HarnessError(f"{path}: campaign attempts must be a positive whole number")
+    raw_budget = raw.get("budget", {})
+    if not isinstance(raw_budget, dict):
+        raise boxes.HarnessError(f"{path}: campaign budget must be a table")
+    unknown = sorted(set(raw_budget) - BUDGET_KEYS)
+    if unknown:
+        raise boxes.HarnessError(
+            f"{path}: campaign budget: unknown key(s) {', '.join(unknown)}; it reads "
+            + ", ".join(sorted(BUDGET_KEYS))
+        )
+    budget: dict[str, int] = {}
+    for key in sorted(BUDGET_KEYS):
+        value = raw_budget.get(key)
+        if value is None:
+            continue
+        if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+            raise boxes.HarnessError(f"{path}: campaign budget {key} must be a positive number")
+        budget[key] = value
+    return CampaignPlan(
+        goal=goal,
+        acceptance=tuple(acceptance),
+        mode=str(mode),
+        attempts=attempts,
+        budget=budget or None,
     )
 
 
@@ -333,6 +436,7 @@ def accept(
         and existing.note == note
     ):
         return existing
+    plan = write_plan(box, package) if package.campaign is not None else None
     stamp = (when or datetime.now(UTC)).replace(microsecond=0)
     record = {
         "schema_version": SCHEMA_VERSION,
@@ -345,6 +449,7 @@ def accept(
         "tasks": [task.id for task in package.tasks],
         "source": package.source,
         "milestone": package.milestone,
+        "plan": None if plan is None else str(plan),
     }
     record_path.parent.mkdir(parents=True, exist_ok=True)
     record_path.write_text(json.dumps(record, indent=2, ensure_ascii=False) + "\n", "utf-8")
@@ -359,6 +464,7 @@ def accept(
         tasks=tuple(task.id for task in package.tasks),
         source=package.source,
         milestone=package.milestone,
+        plan=plan,
     )
 
 
@@ -445,10 +551,78 @@ render_import = render_package
 """The same reading under the name the import handler uses."""
 
 
+def write_plan(box: boxes.Box, package: Package) -> Path:
+    """Write the package's feature as a campaign plan in the project, once, after acceptance.
+
+    The plan is the architect's desk, not a product change: its steps are the package tasks and
+    its acceptance is the owner's words; the files it may touch are still the steps' own paths,
+    which Caesar gates when the steps run.
+    """
+    plan = package.campaign
+    if plan is None:
+        raise boxes.HarnessError(
+            f"the package {package.id} declares no campaign: there is no plan to write"
+        )
+    path = box.project / ".pantheon" / "expeditiones" / f"{package.id}.toml"
+    if path.exists():
+        raise boxes.HarnessError(
+            f"the campaign plan {path} already exists: a plan is written once, and a changed "
+            "feature is a new package rather than an overwrite"
+        )
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(_plan_text(package), encoding="utf-8")
+    return path
+
+
+def _plan_text(package: Package) -> str:
+    """The campaign file as TOML: the steps are the tasks, and each step names the package."""
+    plan = package.campaign
+    assert plan is not None
+    lines = [
+        f"schema_version = {SCHEMA_VERSION}",
+        f"id = {_quote(package.id)}",
+        f"goal = {_quote(plan.goal)}",
+        f"mode = {_quote(plan.mode)}",
+        f"attempts = {plan.attempts}",
+    ]
+    if plan.budget:
+        pairs = ", ".join(f"{key} = {value}" for key, value in sorted(plan.budget.items()))
+        lines.append(f"budget = {{ {pairs} }}")
+    for task in package.tasks:
+        lines += [
+            "",
+            "[[step]]",
+            f"id = {_quote(task.id)}",
+            f"goal = {_quote(task.goal)}",
+            f"kind = {_quote(task.kind)}",
+            "paths = [" + ", ".join(_quote(item) for item in task.paths) + "]",
+            f"expected = {_quote(task.expected)}",
+            f"spec = {_quote(package.id)}",
+            "[step.contract]",
+            f"symptom = {_quote(task.contract.symptom)}",
+            f"visible = {_quote(task.contract.visible)}",
+            f"boundaries = {_quote(task.contract.boundaries)}",
+        ]
+        if task.contract.missing is not None:
+            lines.append(f"missing = {_quote(task.contract.missing)}")
+    for item in plan.acceptance:
+        lines += [
+            "",
+            "[[acceptance]]",
+            f"id = {_quote(item.id)}",
+            f"statement = {_quote(item.statement)}",
+            f"step = {_quote(item.step)}",
+        ]
+    return "\n".join(lines) + "\n"
+
+
 def render_approval(approval: Approval, package_id: str) -> list[str]:
-    """An acceptance as one line for a person: the digest and the owner's words."""
+    """An acceptance as one line for a person: the digest, the owner's words, the plan."""
     note = f"  {approval.note}" if approval.note else ""
-    return [f"accepted   {package_id}  {approval.digest}{note}"]
+    lines = [f"accepted   {package_id}  {approval.digest}{note}"]
+    if approval.plan is not None:
+        lines.append(f"plan       {approval.plan}")
+    return lines
 
 
 def render_standing(current: Standing) -> list[str]:
@@ -506,6 +680,7 @@ def payload_approval(approval: Approval, package_id: str) -> dict[str, object]:
         "tasks": list(approval.tasks),
         "source": approval.source,
         "milestone": approval.milestone,
+        "plan": None if approval.plan is None else str(approval.plan),
         "record": str(approval.path),
     }
 
