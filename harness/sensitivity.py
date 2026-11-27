@@ -38,7 +38,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from . import box as boxes
-from . import contour
+from . import contour, worktree
 
 LIMIT_PIECES = 5
 """How many pieces are worth reversing: a big change should not cost a hundred check runs."""
@@ -177,7 +177,7 @@ def check(
             attempt = _one_piece(work, piece, repro, root, python, seconds, parent)
             attempts.append(attempt)
     finally:
-        _remove_worktree(project, tree)
+        worktree.remove(project, tree)
         shutil.rmtree(parent, ignore_errors=True)
     return Report(
         task=task,
@@ -413,7 +413,7 @@ def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> Path:
     patch at the repository root would look for ``docs/guide.md`` where the repository keeps
     ``app/docs/guide.md``. The returned path is the project inside the worktree.
     """
-    top = _toplevel(project)
+    top = worktree.toplevel(project)
     added = subprocess.run(
         ["git", "-C", str(top), "worktree", "add", "--detach", str(tree), base],
         capture_output=True,
@@ -425,8 +425,7 @@ def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> Path:
             "cannot build the tree the change is about: "
             f"{added.stderr.strip()[-300:] or 'git refused the worktree'}"
         )
-    here = project.resolve()
-    work = tree if here == top else tree / here.relative_to(top)
+    work = worktree.inside(tree, top, project)
     applied = subprocess.run(
         ["git", "-C", str(work), "apply", str(patch)],
         capture_output=True,
@@ -439,21 +438,6 @@ def _fix_tree(project: Path, patch: Path, tree: Path, base: str) -> Path:
             f"{applied.stderr.strip()[-300:] or 'git refused it'}"
         )
     return work
-
-
-def _toplevel(project: Path) -> Path:
-    """The repository the project lives in; the project itself when it is the whole checkout."""
-    done = subprocess.run(
-        ["git", "-C", str(project), "rev-parse", "--show-toplevel"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    if done.returncode != 0 or not done.stdout.strip():
-        raise boxes.HarnessError(
-            f"{project} is not inside a git repository: there is no base to build the change on"
-        )
-    return Path(done.stdout.strip()).resolve()
 
 
 def _one_piece(
@@ -469,6 +453,7 @@ def _one_piece(
     variant = Path(tempfile.mkdtemp(prefix="variant-", dir=parent))
     target = variant / "tree"
     shutil.copytree(tree, target, symlinks=True, ignore=shutil.ignore_patterns(".git"))
+    worktree.drop_caches(target)
     try:
         problem = _reverse(target, piece)
         if problem is not None:
@@ -537,21 +522,6 @@ def _find(lines: list[str], block: list[str]) -> int | None:
         if lines[start : start + len(block)] == block:
             return start
     return None
-
-
-def _remove_worktree(project: Path, tree: Path) -> None:
-    subprocess.run(
-        ["git", "-C", str(project), "worktree", "remove", "--force", str(tree)],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    subprocess.run(
-        ["git", "-C", str(project), "worktree", "prune"],
-        capture_output=True,
-        text=True,
-        check=False,
-    )
 
 
 def _now() -> float:

@@ -30,6 +30,7 @@ from . import (
     executor,
     fluxus,
     frame,
+    mutation,
     preflight,
     rails,
     records,
@@ -554,6 +555,27 @@ def _parser() -> argparse.ArgumentParser:
     )
     sensitivity_parser.add_argument("--json", action="store_true", help="the answer as one object")
     sensitivity_parser.set_defaults(handler=_sensitivity)
+
+    mutate_parser = commands.add_parser(
+        "mutate",
+        help="Augustus: break the code on purpose and see whether the check notices",
+    )
+    mutate_parser.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    mutate_parser.add_argument(
+        "--file", required=True, help="the audit: the check and the breaks it should notice"
+    )
+    mutate_parser.add_argument(
+        "--max-breaks",
+        type=int,
+        default=mutation.LIMIT_BREAKS,
+        help="how many breaks to apply",
+    )
+    mutate_parser.add_argument("--trajan", default=None, help="the trajan checkout to call")
+    mutate_parser.add_argument(
+        "--python", default=None, help="the interpreter that runs the check"
+    )
+    mutate_parser.add_argument("--json", action="store_true", help="the reading as one object")
+    mutate_parser.set_defaults(handler=_mutate)
 
     history = commands.add_parser(
         "history", help="Augustus: what was changed here and why, from the box's archive"
@@ -1496,6 +1518,32 @@ def _sensitivity(args: argparse.Namespace, root: Path) -> int:
         print(json.dumps(sensitivity.payload(report), indent=2))
     else:
         print("\n".join(sensitivity.render(report)))
+    return 0
+
+
+def _mutate(args: argparse.Namespace, root: Path) -> int:
+    """Apply the named breaks to copies of the tree and ask the check whether it notices.
+
+    Reads only: every break lives in a throwaway copy, and the project is left as it was. The
+    answer is an audit, not a verdict (ADR-048): a blind break is written down with its address
+    and does not return the code or change any verdict.
+    """
+    box = boxes.find_box(root, args.name, Path.cwd())
+    audit = mutation.read_audit(Path(args.file))
+    trajan = contour.trajan_root(args.trajan)
+    report = mutation.run(
+        box.project,
+        audit,
+        root=trajan,
+        python=contour.trajan_python(trajan, args.python),
+        limit=max(1, args.max_breaks),
+    )
+    stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    saved = mutation.save(report, box.root / "tabularium" / "mutatio", stamp)
+    if args.json:
+        print(json.dumps({**mutation.payload(report), "record": str(saved)}, indent=2))
+    else:
+        print("\n".join([*mutation.render(report), f"record     {saved}"]))
     return 0
 
 
