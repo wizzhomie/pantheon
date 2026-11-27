@@ -335,6 +335,74 @@ def test_a_step_can_name_the_spec_package_it_rests_on(tmp_path: Path) -> None:
     plan = campaign.read_campaign(write_campaign(project, text))
     task = campaign.task_for(plan, plan.steps[0])
     assert task.spec == "pkg-one", "a feature step must carry the package the spec gate reads"
+    assert task.spec_task == plan.steps[0].id, (
+        "the step is dispatched under the campaign's name, so the gate needs the package's id"
+    )
+
+
+def test_a_refusal_at_the_gate_uses_no_attempt_and_can_be_retried(tmp_path: Path) -> None:
+    from harness import augustus, campaign
+
+    project = make_project(tmp_path)
+    box = make_box(tmp_path, project)
+    plan = campaign.read_campaign(
+        write_campaign(project, CAMPAIGN.format(frame=approved_frame(project, box)))
+    )
+    step = plan.steps[0]
+    result = augustus.Dispatch(
+        task=campaign.task_for(plan, step),
+        state="refused",
+        stages=(),
+        directory=tmp_path / "record",
+    )
+    campaign.record_step(box, plan, step, result)
+    state = campaign.read_state(box, plan)
+    assert state is not None
+    recorded = state.steps[step.id]
+    assert recorded.state == "refused"
+    assert recorded.attempts == 0, "a refusal before the model is not an attempt at the work"
+    decision = campaign.retry(box, plan, step, state)
+    assert decision is not None and decision.allowed, (
+        "the gate refused before any model call: fixing the gate and dispatching again is not "
+        "the same attempt repeated"
+    )
+    assert "refused at the gate" in decision.reason
+
+
+def test_a_step_carries_the_repro_of_its_package_task(tmp_path: Path) -> None:
+    from harness import augustus, campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'kind = "docs"\npaths = ["docs/**"]\nexpected = "a section in the docs"',
+        'kind = "feature"\npaths = ["docs/**"]\nexpected = "a section in the docs"\n'
+        'spec = "pkg-one"\nrepro = ["python", "-c", "assert 1 == 1"]',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    task = campaign.task_for(plan, plan.steps[0])
+    assert task.repro == ("python", "-c", "assert 1 == 1"), (
+        "the step's verdict has to be the check the owner accepted, not the project's suite"
+    )
+    found = campaign.problems(plan, project, augustus.DEFAULT_ROUTES)
+    assert not any("declares no repro" in item for item in found)
+
+
+def test_a_feature_step_that_rests_on_a_package_without_repro_is_refused(
+    tmp_path: Path,
+) -> None:
+    from harness import augustus, campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'kind = "docs"\npaths = ["docs/**"]\nexpected = "a section in the docs"',
+        'kind = "feature"\npaths = ["docs/**"]\nexpected = "a section in the docs"\n'
+        'spec = "pkg-one"',
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    found = campaign.problems(plan, project, augustus.DEFAULT_ROUTES)
+    assert any("declares no repro" in item for item in found), (
+        "a package step without the task's repro would verify the project, not the criterion"
+    )
 
 
 def test_a_step_can_name_the_records_it_wants(tmp_path: Path) -> None:

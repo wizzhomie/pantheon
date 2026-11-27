@@ -9,6 +9,7 @@ accepted, unchanged package that names it does not reach the model.
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -235,6 +236,33 @@ def test_dispatch_refuses_a_task_the_package_does_not_name(tmp_path: Path) -> No
     assert "t-other" in result.notes[0]
 
 
+def test_a_campaign_step_is_checked_by_the_package_task_it_carries(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    imported(box, tmp_path)
+    spec.accept(box, PACKAGE_ID, note="accepted")
+    task = augustus.read_task(write_task(tmp_path, PACKAGE_ID))
+    step = replace(task, id=f"{PACKAGE_ID}-{TASK_ID}", spec_task=TASK_ID)
+    assert spec.check(box, step) is None, (
+        "a campaign dispatches the step as <campaign>-<step>; the package names the step"
+    )
+    frozen = tmp_path / "frozen.toml"
+    frozen.write_text(augustus.task_text(step), encoding="utf-8")
+    assert augustus.read_task(frozen).spec_task == TASK_ID, (
+        "the frozen task has to keep the package's own id, or an amendment loses it"
+    )
+    wrong = replace(step, spec_task="t-other")
+    refused = spec.check(box, wrong)
+    assert refused is not None
+    assert f"names t-other inside the spec package {PACKAGE_ID}" in refused
+
+
+def test_spec_task_without_a_package_is_refused(tmp_path: Path) -> None:
+    path = tmp_path / "task.toml"
+    path.write_text(TASK.format(spec='spec_task = "t-feature"'), encoding="utf-8")
+    with pytest.raises(boxes.HarnessError, match="names no spec"):
+        augustus.read_task(path)
+
+
 def test_a_package_can_write_its_feature_as_a_campaign(tmp_path: Path) -> None:
     from harness import campaign
 
@@ -252,6 +280,9 @@ budget = { max_cents = 10 }
     assert plan.id == PACKAGE_ID
     assert plan.goal == "the value becomes two"
     assert plan.steps[0].spec == PACKAGE_ID, "a step must carry the package the gate reads"
+    assert plan.steps[0].repro == ("python", "-c", "assert 1 + 1 == 2"), (
+        "the plan has to keep the task's hidden check, or the step verifies the project instead"
+    )
     assert plan.acceptance[0].step == TASK_ID
     assert plan.budget == {"max_cents": 10}
 

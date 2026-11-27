@@ -62,6 +62,7 @@ TASK_KEYS = frozenset(
         "repro",
         "self_check",
         "spec",
+        "spec_task",
         "shape",
         "max_steps",
         "parent",
@@ -159,6 +160,14 @@ class Task:
 
     spec: str | None = None
     """The spec package a feature task rests on; `pantheon spec` imports and accepts it."""
+
+    spec_task: str | None = None
+    """The id this task has inside its package, when the box names it differently.
+
+    A campaign step is dispatched as ``<campaign>-<step>`` so two plans cannot collide in the
+    box's records, while the package names the step itself. The spec gate compares this id,
+    so the criterion a step rests on is the one the owner accepted, not a derived name.
+    """
 
     repro: tuple[str, ...] = ()
     """The input the task names, as a command: it must fail before the change and pass after it.
@@ -415,6 +424,15 @@ def read_task(path: Path) -> Task:
     spec_name = data.get("spec")
     if spec_name is not None and not isinstance(spec_name, str):
         raise boxes.HarnessError(f"{path}: spec must be the id of a spec package")
+    spec_task = data.get("spec_task")
+    if spec_task is not None and not isinstance(spec_task, str):
+        raise boxes.HarnessError(
+            f"{path}: spec_task must be the id of a task inside the spec package"
+        )
+    if _text(spec_task) is not None and _text(spec_name) is None:
+        raise boxes.HarnessError(
+            f"{path}: spec_task names a task inside a package, but the task names no spec"
+        )
     shape = data.get("shape")
     if shape is not None and shape not in executor.SHAPES:
         raise boxes.HarnessError(
@@ -470,6 +488,7 @@ def read_task(path: Path) -> Task:
         milestone=_text(milestone),
         outside_plan=_text(outside_plan),
         spec=_text(spec_name),
+        spec_task=_text(spec_task),
         repro=tuple(item.strip() for item in repro_raw),
         self_check=tuple(item.strip() for item in self_check_raw),
         shape=shape if isinstance(shape, str) else None,
@@ -1707,6 +1726,8 @@ def task_text(task: Task, *, change: Path | None = None) -> str:
         lines.append(f"outside_plan = {_quote(task.outside_plan)}")
     if task.spec is not None:
         lines.append(f"spec = {_quote(task.spec)}")
+    if task.spec_task is not None:
+        lines.append(f"spec_task = {_quote(task.spec_task)}")
     if change is not None:
         lines.append(f"change = {_quote(str(change))}")
     if task.forbidden:

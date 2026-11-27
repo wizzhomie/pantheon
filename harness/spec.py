@@ -60,7 +60,7 @@ CHANGED = "changed"
 
 
 class Declared(Protocol):
-    """The three fields the gate reads from a task, so this module needs no import cycle."""
+    """The fields the gate reads from a task, so this module needs no import cycle."""
 
     @property
     def id(self) -> str: ...
@@ -70,6 +70,9 @@ class Declared(Protocol):
 
     @property
     def spec(self) -> str | None: ...
+
+    @property
+    def spec_task(self) -> str | None: ...
 
 
 @dataclass(frozen=True, slots=True)
@@ -517,11 +520,23 @@ def check(box: boxes.Box, task: Declared) -> str | None:
     if current.refusal is not None:
         return current.refusal
     assert current.approval is not None
-    if task.id not in current.approval.tasks:
-        named = ", ".join(current.approval.tasks) or "no tasks"
+    wanted = task.spec_task.strip() if task.spec_task else task.id
+    if not wanted:
         return (
-            f"the task {task.id} is not in the spec package {package_id}: the package names "
-            f"{named}; a task that the package does not name has no accepted criterion"
+            f"the task declares spec_task as an empty name: the id of a task inside the "
+            f"package {package_id} is a name, and an empty one names nothing"
+        )
+    if wanted not in current.approval.tasks:
+        named = ", ".join(current.approval.tasks) or "no tasks"
+        if wanted == task.id:
+            return (
+                f"the task {task.id} is not in the spec package {package_id}: the package names "
+                f"{named}; a task that the package does not name has no accepted criterion"
+            )
+        return (
+            f"the task {task.id} names {wanted} inside the spec package {package_id}, and the "
+            f"package names {named}; a task that the package does not name has no accepted "
+            "criterion"
         )
     return None
 
@@ -598,6 +613,7 @@ def _plan_text(package: Package) -> str:
             "paths = [" + ", ".join(_quote(item) for item in task.paths) + "]",
             f"expected = {_quote(task.expected)}",
             f"spec = {_quote(package.id)}",
+            "repro = [" + ", ".join(_quote(item) for item in task.repro) + "]",
             "[step.contract]",
             f"symptom = {_quote(task.contract.symptom)}",
             f"visible = {_quote(task.contract.visible)}",

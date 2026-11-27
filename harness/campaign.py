@@ -47,6 +47,7 @@ STEP_KEYS = frozenset(
         "records",
         "contract",
         "spec",
+        "repro",
     }
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
@@ -80,6 +81,14 @@ class Step:
 
     spec: str | None = None
     """The spec package this step rests on; a feature step without one is refused."""
+
+    repro: tuple[str, ...] = ()
+    """The hidden check the package's task declared: what decides the step, not the model.
+
+    A step born from a package must carry the task's reproduction, or the verdict would judge
+    the project's checks instead of the criterion the owner accepted. ``problems`` refuses a
+    step that names a package and declares no repro.
+    """
 
 
 @dataclass(frozen=True, slots=True)
@@ -253,6 +262,11 @@ def problems(
             )
         if not step.paths:
             found.append(f"step {step.id}: declares no paths, so nothing is in scope")
+        if step.kind == "feature" and step.spec is not None and not step.repro:
+            found.append(
+                f"step {step.id}: rests on the spec package {step.spec} but declares no repro, "
+                "so the package's criterion would not be checked"
+            )
         if not routes.get(step.kind, ()):
             known = ", ".join(sorted(routes))
             found.append(
@@ -381,6 +395,8 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
         records=step.records,
         contract=step.contract,
         spec=step.spec,
+        spec_task=step.id if step.spec is not None else None,
+        repro=step.repro,
     )
 
 
@@ -403,7 +419,11 @@ def record_step(
     previous = read_state(box, campaign)
     steps = dict(previous.steps) if previous is not None else {}
     before = None if previous is None else previous.steps.get(step.id)
-    attempts = (before.attempts if before is not None else 0) + 1
+    # An attempt is a dispatch that reached the model. A refusal at the gate spent nothing and
+    # wrote nothing, so it records the fact without using one of the plan's attempts; a previous
+    # refusal therefore counts as zero, even when an older record stored it as one.
+    used = 0 if before is None or before.state == "refused" else before.attempts
+    attempts = used + (0 if _result_state(result) == "refused" else 1)
     stop = ""
     if result.repeated:
         stop = (
@@ -510,6 +530,13 @@ def retry(box: boxes.Box, campaign: Campaign, step: Step, state: State | None) -
         return None
     if recorded.stop:
         return Retry(False, recorded.stop)
+    if recorded.state == "refused" and recorded.cents == 0:
+        return Retry(
+            True,
+            "the dispatch was refused at the gate before any model call: no attempt at the work "
+            "was used, and a retry after the task or the gate changes is not the same attempt "
+            "repeated",
+        )
     if recorded.state == "noop":
         return Retry(True, "the step wrote nothing: the work still has to be done")
     if recorded.attempts >= campaign.attempts:
@@ -697,7 +724,10 @@ def render(report: Report) -> list[str]:
         mark = "not started"
         if state is not None:
             mark = f"{state.state} ({state.verdict})" if state.verdict else state.state
-            mark += f", attempt {state.attempts} of {campaign.attempts}"
+            if state.attempts:
+                mark += f", attempt {state.attempts} of {campaign.attempts}"
+            else:
+                mark += ", no model attempt"
         depends = f" after {', '.join(step.depends_on)}" if step.depends_on else ""
         lines.append(f"  {step.id:<10} {step.kind:<14} {mark}{depends}")
         decision = report.retries.get(step.id)
@@ -823,6 +853,11 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         or max_read_chars <= 0
     ):
         raise boxes.HarnessError(f"{where}: max_read_chars must be a positive whole number")
+    raw_repro = entry.get("repro", [])
+    if not isinstance(raw_repro, list) or not all(
+        isinstance(item, str) and item.strip() for item in raw_repro
+    ):
+        raise boxes.HarnessError(f"{where}: repro must be a list of non-empty strings")
     return Step(
         id=identifier,
         goal=_text(entry.get("goal")) or "",
@@ -836,6 +871,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         records=augustus.record_addresses(entry.get("records", []), where),
         contract=augustus._contract(entry.get("contract"), Path(where)),
         spec=_text(entry.get("spec")),
+        repro=tuple(item.strip() for item in raw_repro),
     )
 
 
@@ -889,9 +925,10 @@ def _read_steps(path: Path, data: object) -> dict[str, StepState]:
                 f"{path}: step {identifier!r} has verdict {verdict!r}, which the checks do not use"
             )
         attempts = entry.get("attempts", 1)
-        if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 1:
+        if isinstance(attempts, bool) or not isinstance(attempts, int) or attempts < 0:
             raise boxes.HarnessError(
-                f"{path}: step {identifier!r} attempts must be a positive whole number"
+                f"{path}: step {identifier!r} attempts must be a whole number, zero when the "
+                "dispatch was refused before any model call"
             )
         found[str(identifier)] = StepState(
             state=state,
