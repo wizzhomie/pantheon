@@ -71,7 +71,8 @@ def test_the_prompt_says_read_only_scope_and_one_diff_only() -> None:
     assert "только на чтение" in prompt
     assert "git apply" in prompt and "ERROR:" in prompt
     assert "Запрещено: delete" in prompt
-    assert "Проверить себя можно" in prompt
+    assert "только когда карточка называет" in prompt
+    assert "не ищи обходных путей" in prompt
     assert "/opt/data/work/" in prompt
     assert "пути в дифе всё равно от корня проекта" in prompt
 

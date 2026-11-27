@@ -170,9 +170,13 @@ def test_up_seeds_the_agent_home_once(tmp_path: Path, monkeypatch: pytest.Monkey
     container.up(box, IMAGE)
     assert (box.root / "cella" / "SOUL.md").is_file()
     log = (tmp_path / "docker.log").read_text(encoding="utf-8")
-    # The file the image writes becomes the agent's home: it must belong to the caller,
-    # not to root, or the agent's own backup of it fails on the first answer.
-    assert f"run --rm --no-deps -T -u {os.getuid()} augustus" in log
+    # The seed runs as root on purpose: the image refuses `--user` at boot, and the home
+    # still belongs to the caller because compose carries HERMES_UID/HERMES_GID and the
+    # image remaps what it writes. A `-u` here is the old attempt at the same thing.
+    assert "run --rm --no-deps -T augustus" in log
+    seeds = [line for line in log.splitlines() if "config set" in line]
+    assert seeds and all(" -u " not in line for line in seeds), seeds
+    assert f"HERMES_UID={os.getuid()}" in (box.root / "compose.yaml").read_text(encoding="utf-8")
     state = box.root / "cella" / "SOUL.md"
     state.write_text("edited by the owner", encoding="utf-8")
     (box.root / "cella" / "config.yaml").write_text("model: fake\n", encoding="utf-8")

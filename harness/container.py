@@ -249,10 +249,10 @@ def _prepare(box: boxes.Box) -> None:
                 "--rm",
                 "--no-deps",
                 "-T",
-                # The home belongs to the host user: a root-owned config.yaml makes the
-                # agent's own backup of it fail on the first answer (`Permission denied`).
-                "-u",
-                str(os.getuid()),
+                # The seed must not pass `--user`: the image refuses to start with an
+                # arbitrary UID and says so instead of running. Ownership is already right
+                # — compose carries HERMES_UID/HERMES_GID, and the image remaps the files
+                # it writes to them, so running as root here lands the home on the caller.
                 SERVICE,
                 HERMES,
                 "config",
