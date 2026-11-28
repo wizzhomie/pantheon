@@ -717,6 +717,13 @@
       return;
     }
     const wav = encodeWav(done.chunks);
+    if (peakOf(done.chunks) < 0.008) {
+      voice = null;
+      renderVoice();
+      notice = "В записи тишина: микрофон ничего не услышал.";
+      renderThread();
+      return;
+    }
     if (!wav) {
       voice = null;
       renderVoice();
@@ -725,6 +732,14 @@
       return;
     }
     sendAudio(wav);
+  }
+
+  function peakOf(chunks) {
+    let peak = 0;
+    for (const chunk of chunks) {
+      for (const sample of chunk) peak = Math.max(peak, Math.abs(sample));
+    }
+    return peak;
   }
 
   function encodeWav(chunks) {
