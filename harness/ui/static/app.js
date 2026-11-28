@@ -10,6 +10,9 @@
   let thread = [];
   let busy = false;
   let notice = "";
+  let pending = null;
+  let actJob = null;
+  let lastResult = null;
 
   // ── helpers ──────────────────────────────────────────────────────
 
@@ -40,6 +43,15 @@
   function cents(value) {
     if (value === null || value === undefined || Number.isNaN(Number(value))) return "—";
     return `${Number(value).toFixed(2).replace(".", ",")}¢`;
+  }
+
+  function spentOf(campaign) {
+    const spent = campaign.spend;
+    const ceiling = (campaign.budget || {}).max_cents;
+    if (spent === null || spent === undefined) return "nothing spent yet";
+    return ceiling === null || ceiling === undefined
+      ? `${cents(spent)} spent`
+      : `${cents(spent)} of ${cents(ceiling)}`;
   }
 
   function shortDigest(value) {
@@ -236,6 +248,147 @@
       : "Message the architect…";
   }
 
+  // ── acts ─────────────────────────────────────────────────────────
+
+  function ask(entry) {
+    pending = { ...entry, confirm: entry.id === "step.run" ? "Run step" : "Confirm" };
+    renderActions();
+  }
+
+  function cancelAct() {
+    pending = null;
+    renderActions();
+  }
+
+  function actButton(entry) {
+    return h("button", {
+      class: `act${entry.money ? " money" : ""}`,
+      type: "button",
+      title: entry.detail,
+      disabled: entry.enabled === false,
+      onclick: () => ask(entry),
+    },
+      h("span", { class: "actname" }, entry.label),
+      entry.detail ? h("span", { class: "actdetail" }, entry.detail) : null);
+  }
+
+  function renderActions() {
+    const bar = $("actbar");
+    if (!state) { bar.hidden = true; return; }
+    if (pending) { renderAsk(); return; }
+    if (actJob && !actJob.done) { renderRunning(); return; }
+    const offered = meta().actions || [];
+    if (!offered.length) { bar.hidden = true; clear(bar); return; }
+    bar.hidden = false;
+    clear(bar, h("span", { class: "actlabel mono" }, "ACTIONS"), ...offered.map(actButton));
+  }
+
+  function renderAsk() {
+    const bar = $("actbar");
+    bar.hidden = false;
+    const field = pending.note
+      ? h("input", {
+          id: "actnote", class: "actnote", autocomplete: "off",
+          placeholder: pending.note, "aria-label": pending.note,
+        })
+      : null;
+    const how = pending.money
+      ? "Spends money and writes into the project."
+      : "Writes a record into the box.";
+    clear(bar,
+      h("div", { class: "actask" },
+        h("div", { class: "actname" }, pending.label),
+        h("div", { class: "acthint" }, `${how} ${pending.detail || ""}`.trim()),
+        field),
+      h("div", { class: "actrow" },
+        h("button", { class: `act go${pending.money ? " money" : ""}`, type: "button", onclick: confirmAct },
+          pending.confirm),
+        h("button", { class: "act stop", type: "button", onclick: cancelAct }, "Cancel")));
+    if (field) {
+      field.focus();
+      field.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") { event.preventDefault(); confirmAct(); }
+        if (event.key === "Escape") { event.preventDefault(); cancelAct(); }
+      });
+    }
+  }
+
+  function renderRunning() {
+    const bar = $("actbar");
+    bar.hidden = false;
+    clear(bar,
+      h("span", { class: "actlabel mono" }, "RUNNING"),
+      h("div", { class: "actask" },
+        h("div", { class: "actname" }, actJob.label),
+        h("div", { class: "acthint" }, "the gate is working: a step can take minutes, and the page says when it ends")),
+      h("div", { class: "thinking" }, h("i"), h("i"), h("i")));
+  }
+
+  async function confirmAct() {
+    if (!pending) return;
+    const asked = pending;
+    const params = { ...asked.params };
+    const field = $("actnote");
+    if (asked.note && field) params.note = field.value.trim();
+    pending = null;
+    renderActions();
+    try {
+      const data = await api("/api/action", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action: asked.id, params, box: boxName }),
+      });
+      actJob = data.job;
+    } catch (error) {
+      notice = `Кнопка не сработала: ${error.message}`;
+      render();
+      return;
+    }
+    renderActions();
+    renderAgents();
+    pollJob(actJob.id);
+  }
+
+  async function pollJob(identifier) {
+    for (;;) {
+      await new Promise((rest) => setTimeout(rest, 1200));
+      let data = null;
+      try {
+        data = await api(`/api/action?id=${encodeURIComponent(identifier)}`);
+      } catch (error) {
+        actJob = null;
+        notice = `Действие потерялось: ${error.message}`;
+        render();
+        return;
+      }
+      actJob = data.job;
+      renderActions();
+      renderAgents();
+      if (!actJob || actJob.done) break;
+    }
+    if (actJob && actJob.done) await finishJob();
+  }
+
+  async function finishJob() {
+    const job = actJob;
+    actJob = null;
+    lastResult = job;
+    await loadState();
+    render();
+  }
+
+  function resultBlock() {
+    if (!lastResult) return null;
+    const failed = Boolean(lastResult.error) || lastResult.ok === false;
+    const said = lastResult.error
+      ? `Отказ: ${lastResult.error}`
+      : lastResult.sentence || "готово";
+    return h("div", { class: `resultcard${failed ? " bad" : ""}` },
+      h("div", { class: "sentence" }, ...rich(said).childNodes),
+      ...(lastResult.lines || []).filter(Boolean).map((line) =>
+        h("div", { class: "line mono" }, line)));
+  }
+
   // ── thread ───────────────────────────────────────────────────────
 
   function avatar() {
@@ -274,7 +427,7 @@
       ? h("div", { class: "card" },
           h("div", { class: "label mono" }, "CAMPAIGN"),
           h("div", { class: "title" }, campaign.goal || campaign.campaign),
-          h("div", { class: "sub" }, `${campaign.steps ? campaign.steps.length : 0} steps · ${cents(campaign.spend)} of ${cents((campaign.budget || {}).max_cents)}`))
+          h("div", { class: "sub" }, `${campaign.steps ? campaign.steps.length : 0} steps · ${spentOf(campaign)}`))
       : null;
     return h("div", { class: `answer ${role === "orchestrator" ? "orch" : "arch"}` },
       avatar(),
@@ -316,12 +469,21 @@
         h("div", { class: "body" },
           h("div", { class: "thinking" }, h("i"), h("i"), h("i"), " thinking…"))));
     }
+    const result = resultBlock();
+    if (result) nodes.push(result);
     if (notice) nodes.push(h("div", { class: "notice" }, notice));
     clear(threadNode, ...nodes);
     threadNode.scrollTop = threadNode.scrollHeight;
   }
 
   // ── right panel ──────────────────────────────────────────────────
+
+  function dotClass(state) {
+    if (state === "running") return "live";
+    if (state === "done") return "done";
+    if (state === "stopped") return "bad";
+    return "";
+  }
 
   function renderAgents() {
     const campaign = currentCampaign();
@@ -330,22 +492,51 @@
       ? steps.map((step) => ({
           name: titleCase(step.kind || "step"),
           note: [step.id, (step.paths || []).slice(0, 1).join("")].filter(Boolean).join(" · "),
-          state: isRunning(step) ? "running" : isClosed(step) ? "done" : "queued",
+          state: isRunning(step) ? "running" : isClosed(step) ? "done"
+            : stepState(step) ? "stopped" : "queued",
+          step: step.id,
+          kind: step.kind,
+          run: step.run || {},
         }))
       : (meta().tasks || []).slice(-4).map((task) => ({
           name: titleCase(task.state === "closed" ? "task" : "task"),
           note: `${task.id} · ${task.verify || "not verified"}`,
           state: task.state === "closed" ? "done" : task.state === "running" ? "running" : "queued",
+          step: null,
+          run: {},
         }));
+    if (actJob && !actJob.done) {
+      rows.unshift({ name: actJob.label, note: "the gate is working", state: "running", step: null, run: {} });
+    }
     const live = rows.filter((row) => row.state === "running").length;
     $("agentscount").textContent = `${live} running`;
     clear($("agents"), ...(rows.length ? rows.map((row) =>
       h("div", { class: `agentrow${row.state === "running" ? " live" : ""}` },
         h("div", { class: "head" },
-          h("span", { class: `dot ${row.state === "running" ? "live" : row.state === "done" ? "done" : ""}` }),
+          h("span", { class: `dot ${dotClass(row.state)}` }),
           h("span", { class: "name" }, row.name),
-          h("span", { class: `badge ${row.state === "running" ? "live" : row.state === "done" ? "done" : ""}` },
-            row.state)),
+          row.step && row.state !== "done"
+            ? h("button", {
+                class: "taskrun", type: "button",
+                title: row.run.why || "run this step",
+                disabled: row.run.allowed !== true,
+                "aria-label": `Run ${row.step}`,
+                onclick: () => ask({
+                  id: "step.run",
+                  label: `Run ${humanStep({ id: row.step })}`,
+                  detail: `${campaign.campaign} · ${row.kind}${row.run.retry ? " · another attempt" : ""}`,
+                  params: {
+                    campaign: campaign.campaign,
+                    step: row.step,
+                    retry: row.run.retry ? "1" : "0",
+                  },
+                  money: true,
+                  note: "",
+                  enabled: true,
+                }),
+              }, "▸")
+            : null,
+          h("span", { class: `badge ${dotClass(row.state)}` }, row.state)),
         h("div", { class: "note" }, row.note)))
       : [h("div", { class: "agentrow" }, h("div", { class: "emptyline" }, "No agents yet."))]));
   }
@@ -400,6 +591,7 @@
     renderSessions();
     renderTrajan();
     renderTopbar();
+    renderActions();
     renderThread();
     renderAgents();
     renderTasks();
@@ -500,6 +692,17 @@
     }
     await loadState();
     await loadThread();
+    try {
+      const data = await api("/api/action");
+      if (data.job && !data.job.done) {
+        actJob = data.job;
+        renderActions();
+        renderAgents();
+        pollJob(actJob.id);
+      }
+    } catch {
+      // the lane is a nicety: a page that cannot read it still reads the box
+    }
     setInterval(() => {
       if (document.visibilityState === "visible") loadState();
     }, 8000);

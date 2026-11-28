@@ -163,6 +163,52 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--red); outli
 }
 .trajan .text { font-size: 12.5px; color: var(--ink-soft); margin-top: 4px; line-height: 1.45; }
 
+/* ── acts: the owner's mark, one lane ────────────────────────────── */
+
+.actbar {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  padding: 10px 28px; border-bottom: 1px solid var(--line);
+  background: var(--panel);
+}
+.actlabel { font-size: 10.5px; letter-spacing: 0.09em; color: var(--faint); }
+.act {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 2px;
+  border: 1px solid var(--line); border-radius: 10px; background: #fff;
+  padding: 7px 12px; font: inherit; font-size: 12.5px; color: var(--ink);
+  cursor: pointer; text-align: left; max-width: 320px;
+  box-shadow: 0 1px 2px rgba(60, 10, 12, 0.06);
+}
+.act:hover:not(:disabled) {
+  border-color: #d9c7c3; box-shadow: 0 3px 10px rgba(60, 10, 12, 0.1);
+}
+.act:disabled { opacity: 0.5; cursor: default; }
+.act .actname { font-weight: 600; }
+.act .actdetail {
+  font-family: var(--mono); font-size: 10.5px; color: var(--faint);
+  line-height: 1.35; white-space: normal;
+}
+.act.go {
+  flex-direction: row; align-items: center; gap: 8px;
+  background: var(--ink); color: #fff; border-color: var(--ink);
+  padding: 8px 16px; font-weight: 600;
+}
+.act.go.money {
+  background: linear-gradient(180deg, var(--red-bright), var(--red-deep));
+  border-color: var(--red-deep);
+}
+.act.stop {
+  flex-direction: row; align-items: center;
+  background: transparent; color: var(--ink-soft); padding: 8px 12px;
+}
+.actask { display: flex; flex-direction: column; gap: 3px; flex: 1 1 320px; }
+.actask .actname { font-weight: 600; font-size: 13px; }
+.acthint { font-size: 12px; color: var(--muted); line-height: 1.4; }
+.actnote {
+  margin-top: 5px; border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font: inherit; font-size: 13px; background: #fff; max-width: 460px;
+}
+.actrow { display: flex; gap: 8px; margin-left: auto; align-items: center; }
+
 /* ── main: chat ──────────────────────────────────────────────────── */
 
 .main {
@@ -306,14 +352,16 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--red); outli
 .agentrow .dot { width: 8px; height: 8px; border-radius: 50%; flex: none; background: #bfb3b1; }
 .agentrow .dot.live { background: var(--red); }
 .agentrow .dot.done { background: var(--ink); }
-.agentrow .name { font-weight: 600; font-size: 13.5px; }
+.agentrow .dot.bad { background: #fbe4e2; border: 1.5px solid var(--red-deep); }
+.agentrow .name { font-weight: 600; font-size: 13.5px; flex: 1; }
 .agentrow .badge {
-  margin-left: auto; font-size: 11px; font-weight: 600;
+  font-size: 11px; font-weight: 600;
   padding: 2px 8px; border-radius: 20px;
   background: #f1e8e6; color: var(--ink-soft);
 }
 .agentrow .badge.live { background: var(--red); color: #fff; }
 .agentrow .badge.done { background: var(--ink); color: #fff; }
+.agentrow .badge.bad { background: #fbe4e2; color: var(--red-deep); }
 .agentrow .note {
   font-family: var(--mono); font-size: 11.5px; color: var(--muted);
   margin-top: 5px; padding-left: 16px;
@@ -355,6 +403,24 @@ button:focus-visible, input:focus-visible { outline: 2px solid var(--red); outli
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+.taskrun {
+  margin-left: auto; flex: none; width: 22px; height: 22px; border-radius: 50%;
+  border: 1px solid var(--line); background: #fff; color: var(--red);
+  font-size: 11px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+}
+.taskrun:hover:not(:disabled) { background: var(--red); border-color: var(--red); color: #fff; }
+.taskrun:disabled { color: #cdbfbc; border-style: dashed; cursor: default; }
+
+.resultcard {
+  border: 1px solid var(--line); border-left: 3px solid var(--ink);
+  background: var(--panel); border-radius: 10px; padding: 12px 14px;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.resultcard.bad { border-left-color: var(--red); background: #fdf3f2; }
+.resultcard .sentence { font-size: 13.5px; line-height: 1.5; color: var(--ink); }
+.resultcard .line { font-size: 11px; color: var(--muted); overflow-wrap: anywhere; }
 
 .emptyline { color: var(--muted); font-size: 13px; padding: 10px 0; }
 

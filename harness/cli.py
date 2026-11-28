@@ -1796,7 +1796,8 @@ def _ui(args: argparse.Namespace, root: Path) -> int:
     url = f"http://{args.host}:{args.port}/?t={token}"
     print(f"workscreen {box.name}: {url}", flush=True)
     print(
-        "the page is read-only; the conversations are recorded in the box's ui/chat/",
+        "the page reads the box, and acts only through the gates the CLI uses; "
+        "the conversations are recorded in the box's ui/chat/",
         flush=True,
     )
     try:

@@ -1,11 +1,14 @@
-"""The workscreen's HTTP face: one local page, a small JSON API, and no writes into the project.
+"""The workscreen's HTTP face: one local page, a small JSON API, and the box's own token.
 
 The server answers only for the box it was started with, and only to a caller that presents the
 box's token: the page can spend money on a conversation, so "anyone who reaches the port" is not
 the same as "the owner". The token is a file in the box's own volume, mode 600, never a default.
 
-There is no upload, no form post and no route that changes a project: the page asks, reads and
-talks. Anything that would write arrives as a task on the box, where the gates already are.
+Reading is the page's ordinary work: it asks, and the answer is composed from disk. Writing goes
+through one door — ``POST /api/action`` — and that door opens only onto
+:mod:`harness.ui.actions`, where every act is the CLI's own function and every refusal is the
+gate's own sentence. Two clicks cannot start two steps: the server keeps one lane, and the second
+click is told what is running.
 """
 
 from __future__ import annotations
@@ -13,13 +16,16 @@ from __future__ import annotations
 import json
 import re
 import secrets
+import threading
 import urllib.parse
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from .. import box as boxes
-from . import chat, state
+from . import actions, chat, state
 
 STATIC_DIR = Path(__file__).with_name("static")
 TOKEN_FILE = Path("ui") / "token"
@@ -32,6 +38,41 @@ TYPES = {
     ".woff2": "font/woff2",
 }
 MAX_BODY = 64 * 1024
+MAX_JOBS = 20
+"""Finished jobs kept in memory: enough for a page that reloads, not a history (the box has one)."""
+
+
+class Busy(boxes.HarnessError):
+    """Another act is on the lane: the page is told which one, and may ask again."""
+
+
+@dataclass
+class Job:
+    """One act in flight or done: what was asked, and what the gate answered."""
+
+    id: str
+    action: str
+    label: str
+    started: str
+    finished: str | None = None
+    result: actions.Result | None = None
+    error: str | None = None
+
+    def json(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "action": self.action,
+            "label": self.label,
+            "started": self.started,
+            "finished": self.finished,
+            "done": self.finished is not None,
+            "sentence": None if self.result is None else self.result.sentence,
+            "lines": [] if self.result is None else list(self.result.lines),
+            "cents": None if self.result is None else self.result.cents,
+            "record": None if self.result is None else self.result.record,
+            "ok": None if self.result is None else self.result.ok,
+            "error": self.error,
+        }
 
 
 def token_for(box: boxes.Box) -> str:
@@ -51,7 +92,7 @@ def token_for(box: boxes.Box) -> str:
 
 
 class Workscreen(ThreadingHTTPServer):
-    """A server bound to one box: the state it shows and the token it accepts."""
+    """A server bound to one box: the state it shows, the token it accepts, one lane for acts."""
 
     daemon_threads = True
 
@@ -60,6 +101,68 @@ class Workscreen(ThreadingHTTPServer):
         self.root = root
         self.box_name = name
         self.token = token
+        self.lane = threading.Lock()
+        self.jobs: dict[str, Job] = {}
+        self.running: str | None = None
+
+    def start(self, box: boxes.Box, action: str, params: dict[str, str]) -> Job:
+        """Begin one act on the lane, or say which act already holds it."""
+        if action not in actions.ACTIONS:
+            raise boxes.HarnessError(
+                f"no action {action!r}: the page offers " + ", ".join(actions.ACTIONS)
+            )
+        if not self.lane.acquire(blocking=False):
+            current = self.jobs.get(self.running or "")
+            raise Busy(
+                "one act at a time: "
+                + (current.label if current is not None else "another action")
+                + " is still running; the page will say when it ends"
+            )
+        job = Job(
+            id=secrets.token_urlsafe(9),
+            action=action,
+            label=_label(action, params),
+            started=_stamp(),
+        )
+        self.jobs[job.id] = job
+        self.running = job.id
+        threading.Thread(target=self._perform, args=(job, box, params), daemon=True).start()
+        self._forget_old()
+        return job
+
+    def _perform(self, job: Job, box: boxes.Box, params: dict[str, str]) -> None:
+        try:
+            job.result = actions.run(box, job.action, params)
+        except boxes.HarnessError as error:
+            job.error = str(error)
+        except Exception as error:  # a job must end: a page cannot be left polling forever
+            job.error = f"{type(error).__name__}: {error}"
+        finally:
+            job.finished = _stamp()
+            self.running = None
+            self.lane.release()
+
+    def _forget_old(self) -> None:
+        if len(self.jobs) <= MAX_JOBS:
+            return
+        done = [item.id for item in self.jobs.values() if item.finished is not None]
+        for identifier in done[: len(self.jobs) - MAX_JOBS]:
+            self.jobs.pop(identifier, None)
+
+
+def _label(action: str, params: dict[str, str]) -> str:
+    """What is running, in the words of the thing it acts on: a page shows this, not an id."""
+    if action == "plan.approve":
+        return "Approve plan"
+    if action == "spec.accept":
+        return "Accept " + params.get("package", "the package")
+    if action == "step.run":
+        return "Run " + params.get("step", "the step")
+    return "Run " + params.get("campaign", "the campaign")
+
+
+def _stamp() -> str:
+    return datetime.now(UTC).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 class _Handler(BaseHTTPRequestHandler):
@@ -96,6 +199,18 @@ class _Handler(BaseHTTPRequestHandler):
                 self._guard(lambda: {"role": role, "messages": chat.read(self._box(name), role)})
             )
             return
+        if parsed.path == "/api/action":
+            identifier = (query.get("id") or [""])[0]
+            if identifier:
+                job = self.server.jobs.get(identifier)
+                if job is None:
+                    self._json({"error": f"no action {identifier}"}, 404)
+                    return
+                self._json({"job": job.json()})
+                return
+            running = self.server.jobs.get(self.server.running or "")
+            self._json({"job": None if running is None else running.json()})
+            return
         self._json({"error": f"no route {parsed.path}"}, 404)
 
     def do_POST(self) -> None:
@@ -104,25 +219,14 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._allowed(query):
             self._json({"error": "a token is required"}, 403)
             return
-        if parsed.path != "/api/chat":
+        if parsed.path not in {"/api/chat", "/api/action"}:
             self._json({"error": f"no route {parsed.path}"}, 404)
             return
-        length = self.headers.get("Content-Length")
-        try:
-            size = int(length) if length else 0
-        except ValueError:
-            size = 0
-        if size <= 0 or size > MAX_BODY:
-            self._json({"error": "the body is empty or larger than 64 KB"}, 400)
+        data = self._body()
+        if data is None:
             return
-        raw = self.rfile.read(size)
-        try:
-            data = json.loads(raw.decode("utf-8"))
-        except (UnicodeDecodeError, json.JSONDecodeError):
-            self._json({"error": "the body is not JSON"}, 400)
-            return
-        if not isinstance(data, dict):
-            self._json({"error": "the body is not an object"}, 400)
+        if parsed.path == "/api/action":
+            self._act(data)
             return
         raw_role = data.get("role")
         role = raw_role if isinstance(raw_role, str) else "orchestrator"
@@ -135,6 +239,58 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(answer, 400)
             return
         self._json({"role": role, **answer})
+
+    def _act(self, data: dict[str, Any]) -> None:
+        """One act, through the same gate the command uses: refused with its own words."""
+        raw_action = data.get("action")
+        action = raw_action if isinstance(raw_action, str) else ""
+        raw_params = data.get("params")
+        params: dict[str, str] = {}
+        if isinstance(raw_params, dict):
+            for key, value in raw_params.items():
+                if not isinstance(key, str) or not isinstance(value, str):
+                    self._json({"error": "action parameters are strings, one key each"}, 400)
+                    return
+                params[key] = value
+        elif raw_params is not None:
+            self._json({"error": "action parameters are strings, one key each"}, 400)
+            return
+        raw_name = data.get("box")
+        name = raw_name if isinstance(raw_name, str) else self.server.box_name
+        try:
+            job = self.server.start(self._box(name), action, params)
+        except Busy as error:
+            running = self.server.jobs.get(self.server.running or "")
+            self._json(
+                {"error": str(error), "job": None if running is None else running.json()}, 409
+            )
+            return
+        except boxes.HarnessError as error:
+            self._json({"error": str(error)}, 400)
+            return
+        self._json({"job": job.json()}, 202)
+
+    def _body(self) -> dict[str, Any] | None:
+        """The JSON object a POST carried, or ``None`` when the answer was already a refusal."""
+        length = self.headers.get("Content-Length")
+        try:
+            size = int(length) if length else 0
+        except ValueError:
+            size = 0
+        if size <= 0 or size > MAX_BODY:
+            self._json({"error": "the body is empty or larger than 64 KB"}, 400)
+            return None
+        raw = self.rfile.read(size)
+        try:
+            data = json.loads(raw.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            self._json({"error": "the body is not JSON"}, 400)
+            return None
+        if not isinstance(data, dict):
+            self._json({"error": "the body is not an object"}, 400)
+            return None
+        result: dict[str, Any] = data
+        return result
 
     def log_message(self, format: str, *args: Any) -> None:
         """Keep the terminal quiet; a page is polled, not read line by line."""

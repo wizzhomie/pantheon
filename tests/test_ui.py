@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import threading
+import time
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -18,7 +19,8 @@ from typing import Any
 import pytest
 
 from harness import box as boxes
-from harness.ui import chat, server, state
+from harness import rails
+from harness.ui import actions, chat, server, state
 
 
 def make_box(tmp_path: Path) -> boxes.Box:
@@ -267,3 +269,212 @@ def test_chat_speaks_to_the_declared_endpoint(
     assert seen["auth"] == "Bearer sk-stub"
     assert seen["body"]["messages"][0]["role"] == "system"
     assert seen["body"]["messages"][-1] == {"role": "user", "content": "что дальше?"}
+
+
+FRAME = """\
+schema_version = 1
+
+[brief]
+why = "the harness must not let a task drift"
+for = "the owner"
+success = "every task names the milestone it serves"
+
+[[goal]]
+text = "a task that serves nothing is refused"
+
+[[milestone]]
+id = "M1"
+title = "rails"
+closes_when = "a task names a milestone and the gate checks it"
+metric = "drift"
+
+[[metric]]
+name = "drift"
+direction = "down"
+threshold = "zero tasks outside the plan"
+
+[[principle]]
+text = "evidence over claims"
+why = "a run that cannot be re-read is not evidence"
+"""
+
+CAMPAIGN = """\
+schema_version = 1
+id = "c-1"
+goal = "the note exists and is checked"
+
+[[step]]
+id = "s1"
+goal = "write the note"
+kind = "docs"
+paths = ["docs/**"]
+expected = "a section in the docs"
+[step.contract]
+symptom = "the note is missing"
+visible = "a section in docs"
+boundaries = "docs/**"
+missing = ""
+
+[[step]]
+id = "s2"
+goal = "check the note"
+kind = "docs"
+paths = ["docs/**"]
+expected = "the note is checked"
+depends_on = ["s1"]
+[step.contract]
+symptom = "the note is unchecked"
+visible = "the note is checked"
+boundaries = "docs/**"
+missing = ""
+
+[[acceptance]]
+id = "a1"
+statement = "the docs carry the note"
+step = "s1"
+"""
+
+
+def rails_project(box: boxes.Box) -> None:
+    (box.project / ".pantheon").mkdir()
+    (box.project / ".pantheon" / "rails.toml").write_text(FRAME, encoding="utf-8")
+
+
+def plan_project(box: boxes.Box, text: str = CAMPAIGN, name: str = "c-1.toml") -> None:
+    directory = box.project / ".pantheon" / "expeditiones"
+    directory.mkdir(parents=True, exist_ok=True)
+    (directory / name).write_text(text, encoding="utf-8")
+
+
+def test_a_fresh_box_offers_no_act(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    data = state.overview(tmp_path / "castra", box.name)
+    assert data["packages"] == []
+    assert data["actions"] == []
+
+
+def test_a_step_offers_a_run_button_only_when_what_it_waits_for_holds(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan_project(box)
+    data = state.overview(tmp_path / "castra", box.name)
+    steps = data["campaigns"][0]["steps"]
+    assert steps[0]["run"]["allowed"] is True
+    assert steps[1]["run"]["allowed"] is False
+    assert "waits for s1" in steps[1]["run"]["why"]
+
+
+def test_an_auto_campaign_offers_one_button_and_a_manual_one_does_not(tmp_path: Path) -> None:
+    box = make_box(tmp_path)
+    plan_project(box)
+    offered = [item["id"] for item in state.overview(tmp_path / "castra", box.name)["actions"]]
+    assert offered == []
+    auto = CAMPAIGN.replace(
+        'goal = "the note exists and is checked"',
+        'goal = "the note exists and is checked"\nmode = "auto"',
+    )
+    plan_project(box, auto)
+    offered = [item["id"] for item in state.overview(tmp_path / "castra", box.name)["actions"]]
+    assert offered == ["campaign.advance"]
+
+
+def test_a_package_that_is_not_accepted_offers_its_own_button() -> None:
+    payload = {
+        "packages": [
+            {"id": "s-1", "state": "never", "tasks": ["a", "b"]},
+            {"id": "s-2", "state": "accepted", "tasks": []},
+        ]
+    }
+    found = actions.buttons(payload)
+    assert [item["id"] for item in found] == ["spec.accept"]
+    assert found[0]["params"] == {"package": "s-1"}
+    assert found[0]["label"] == "Accept s-1"
+
+
+class ActScreen(Screen):
+    """A screen whose box already has a project file in it: the acts need something to act on."""
+
+    def wait(self, identifier: str, timeout: float = 20.0) -> dict[str, Any]:
+        moment = 0.0
+        while moment < timeout:
+            code, body = self.get(f"/api/action?id={identifier}", self.token)
+            assert code == 200
+            job: dict[str, Any] = json.loads(body)["job"]
+            if job["done"]:
+                return job
+            moment += 0.02
+            time.sleep(0.02)
+        raise AssertionError(f"the action {identifier} did not finish")
+
+
+def test_the_owner_marks_the_plan_through_the_page(tmp_path: Path) -> None:
+    screen = ActScreen(tmp_path)
+    try:
+        rails_project(screen.box)
+        rails.propose(screen.box, by="architect", note="первый вариант")
+        code, body = screen.get("/api/state", screen.token)
+        assert code == 200
+        offered = [item for item in json.loads(body)["actions"] if item["id"] == "plan.approve"]
+        assert offered and offered[0]["enabled"] is True
+        code, body = screen.post(
+            "/api/action",
+            {"action": "plan.approve", "params": {"note": "беру за основу"}},
+            screen.token,
+        )
+        assert code == 202
+        job = screen.wait(json.loads(body)["job"]["id"])
+        assert job["error"] is None
+        assert "План принят" in job["sentence"]
+        code, body = screen.get("/api/state", screen.token)
+        data = json.loads(body)
+        assert data["rails"]["standing"]["state"] == "approved"
+        assert data["actions"] == []
+        records = list((screen.box.root / "tabularium" / "forma").glob("rails-approval-*.json"))
+        assert records, "the mark is the same record the CLI writes"
+    finally:
+        screen.close()
+
+
+def test_the_page_refuses_an_act_it_does_not_know(tmp_path: Path) -> None:
+    screen = Screen(tmp_path)
+    try:
+        code, body = screen.post(
+            "/api/action", {"action": "rm -rf", "params": {}}, screen.token
+        )
+        assert code == 400
+        assert "no action" in json.loads(body)["error"]
+        code, _ = screen.post("/api/action", {"action": "plan.approve", "params": {}})
+        assert code == 403
+    finally:
+        screen.close()
+
+
+def test_a_second_act_is_told_what_is_running(tmp_path: Path) -> None:
+    screen = Screen(tmp_path)
+    try:
+        assert screen.server.lane.acquire(blocking=False)
+        try:
+            code, body = screen.post(
+                "/api/action", {"action": "plan.approve", "params": {}}, screen.token
+            )
+        finally:
+            screen.server.lane.release()
+        assert code == 409
+        assert "one act at a time" in json.loads(body)["error"]
+    finally:
+        screen.close()
+
+
+def test_an_act_refused_by_its_gate_is_a_sentence_not_a_crash(tmp_path: Path) -> None:
+    screen = ActScreen(tmp_path)
+    try:
+        code, body = screen.post(
+            "/api/action",
+            {"action": "campaign.advance", "params": {"campaign": "nope"}},
+            screen.token,
+        )
+        assert code == 202
+        job = screen.wait(json.loads(body)["job"]["id"])
+        assert job["error"] and "no campaign" in job["error"]
+        assert job["sentence"] is None
+    finally:
+        screen.close()
