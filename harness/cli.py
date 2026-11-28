@@ -41,6 +41,7 @@ from . import (
     study,
 )
 from . import box as boxes
+from .ui import server as screen
 
 DEFAULT_CASTRA = Path("~/pantheon/castra")
 NAME_HELP = "castrum name (default: the only one)"
@@ -643,6 +644,20 @@ def _parser() -> argparse.ArgumentParser:
 
     listing = commands.add_parser("list", help="every box under the boxes directory")
     listing.set_defaults(handler=_list)
+
+    screen = commands.add_parser(
+        "ui",
+        help="serve the workscreen: the box's state and two conversations about it",
+        description=(
+            "One local page, read-only over the box: frame, plan, tasks, runs and records, plus "
+            "two threads — the orchestrator's and the architect's — that answer from those facts "
+            "and name the price of every answer. The page needs the token the command prints."
+        ),
+    )
+    screen.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    screen.add_argument("--host", default="127.0.0.1", help="address to bind (default: localhost)")
+    screen.add_argument("--port", type=int, default=8792, help="port to bind (default: 8792)")
+    screen.set_defaults(handler=_ui)
 
     up = commands.add_parser("up", help="start the box's container (mount only, no agent yet)")
     up.add_argument("name", nargs="?", default=None, help="box name")
@@ -1768,6 +1783,28 @@ def _list(args: argparse.Namespace, root: Path) -> int:
         return 0
     for box in found:
         print(f"{box.name:<20} {box.project}  created {box.created}")
+    return 0
+
+
+def _ui(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    token = screen.token_for(box)
+    try:
+        server = screen.build(root, box.name, args.host, args.port, token)
+    except OSError as error:
+        raise boxes.HarnessError(f"cannot bind {args.host}:{args.port}: {error}") from error
+    url = f"http://{args.host}:{args.port}/?t={token}"
+    print(f"workscreen {box.name}: {url}", flush=True)
+    print(
+        "the page is read-only; the conversations are recorded in the box's ui/chat/",
+        flush=True,
+    )
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        print("\nworkscreen stopped")
+    finally:
+        server.server_close()
     return 0
 
 

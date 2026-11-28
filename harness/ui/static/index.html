@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pantheon — рабочее место</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app" id="app">
+
+  <aside class="rail">
+    <div class="brand">
+      <span class="mark">P</span>
+      <div><b>Pantheon</b><small>рабочее место</small></div>
+    </div>
+    <label class="boxpick">
+      <span>Коробка</span>
+      <select id="boxes"></select>
+    </label>
+    <nav class="nav" id="nav"></nav>
+    <div class="railfoot" id="railfoot"></div>
+  </aside>
+
+  <main class="stage">
+    <header class="stagehead" id="stagehead"></header>
+    <div class="view" id="view"></div>
+  </main>
+
+  <section class="talk" id="talk">
+    <header class="talkhead">
+      <div class="roles" id="roles"></div>
+      <button class="chip" id="closetalk" title="Закрыть разговор">✕</button>
+    </header>
+    <div class="messages" id="messages"></div>
+    <form class="composer" id="composer">
+      <textarea id="composertext" rows="2"
+        placeholder="Спросить про эту коробку…">
+      </textarea>
+      <div class="actions">
+        <span class="hint" id="hint">Ctrl+Enter — отправить; ответ стоит денег</span>
+        <button type="submit" id="send">→</button>
+      </div>
+    </form>
+  </section>
+
+</div>
+<script src="/static/app.js"></script>
+</body>
+</html>
