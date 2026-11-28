@@ -1,48 +1,95 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pantheon — рабочее место</title>
+<title>Pantheon — project workspace</title>
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<div class="app" id="app">
+<div class="shell">
 
-  <aside class="rail">
+  <aside class="sidebar">
     <div class="brand">
-      <span class="mark">P</span>
-      <div><b>Pantheon</b><small>рабочее место</small></div>
+      <div class="logo">P</div>
+      <div class="word">PANTHEON</div>
     </div>
-    <label class="boxpick">
-      <span>Коробка</span>
-      <select id="boxes"></select>
-    </label>
-    <nav class="nav" id="nav"></nav>
-    <div class="railfoot" id="railfoot"></div>
+
+    <button class="newproject" id="newproject" type="button">
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="#fff" stroke-width="2"
+        stroke-linecap="round" aria-hidden="true"><path d="M7 1v12M1 7h12"></path></svg>
+      New project
+    </button>
+
+    <nav class="projects" aria-label="Projects">
+      <div class="navlabel mono">PROJECTS</div>
+      <div id="projects"></div>
+      <div class="sessions" id="sessions"></div>
+    </nav>
+
+    <div class="trajan">
+      <div class="label mono">TRAJAN</div>
+      <div class="text" id="trajan">Verification is on. Nothing merges without a verdict.</div>
+    </div>
   </aside>
 
-  <main class="stage">
-    <header class="stagehead" id="stagehead"></header>
-    <div class="view" id="view"></div>
+  <main class="main">
+    <header class="topbar">
+      <div class="crumbs">
+        <span class="where" id="crumbbox">pantheon</span>
+        <span class="sep">/</span>
+        <strong id="crumbrole">Orchestrator</strong>
+      </div>
+      <div class="modes">
+        <div class="segmented" id="modes" role="group" aria-label="Mode">
+          <button type="button" id="mode-manual">Manual</button>
+          <button type="button" id="mode-auto">Auto</button>
+        </div>
+      </div>
+    </header>
+
+    <div class="thread" id="thread"></div>
+
+    <div class="composerwrap">
+      <form class="composer" id="composer">
+        <input id="text" autocomplete="off" aria-label="Message" placeholder="Message the orchestrator…">
+        <button type="button" class="icon" id="mic" title="voice input — next slice" disabled aria-label="Voice input">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a3f41"
+            stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <rect x="9" y="3" width="6" height="11" rx="3"></rect>
+            <path d="M5 11a7 7 0 0 0 14 0M12 18v3"></path>
+          </svg>
+        </button>
+        <button type="submit" class="send" id="send" aria-label="Send">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="#fff" stroke-width="2"
+            stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M8 13V3M3.5 7.5 8 3l4.5 4.5"></path>
+          </svg>
+        </button>
+      </form>
+    </div>
   </main>
 
-  <section class="talk" id="talk">
-    <header class="talkhead">
-      <div class="roles" id="roles"></div>
-      <button class="chip" id="closetalk" title="Закрыть разговор">✕</button>
-    </header>
-    <div class="messages" id="messages"></div>
-    <form class="composer" id="composer">
-      <textarea id="composertext" rows="2"
-        placeholder="Спросить про эту коробку…">
-      </textarea>
-      <div class="actions">
-        <span class="hint" id="hint">Ctrl+Enter — отправить; ответ стоит денег</span>
-        <button type="submit" id="send">→</button>
+  <aside class="side">
+    <section>
+      <div class="panelhead">
+        <div>Subagents</div>
+        <div class="count mono" id="agentscount">—</div>
       </div>
-    </form>
-  </section>
+      <div class="panelbody" id="agents"></div>
+    </section>
+
+    <section class="grow">
+      <div class="panelhead">
+        <div id="tasksTitle">Tasks</div>
+        <div class="count mono" id="taskscount">—</div>
+      </div>
+      <div class="tasksbody">
+        <div class="progress"><span id="progress" style="width:0%"></span></div>
+        <ul class="tasklist" id="tasks"></ul>
+      </div>
+    </section>
+  </aside>
 
 </div>
 <script src="/static/app.js"></script>

@@ -167,6 +167,11 @@ def test_server_asks_for_the_token(tmp_path: Path) -> None:
         code, script = screen.get("/static/app.js")
         assert code == 200
         assert b"loadState" in script
+        code, font = screen.get("/static/fonts/cinzel-600-latin.woff2")
+        assert code == 200
+        assert font[:4] == b"wOF2"
+        code, _ = screen.get("/static/fonts/../app.js")
+        assert code == 404
     finally:
         screen.close()
 

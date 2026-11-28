@@ -11,6 +11,7 @@ talks. Anything that would write arrives as a task on the box, where the gates a
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -23,10 +24,12 @@ from . import chat, state
 STATIC_DIR = Path(__file__).with_name("static")
 TOKEN_FILE = Path("ui") / "token"
 PAGES = {"index.html", "app.js", "style.css"}
+FONT = re.compile(r"^fonts/[a-z0-9][a-z0-9.-]*\.woff2$")
 TYPES = {
     ".html": "text/html; charset=utf-8",
     ".js": "text/javascript; charset=utf-8",
     ".css": "text/css; charset=utf-8",
+    ".woff2": "font/woff2",
 }
 MAX_BODY = 64 * 1024
 
@@ -153,7 +156,7 @@ class _Handler(BaseHTTPRequestHandler):
         return bool(given) and given == self.server.token
 
     def _page(self, name: str) -> None:
-        if name not in PAGES:
+        if name not in PAGES and not FONT.match(name):
             self._json({"error": f"no page {name}"}, 404)
             return
         path = STATIC_DIR / name
