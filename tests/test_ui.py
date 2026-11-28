@@ -8,6 +8,7 @@ an answer.
 from __future__ import annotations
 
 import json
+import subprocess
 import threading
 import time
 import urllib.error
@@ -19,8 +20,8 @@ from typing import Any
 import pytest
 
 from harness import box as boxes
-from harness import rails
-from harness.ui import actions, chat, server, state, voice
+from harness import container, rails
+from harness.ui import actions, agent, chat, server, state, voice
 
 
 def make_box(tmp_path: Path) -> boxes.Box:
@@ -50,36 +51,89 @@ def test_overview_never_prints_the_model_key(tmp_path: Path) -> None:
     assert secret not in rendered
 
 
+def fake_agent(
+    monkeypatch: pytest.MonkeyPatch,
+    text: str = "принято",
+    tokens: dict[str, int] | None = None,
+) -> None:
+    def ask(box: boxes.Box, role: str, said: str, **_: Any) -> agent.Answer:
+        assert role in chat.ROLES
+        return agent.Answer(
+            text=text,
+            session="local-test",
+            tokens={"input": 120, "output": 30} if tokens is None else tokens,
+            seconds=2.5,
+        )
+
+    monkeypatch.setattr(agent, "ask", ask)
+
+
 def test_chat_records_both_sides_and_the_price(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     box = make_box(tmp_path)
-
-    def fake(box: boxes.Box, role: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        assert role == "orchestrator"
-        return {
-            "answer": "Следующий шаг — принять план.",
-            "cents": 0.42,
-            "tokens": {"prompt": 120, "completion": 30},
-            "model": "deepseek-chat",
-        }
-
-    monkeypatch.setattr(chat, "_ask", fake)
+    monkeypatch.setenv("PANTHEON_MODEL_PRICE_IN", "1")
+    monkeypatch.setenv("PANTHEON_MODEL_PRICE_OUT", "2")
+    fake_agent(monkeypatch, "Следующий шаг — принять план.")
     answer = chat.send(box, "orchestrator", "Что дальше?")
-    assert answer["cents"] == 0.42
+    assert answer["model"] == "hermes"
+    assert answer["session"] == "local-test"
+    assert answer["cents"] == 0.018
     messages = chat.read(box, "orchestrator")
     assert [item["role"] for item in messages] == ["user", "assistant"]
     assert messages[1]["text"] == "Следующий шаг — принять план."
-    assert messages[1]["cents"] == 0.42
+    assert messages[1]["session"] == "local-test"
+    assert messages[1]["seconds"] == 2.5
+
+
+def test_chat_names_no_price_without_declared_rates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    box = make_box(tmp_path)
+    monkeypatch.delenv("PANTHEON_MODEL_PRICE_IN", raising=False)
+    monkeypatch.delenv("PANTHEON_MODEL_PRICE_OUT", raising=False)
+    fake_agent(monkeypatch)
+    answer = chat.send(box, "architect", "План?")
+    assert answer["cents"] is None
+    assert answer["tokens"] == {"prompt": 120, "completion": 30}
+
+
+def test_the_agent_bridge_reads_the_last_result_event() -> None:
+    stdout = "\n".join(
+        [
+            '{"type": "system", "subtype": "init"}',
+            '{"type": "text", "text": "раз "}',
+            '{"type": "text", "text": "два"}',
+            '{"type": "result", "session_id": "local-1", "text": "раз два", '
+            '"tokens": {"input": 10, "output": 2}, "duration_ms": 2500}',
+            "session_id: local-1",
+        ]
+    )
+    answer = agent.read(stdout)
+    assert answer is not None
+    assert answer.text == "раз два"
+    assert answer.session == "local-1"
+    assert answer.tokens == {"input": 10, "output": 2}
+    assert answer.seconds == 2.5
+
+
+def test_the_agent_bridge_says_nothing_when_the_turn_said_nothing() -> None:
+    assert agent.read('{"type": "system", "subtype": "init"}') is None
+
+
+def test_the_agent_bridge_refuses_a_box_without_a_running_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    box = make_box(tmp_path)
+    monkeypatch.setattr(agent, "available", lambda item: False)
+    with pytest.raises(boxes.HarnessError) as caught:
+        agent.ask(box, "orchestrator", "привет")
+    assert "is not running" in str(caught.value)
 
 
 def test_chat_keeps_the_newest_messages(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     box = make_box(tmp_path)
-
-    def fake(box: boxes.Box, role: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {"answer": "ok", "cents": None, "tokens": {}, "model": "m"}
-
-    monkeypatch.setattr(chat, "_ask", fake)
+    fake_agent(monkeypatch, "ok")
     path = box.root / chat.CHAT_DIR / "architect.json"
     path.parent.mkdir(parents=True, exist_ok=True)
     old = [
@@ -206,15 +260,7 @@ def test_server_refuses_an_unknown_box(tmp_path: Path) -> None:
 def test_server_records_a_conversation(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    def fake(box: boxes.Box, role: str, messages: list[dict[str, Any]]) -> dict[str, Any]:
-        return {
-            "answer": "План ещё не принят.",
-            "cents": 0.11,
-            "tokens": {"prompt": 3, "completion": 2},
-            "model": "deepseek-chat",
-        }
-
-    monkeypatch.setattr(chat, "_ask", fake)
+    fake_agent(monkeypatch, "План ещё не принят.")
     screen = Screen(tmp_path)
     try:
         code, body = screen.post(
@@ -223,7 +269,7 @@ def test_server_records_a_conversation(
         assert code == 200
         answer = json.loads(body)
         assert answer["answer"] == "План ещё не принят."
-        assert answer["cents"] == 0.11
+        assert answer["model"] == "hermes"
         code, body = screen.get("/api/chat?role=architect", screen.token)
         assert code == 200
         messages = json.loads(body)["messages"]
@@ -241,49 +287,37 @@ def test_server_refuses_a_chat_without_the_token(tmp_path: Path) -> None:
         screen.close()
 
 
-def test_chat_speaks_to_the_declared_endpoint(
+def test_the_bridge_asks_the_agent_in_the_box(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     box = make_box(tmp_path)
     seen: dict[str, Any] = {}
 
-    class Stub(BaseHTTPRequestHandler):
-        def do_POST(self) -> None:
-            length = int(self.headers["Content-Length"])
-            seen["body"] = json.loads(self.rfile.read(length))
-            seen["auth"] = self.headers["Authorization"]
-            body = json.dumps(
-                {
-                    "choices": [{"message": {"content": "привет"}}],
-                    "usage": {"prompt_tokens": 100, "completion_tokens": 20},
-                }
-            ).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+    def fake_run(argv: list[str], **kwargs: Any) -> Any:
+        seen["argv"] = argv
+        line = json.dumps(
+            {
+                "type": "result",
+                "session_id": "local-9",
+                "text": "работает",
+                "tokens": {"input": 7, "output": 1},
+                "duration_ms": 1200,
+            }
+        )
+        return subprocess.CompletedProcess(argv, 0, stdout=line + "\n", stderr="")
 
-        def log_message(self, *args: object) -> None:
-            pass
-
-    stub = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
-    threading.Thread(target=stub.serve_forever, daemon=True).start()
-    try:
-        monkeypatch.setenv("PANTHEON_MODEL_URL", f"http://127.0.0.1:{stub.server_address[1]}/chat")
-        monkeypatch.setenv("PANTHEON_MODEL_KEY", "sk-stub")
-        monkeypatch.setenv("PANTHEON_MODEL", "stub-model")
-        monkeypatch.setenv("PANTHEON_MODEL_PRICE_IN", "0.15")
-        monkeypatch.setenv("PANTHEON_MODEL_PRICE_OUT", "0.60")
-        answer = chat.send(box, "architect", "что дальше?")
-    finally:
-        stub.shutdown()
-        stub.server_close()
-    assert answer["answer"] == "привет"
-    assert answer["cents"] == 0.0027
-    assert seen["body"]["model"] == "stub-model"
-    assert seen["auth"] == "Bearer sk-stub"
-    assert seen["body"]["messages"][0]["role"] == "system"
-    assert seen["body"]["messages"][-1] == {"role": "user", "content": "что дальше?"}
+    monkeypatch.setattr(agent, "available", lambda item: True)
+    monkeypatch.setattr(container, "docker_prefix", lambda: ("docker",))
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    answer = agent.ask(box, "architect", "что дальше?")
+    assert answer.text == "работает"
+    assert answer.session == "local-9"
+    argv = seen["argv"]
+    assert argv[:3] == ["docker", "exec", "-u"]
+    assert "pantheon-project-augustus-1" in argv
+    joined = " ".join(argv)
+    assert "/opt/hermes/.venv/bin/hermes chat -Q --format stream-json" in joined
+    assert "-c pantheon-architect --create-if-missing -q что дальше?" in joined
 
 
 FRAME = """\
