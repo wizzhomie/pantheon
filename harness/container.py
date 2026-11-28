@@ -55,6 +55,17 @@ DOCKER_ENV = "PANTHEON_DOCKER"
 HERMES = "/opt/hermes/.venv/bin/hermes"
 AGENT_MODEL = "deepseek-flash"
 AGENT_PROVIDER = "deepseek"
+APPROVALS = (
+    ("approvals.single_query_mode", "approve"),
+    ("approvals.unattended_mode", "approve"),
+)
+"""What Hermes' own approval gate must allow, because nobody is at the other end.
+
+The page talks to the agent through ``hermes chat -q``, and no person watches a prompt inside the
+container: the image's default denies flagged actions there, which turned ``execute_code`` into a
+tool that answers "blocked" instead of running. The owner's rule (ADR-062) is that the agent has no
+ceilings except secrets, and a secret is still asked for by the agent itself, not by this gate.
+``up`` sets both keys, so a recreated container is not a new, quieter agent."""
 MODEL_KEY_ENV = "DEEPSEEK_API_KEY"
 """How Hermes names the key; ``PANTHEON_MODEL_KEY`` is mapped onto it when ``up`` runs."""
 STARTUP_SECONDS = 45
@@ -278,6 +289,20 @@ def _prepare(box: boxes.Box) -> None:
                 key,
                 value,
             )
+    for key, value in APPROVALS:
+        _compose(
+            box,
+            "run",
+            "--rm",
+            "--no-deps",
+            "-T",
+            SERVICE,
+            HERMES,
+            "config",
+            "set",
+            key,
+            value,
+        )
     secret = _model_key_from_env()
     if secret is not None:
         _write_secret(box, secret)

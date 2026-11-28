@@ -79,6 +79,8 @@ def test_up_pins_the_image_writes_compose_and_reports_running(
     assert any("compose" in line and "up -d" in line for line in log), log
     assert any("-p pantheon-probe" in line for line in log), log
     assert any("config set model.provider deepseek" in line for line in log), log
+    assert any("config set approvals.single_query_mode approve" in line for line in log), log
+    assert any("config set approvals.unattended_mode approve" in line for line in log), log
 
 
 def test_up_installs_what_the_checks_need_and_the_image_lacks(
@@ -184,10 +186,13 @@ def test_up_seeds_the_agent_home_once(tmp_path: Path, monkeypatch: pytest.Monkey
     state = box.root / "cella" / "SOUL.md"
     state.write_text("edited by the owner", encoding="utf-8")
     (box.root / "cella" / "config.yaml").write_text("model: fake\n", encoding="utf-8")
-    config_sets = log.count("config set")
+    model_sets = log.count("config set model.")
     container.up(box, IMAGE)
     assert state.read_text() == "edited by the owner"
-    assert (tmp_path / "docker.log").read_text(encoding="utf-8").count("config set") == config_sets
+    # The home is seeded once; the approvals are re-asserted on every up on purpose — a
+    # recreated container must not come back quieter than the owner asked for.
+    again = (tmp_path / "docker.log").read_text(encoding="utf-8").count("config set model.")
+    assert again == model_sets
 
 
 def test_a_container_without_an_answering_agent_is_not_called_working(
