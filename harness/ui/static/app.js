@@ -595,6 +595,26 @@
     }));
   }
 
+  function renderDesk() {
+    // The agent's contracts: what it handed over, and the gate's answer. Nothing is hidden
+    // when it refused — a refusal is a fact the owner has to be able to see.
+    const rows = meta().desk || [];
+    $("desksection").hidden = !rows.length;
+    if (!rows.length) return;
+    $("deskcount").textContent = `${rows.length}`;
+    clear($("deskrows"), ...rows.map((item) => {
+      const ok = item.ok !== false;
+      const verdict = item.kind === "run" ? "вердикт" : ok ? "взято" : "отказ";
+      return h("div", { class: "agentrow" },
+        h("div", { class: "head" },
+          h("span", { class: `dot ${ok ? "done" : "bad"}` }),
+          h("span", { class: "name" }, item.id || "—"),
+          h("span", { class: `badge ${ok ? "done" : "bad"}` }, verdict)),
+        h("div", { class: "note" },
+          item.sentence || (item.lines || [])[0] || ""));
+    }));
+  }
+
   function render() {
     renderProjects();
     renderSessions();
@@ -603,6 +623,7 @@
     renderActions();
     renderThread();
     renderAgents();
+    renderDesk();
     renderTasks();
   }
 

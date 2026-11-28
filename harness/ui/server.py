@@ -13,18 +13,21 @@ click is told what is running.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import secrets
 import threading
+import time
 import urllib.parse
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
 from .. import box as boxes
+from .. import desk as desk_module
 from . import actions, chat, state, voice
 
 STATIC_DIR = Path(__file__).with_name("static")
@@ -44,6 +47,7 @@ MAX_JOBS = 20
 """Finished jobs kept in memory: enough for a page that reloads, not a history (the box has one)."""
 
 
+
 class Busy(boxes.HarnessError):
     """Another act is on the lane: the page is told which one, and may ask again."""
 
@@ -59,6 +63,7 @@ class Job:
     finished: str | None = None
     result: actions.Result | None = None
     error: str | None = None
+    params: dict[str, str] = field(default_factory=dict)
 
     def json(self) -> dict[str, Any]:
         return {
@@ -106,6 +111,7 @@ class Workscreen(ThreadingHTTPServer):
         self.lane = threading.Lock()
         self.jobs: dict[str, Job] = {}
         self.running: str | None = None
+        self.delegated: list[str] = []
 
     def start(self, box: boxes.Box, action: str, params: dict[str, str]) -> Job:
         """Begin one act on the lane, or say which act already holds it."""
@@ -125,6 +131,7 @@ class Workscreen(ThreadingHTTPServer):
             action=action,
             label=_label(action, params),
             started=_stamp(),
+            params=dict(params),
         )
         self.jobs[job.id] = job
         self.running = job.id
@@ -143,6 +150,57 @@ class Workscreen(ThreadingHTTPServer):
             job.finished = _stamp()
             self.running = None
             self.lane.release()
+            self._answer_desk(box, job)
+
+    def _answer_desk(self, box: boxes.Box, job: Job) -> None:
+        """A delegated run answers where the contract was written, not only on the page."""
+        if job.action != "task.run":
+            return
+        identifier = job.params.get("task", "")
+        if not identifier:
+            return
+        try:
+            if job.result is not None:
+                desk_module.record(
+                    box,
+                    identifier,
+                    ok=job.result.ok,
+                    sentence=job.result.sentence,
+                    lines=job.result.lines,
+                    cents=job.result.cents,
+                )
+            elif job.error:
+                desk_module.record(
+                    box, identifier, ok=False, sentence=job.error, lines=("the gate refused",)
+                )
+        except Exception:  # the verdict is already on the page; the file is a courtesy
+            return
+
+    def watch(self, box: boxes.Box, every: float = desk_module.SWEEP_SECONDS) -> None:
+        """Read the desk from time to time: the agent's contracts must not wait for a click."""
+        threading.Thread(target=self._watch, args=(box, every), daemon=True).start()
+
+    def _watch(self, box: boxes.Box, every: float) -> None:
+        while True:
+            # The desk is a convenience, never the reason the page dies.
+            with contextlib.suppress(Exception):
+                self._sweep(box)
+            time.sleep(every)
+
+    def _sweep(self, box: boxes.Box) -> None:
+        for receipt in desk_module.sweep(box):
+            if receipt.ok and receipt.run and receipt.task is not None:
+                self.delegated.append(receipt.id)
+        while self.delegated:
+            identifier = self.delegated[0]
+            try:
+                self.start(box, "task.run", {"task": identifier})
+            except Busy:
+                return  # a lane is busy: the contract waits its turn, it is not lost
+            except boxes.HarnessError:
+                self.delegated.pop(0)
+                continue
+            self.delegated.pop(0)
 
     def _forget_old(self) -> None:
         if len(self.jobs) <= MAX_JOBS:
@@ -160,6 +218,8 @@ def _label(action: str, params: dict[str, str]) -> str:
         return "Accept " + params.get("package", "the package")
     if action == "step.run":
         return "Run " + params.get("step", "the step")
+    if action == "task.run":
+        return "Run " + params.get("task", "the task")
     return "Run " + params.get("campaign", "the campaign")
 
 

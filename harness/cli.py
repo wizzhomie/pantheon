@@ -13,6 +13,7 @@ import math
 import os
 import shlex
 import sys
+import time
 from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,6 +42,9 @@ from . import (
     study,
 )
 from . import box as boxes
+from . import (
+    desk as desk_module,
+)
 from .ui import server as screen
 
 DEFAULT_CASTRA = Path("~/pantheon/castra")
@@ -659,6 +663,20 @@ def _parser() -> argparse.ArgumentParser:
     screen.add_argument("--port", type=int, default=8792, help="port to bind (default: 8792)")
     screen.set_defaults(handler=_ui)
 
+    desk = commands.add_parser(
+        "desk",
+        help="read the agent's desk: contracts written in the box, taken or refused",
+        description=(
+            "The agent writes a task contract into the box's desk/; this reads what waits, "
+            "checks it with the same intake gate a person's task passes, copies what it accepts "
+            "into mandata/ and answers in desk/outbox/. `--watch` keeps reading."
+        ),
+    )
+    desk.add_argument("name", nargs="?", default=None, help=NAME_HELP)
+    desk.add_argument("--watch", action="store_true", help="keep reading, one sweep every 3 s")
+    desk.add_argument("--json", action="store_true", help="the receipts as one object")
+    desk.set_defaults(handler=_desk)
+
     up = commands.add_parser("up", help="start the box's container (mount only, no agent yet)")
     up.add_argument("name", nargs="?", default=None, help="box name")
     up.add_argument("--image", default=None, help="pin this image in castrum.toml, then start")
@@ -1209,7 +1227,7 @@ def _flow_next(box: boxes.Box, args: argparse.Namespace) -> int:
         result = augustus.dispatch_with_attempts(
             box,
             task,
-            routes=_executor_routes(
+            routes=augustus.routes_for(
                 augustus.read_routes(Path(routes) if routes else None), task, config
             ),
             trajan_root=trajan,
@@ -1420,7 +1438,7 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
     result = augustus.dispatch_with_attempts(
         box,
         task,
-        routes=_executor_routes(
+        routes=augustus.routes_for(
             augustus.read_routes(Path(routes) if routes else None), task, config
         ),
         trajan_root=trajan,
@@ -1435,18 +1453,6 @@ def _dispatch(args: argparse.Namespace, root: Path) -> int:
     else:
         print("\n".join(augustus.render_dispatch(result)))
     return result.exit_code
-
-
-def _executor_routes(
-    table: dict[str, tuple[str, ...]], task: augustus.Task, config: executor.ExecutorConfig
-) -> dict[str, tuple[str, ...]]:
-    """A declared executor means the task is work: a checks-only route would close a tree
-    nobody touched. The write gate is not optional for a kind whose route forgot it."""
-    if not config.declared or task.change is not None or task.kind not in table:
-        return table
-    if "run" in table[task.kind]:
-        return table
-    return {**table, task.kind: ("run", *table[task.kind])}
 
 
 def _resume(args: argparse.Namespace, root: Path) -> int:
@@ -1581,7 +1587,7 @@ def _explain(args: argparse.Namespace, root: Path) -> int:
     result = augustus.explain(
         box,
         task,
-        routes=_executor_routes(
+        routes=augustus.routes_for(
             augustus.read_routes(Path(routes) if routes else None), task, config
         ),
         config=config,
@@ -1786,6 +1792,32 @@ def _list(args: argparse.Namespace, root: Path) -> int:
     return 0
 
 
+def _desk(args: argparse.Namespace, root: Path) -> int:
+    box = boxes.find_box(root, args.name, Path.cwd())
+    if args.watch:
+        while True:
+            _print_receipts(desk_module.sweep(box), args.json)
+            time.sleep(desk_module.SWEEP_SECONDS)
+    receipts = desk_module.sweep(box)
+    if not receipts:
+        print(f"desk {box.name}: nothing waiting in {desk_module.INBOX}")
+        return 0
+    _print_receipts(receipts, args.json)
+    return 0 if all(item.ok for item in receipts) else 1
+
+
+def _print_receipts(receipts: tuple[desk_module.Receipt, ...], as_json: bool) -> None:
+    if as_json:
+        for receipt in receipts:
+            print(json.dumps(receipt.json(), ensure_ascii=False))
+        return
+    for receipt in receipts:
+        verdict = "взято" if receipt.ok else "отказ"
+        print(f"{receipt.id:<32} {verdict}")
+        for line in receipt.lines:
+            print(f"  {line}")
+
+
 def _ui(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
     token = screen.token_for(box)
@@ -1800,6 +1832,7 @@ def _ui(args: argparse.Namespace, root: Path) -> int:
         "the conversations are recorded in the box's ui/chat/",
         flush=True,
     )
+    server.watch(box)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
@@ -1813,6 +1846,7 @@ def _up(args: argparse.Namespace, root: Path) -> int:
     box = boxes.find_box(root, args.name, Path.cwd())
     result = container.up(box, args.image)
     print(f"box {box.name}: {result.line}")
+    print(f"  desk   {box.root / desk_module.DIR}  (the agent writes contracts here)")
     if not result.running:
         print("pantheon: the container did not come up; nothing is running", file=sys.stderr)
         return EXIT_CANNOT

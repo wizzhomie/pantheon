@@ -17,10 +17,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .. import augustus, campaign, contour, rails, reviewer, runner, spec
+from .. import augustus, campaign, contour, executor, rails, reviewer, runner, spec
 from .. import box as boxes
 
-ACTIONS = ("plan.approve", "spec.accept", "step.run", "campaign.advance")
+ACTIONS = ("plan.approve", "spec.accept", "step.run", "campaign.advance", "task.run")
 """Every act the page may ask for; a name outside this list is refused before anything runs."""
 
 PARAMS = {
@@ -28,6 +28,7 @@ PARAMS = {
     "spec.accept": frozenset({"package", "note"}),
     "step.run": frozenset({"campaign", "step", "retry"}),
     "campaign.advance": frozenset({"campaign"}),
+    "task.run": frozenset({"task"}),
 }
 """The keys each action reads: an unknown parameter is a refusal, not something ignored."""
 
@@ -109,6 +110,8 @@ def run(box: boxes.Box, action: str, params: dict[str, str]) -> Result:
         return _accept_spec(box, params)
     if action == "step.run":
         return _run_step(box, params)
+    if action == "task.run":
+        return _run_task(box, params)
     return _advance(box, params)
 
 
@@ -296,6 +299,57 @@ def _advance(box: boxes.Box, params: dict[str, str]) -> Result:
         cents=None if result.report.state is None else result.report.state.cents,
         record=None if result.path is None else str(result.path),
         ok=not result.stop,
+    )
+
+
+def _run_task(box: boxes.Box, params: dict[str, str]) -> Result:
+    """Dispatch one task by id: the desk's delegation is this act, not a second road."""
+    identifier = _required(params, "task")
+    task = augustus.read_task(_task_path(box, identifier))
+    config = executor.read_config(box.root / executor.PROFILE_FILE)
+    trajan = contour.trajan_root(None)
+    result = augustus.dispatch_with_attempts(
+        box,
+        task,
+        routes=augustus.routes_for(augustus.read_routes(None), task, config),
+        trajan_root=trajan,
+        trajan_python=contour.trajan_python(trajan, None),
+        executor_config=config,
+        review=_reader(box),
+    )
+    sentence = f"Задача {task.id}: {result.state}"
+    if result.stop_reason:
+        sentence += f", остановка: {result.stop_reason}"
+    sentence += "."
+    lines = [
+        f"state    {result.state}",
+        f"stages   {' -> '.join(result.stages) or 'none'}",
+    ]
+    if result.attempt is not None:
+        lines.append(f"attempt  {result.attempt.status} — {result.attempt.reason}")
+    if result.verify is not None:
+        lines.append(f"verify   {result.verify.status}")
+    lines.extend(result.notes[-3:])
+    return Result(
+        action="task.run",
+        sentence=sentence,
+        lines=tuple(lines),
+        record=str(result.directory) if result.outbox is not None else None,
+        ok=result.exit_code == 0,
+    )
+
+
+def _task_path(box: boxes.Box, value: str) -> Path:
+    """A task by id or by path: a person types the id, the desk passes what the box holds."""
+    given = Path(value)
+    if given.is_file():
+        return given
+    found = box.root / "mandata" / f"{value}.toml"
+    if found.is_file():
+        return found
+    raise boxes.HarnessError(
+        f"no task {value!r}: neither {given} nor {found} exists; the box declares "
+        + (", ".join(sorted(path.stem for path in (box.root / "mandata").glob("*.toml"))) or "none")
     )
 
 

@@ -10,7 +10,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
-from .. import augustus, campaign, container, fluxus, frame, rails, records, spec
+from .. import augustus, campaign, container, desk, fluxus, frame, rails, records, spec
 from .. import box as boxes
 from . import actions
 
@@ -38,6 +38,7 @@ def overview(root: Path, name: str) -> dict[str, Any]:
     payload["packages"] = _packages(box)
     payload["campaigns"] = _campaigns(box)
     payload["tasks"] = _tasks(box)
+    payload["desk"] = desk.recent(box)
     digest, stored = records.state(box)
     payload["records"] = {"digest": digest.json(), "stored": stored}
     payload["stream"] = fluxus.payload(box)

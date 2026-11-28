@@ -547,6 +547,18 @@ def route(task: Task, routes: dict[str, tuple[str, ...]]) -> tuple[str, ...]:
     return routes.get(task.kind, ())
 
 
+def routes_for(
+    table: dict[str, tuple[str, ...]], task: Task, config: executor.ExecutorConfig
+) -> dict[str, tuple[str, ...]]:
+    """A declared executor means the task is work: a checks-only route would close a tree
+    nobody touched. The write gate is not optional for a kind whose route forgot it."""
+    if not config.declared or task.change is not None or task.kind not in table:
+        return table
+    if "run" in table[task.kind]:
+        return table
+    return {**table, task.kind: ("run", *table[task.kind])}
+
+
 def _is_pattern(path: str) -> bool:
     """Whether a declared path is a pattern; the hotfix lane names exact files instead."""
     return any(char in path for char in "*?[")
