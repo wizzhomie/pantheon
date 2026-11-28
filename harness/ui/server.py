@@ -68,14 +68,16 @@ class _Handler(BaseHTTPRequestHandler):
         if parsed.path == "/healthz":
             self._json({"ok": True, "box": self.server.box_name})
             return
-        if not self._allowed(query):
-            self._json({"error": "a token is required: open the URL the server printed"}, 403)
-            return
+        # The page and its two assets are not secret: a browser asks for them without the
+        # token (a <link> cannot carry a header), and the token is what gates the data.
         if parsed.path == "/":
             self._page("index.html")
             return
         if parsed.path.startswith("/static/"):
             self._page(parsed.path.removeprefix("/static/"))
+            return
+        if not self._allowed(query):
+            self._json({"error": "a token is required: open the URL the server printed"}, 403)
             return
         if parsed.path == "/api/boxes":
             self._json({"boxes": state.listing(self.server.root)})

@@ -161,6 +161,12 @@ def test_server_asks_for_the_token(tmp_path: Path) -> None:
         code, page = screen.get("/", screen.token)
         assert code == 200
         assert b"Pantheon" in page
+        code, css = screen.get("/static/style.css")
+        assert code == 200
+        assert b"--panel" in css
+        code, script = screen.get("/static/app.js")
+        assert code == 200
+        assert b"loadState" in script
     finally:
         screen.close()
 
