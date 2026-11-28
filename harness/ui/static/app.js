@@ -17,6 +17,7 @@
   let busy = false;
   let notice = "";
   let recorder = null;
+  let voiceRun = 0;
   let pending = null;
   let actJob = null;
   let lastResult = null;
@@ -646,6 +647,7 @@
     const field = $("text");
     const text = field.value.trim();
     if (!text || busy) return;
+    if (voice) cancelRecording();
     busy = true;
     $("send").disabled = true;
     notice = "";
@@ -696,8 +698,9 @@
       processor.connect(sink);
       sink.connect(context.destination);
       const field = $("text");
+      const run = ++voiceRun;
       recorder = {
-        stream, context, source, processor, sink, chunks,
+        run, stream, context, source, processor, sink, chunks,
         started: Date.now(),
         base: field.value.trim(),
         written: field.value,
@@ -716,10 +719,7 @@
     }
   }
 
-  function stopRecording() {
-    if (!recorder) return;
-    const done = recorder;
-    recorder = null;
+  function teardown(done) {
     done.stopped = true;
     clearInterval(done.timer);
     done.processor.disconnect();
@@ -727,6 +727,23 @@
     done.sink.disconnect();
     done.stream.getTracks().forEach((track) => track.stop());
     done.context.close();
+  }
+
+  function cancelRecording() {
+    if (!recorder) return;
+    const done = recorder;
+    recorder = null;
+    voiceRun += 1;
+    teardown(done);
+    voice = null;
+    renderVoice();
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    const done = recorder;
+    recorder = null;
+    teardown(done);
     if (Date.now() - done.started < 700) {
       voice = null;
       renderVoice();
@@ -755,6 +772,7 @@
   async function draftOnce() {
     const now = recorder;
     if (!now || now.stopped || now.sending || voice !== "recording") return;
+    if (now.run !== voiceRun) return;
     const samples = now.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
     if (samples < 16000 * DRAFT_SECONDS || samples * 2 > DRAFT_LIMIT) return;
     if (peakOf(now.chunks) < 0.008) return;
@@ -765,7 +783,7 @@
       const data = await postAudio(wav);
       const text = String(data.text || "").trim();
       const field = $("text");
-      if (!text || now.stopped || recorder !== now) return;
+      if (!text || now.stopped || recorder !== now || now.run !== voiceRun) return;
       if (field.value !== now.written) return; // the owner is typing: the field is theirs
       now.draft = text;
       now.written = now.base ? `${now.base} ${text}` : text;
@@ -832,11 +850,13 @@
   }
 
   async function sendAudio(wav, done) {
+    const run = done.run;
     voice = "sending";
     renderVoice();
     renderThread();
     try {
       const data = await postAudio(wav);
+      if (run !== voiceRun) return;
       const text = String(data.text || "").trim();
       if (!text) {
         notice = "Распознавание не разобрало ни слова: попробуй ближе к микрофону.";
@@ -860,9 +880,11 @@
     } catch (error) {
       notice = `Голос не сработал: ${error.message}`;
     } finally {
-      voice = null;
-      renderVoice();
-      renderThread();
+      if (run === voiceRun) {
+        voice = null;
+        renderVoice();
+        renderThread();
+      }
     }
   }
 
