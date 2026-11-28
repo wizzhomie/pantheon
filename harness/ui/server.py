@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import box as boxes
-from . import actions, chat, state
+from . import actions, chat, state, voice
 
 STATIC_DIR = Path(__file__).with_name("static")
 TOKEN_FILE = Path("ui") / "token"
@@ -38,6 +38,8 @@ TYPES = {
     ".woff2": "font/woff2",
 }
 MAX_BODY = 64 * 1024
+MAX_AUDIO = voice.MAX_BYTES
+"""A recording is bytes, not JSON: its own ceiling, the recogniser's."""
 MAX_JOBS = 20
 """Finished jobs kept in memory: enough for a page that reloads, not a history (the box has one)."""
 
@@ -219,6 +221,9 @@ class _Handler(BaseHTTPRequestHandler):
         if not self._allowed(query):
             self._json({"error": "a token is required"}, 403)
             return
+        if parsed.path == "/api/transcribe":
+            self._transcribe()
+            return
         if parsed.path not in {"/api/chat", "/api/action"}:
             self._json({"error": f"no route {parsed.path}"}, 404)
             return
@@ -239,6 +244,30 @@ class _Handler(BaseHTTPRequestHandler):
             self._json(answer, 400)
             return
         self._json({"role": role, **answer})
+
+    def _transcribe(self) -> None:
+        """One recording to text: the body is the WAV, the answer is what was said."""
+        length = self.headers.get("Content-Length")
+        try:
+            size = int(length) if length else 0
+        except ValueError:
+            size = 0
+        if size <= 0:
+            self._json({"error": "the recording is empty"}, 400)
+            return
+        if size > MAX_AUDIO:
+            self._json({"error": "the recording is larger than 8 MB: about two minutes"}, 400)
+            return
+        audio = self.rfile.read(size)
+        try:
+            said = voice.transcribe(audio)
+        except voice.Unavailable as error:
+            self._json({"error": str(error)}, 503)
+            return
+        except boxes.HarnessError as error:
+            self._json({"error": str(error)}, 400)
+            return
+        self._json(said.json())
 
     def _act(self, data: dict[str, Any]) -> None:
         """One act, through the same gate the command uses: refused with its own words."""

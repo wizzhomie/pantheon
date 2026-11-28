@@ -20,7 +20,7 @@ import pytest
 
 from harness import box as boxes
 from harness import rails
-from harness.ui import actions, chat, server, state
+from harness.ui import actions, chat, server, state, voice
 
 
 def make_box(tmp_path: Path) -> boxes.Box:
@@ -132,6 +132,21 @@ class Screen:
     def get(self, path: str, token: str | None = None) -> tuple[int, bytes]:
         headers = {} if token is None else {"X-Pantheon-Token": token}
         request = urllib.request.Request(self.base + path, headers=headers)
+        try:
+            with urllib.request.urlopen(request, timeout=20) as answer:
+                return answer.status, answer.read()
+        except urllib.error.HTTPError as error:
+            return error.code, error.read()
+
+    def post_raw(
+        self, path: str, body: bytes, kind: str, token: str | None = None
+    ) -> tuple[int, bytes]:
+        headers = {"Content-Type": kind}
+        if token is not None:
+            headers["X-Pantheon-Token"] = token
+        request = urllib.request.Request(
+            self.base + path, data=body, headers=headers, method="POST"
+        )
         try:
             with urllib.request.urlopen(request, timeout=20) as answer:
                 return answer.status, answer.read()
@@ -476,5 +491,139 @@ def test_an_act_refused_by_its_gate_is_a_sentence_not_a_crash(tmp_path: Path) ->
         job = screen.wait(json.loads(body)["job"]["id"])
         assert job["error"] and "no campaign" in job["error"]
         assert job["sentence"] is None
+    finally:
+        screen.close()
+
+
+class Speech:
+    """A stand-in for the machine's recogniser: one endpoint, one answer, one fixed body."""
+
+    def __init__(self, status: int = 200, payload: dict[str, Any] | None = None) -> None:
+        seen: dict[str, Any] = {}
+        self.seen = seen
+
+        class Stub(BaseHTTPRequestHandler):
+            def do_POST(self) -> None:
+                length = int(self.headers["Content-Length"])
+                seen["path"] = self.path
+                seen["type"] = self.headers["Content-Type"]
+                seen["body"] = self.rfile.read(length)
+                body = json.dumps(
+                    payload
+                    if payload is not None
+                    else {"text": "привет", "audio_seconds": 1.5, "engine": "stub"}
+                ).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(body)))
+                self.end_headers()
+                self.wfile.write(body)
+
+            def log_message(self, *args: object) -> None:
+                pass
+
+        self.server = ThreadingHTTPServer(("127.0.0.1", 0), Stub)
+        threading.Thread(target=self.server.serve_forever, daemon=True).start()
+        self.url = f"http://127.0.0.1:{self.server.server_address[1]}/transcribe"
+
+    def close(self) -> None:
+        self.server.shutdown()
+        self.server.server_close()
+
+
+def wav(seconds: float = 0.5) -> bytes:
+    import io
+    import wave
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(16000)
+        handle.writeframes(b"\x00\x00" * int(16000 * seconds))
+    return buffer.getvalue()
+
+
+def test_a_recording_becomes_text_through_the_recogniser(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    speech = Speech()
+    monkeypatch.setenv(voice.URL_ENV, speech.url)
+    try:
+        transcript = voice.transcribe(wav())
+        assert transcript.text == "привет"
+        assert transcript.seconds == 1.5
+        assert transcript.engine == "stub"
+        assert speech.seen["path"].startswith("/transcribe?language=ru")
+        assert speech.seen["type"] == "audio/wav"
+        assert speech.seen["body"][:4] == b"RIFF"
+    finally:
+        speech.close()
+
+
+def test_a_refused_recording_is_the_recognisers_own_sentence(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    speech = Speech(status=400, payload={"error": "expected mono PCM16 WAV"})
+    monkeypatch.setenv(voice.URL_ENV, speech.url)
+    try:
+        with pytest.raises(boxes.HarnessError) as caught:
+            voice.transcribe(b"not a wav")
+        assert "expected mono PCM16 WAV" in str(caught.value)
+    finally:
+        speech.close()
+
+
+def test_a_missing_recogniser_is_unavailable_not_a_bad_recording(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(voice.URL_ENV, "http://127.0.0.1:9/transcribe")
+    with pytest.raises(voice.Unavailable):
+        voice.transcribe(wav())
+
+
+def test_the_empty_recording_is_refused_before_the_upload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(voice.URL_ENV, "http://127.0.0.1:9/transcribe")
+    with pytest.raises(boxes.HarnessError) as caught:
+        voice.transcribe(b"")
+    assert "empty" in str(caught.value)
+
+
+def test_the_server_transcribes_a_recording(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    speech = Speech()
+    monkeypatch.setenv(voice.URL_ENV, speech.url)
+    screen = Screen(tmp_path)
+    try:
+        audio = wav()
+        code, body = screen.post_raw(
+            "/api/transcribe", audio, "audio/wav", screen.token
+        )
+        assert code == 200
+        answer = json.loads(body)
+        assert answer["text"] == "привет"
+        assert answer["engine"] == "stub"
+        code, _ = screen.post_raw("/api/transcribe", audio, "audio/wav")
+        assert code == 403
+        code, body = screen.post_raw("/api/transcribe", b"", "audio/wav", screen.token)
+        assert code == 400
+        assert "empty" in json.loads(body)["error"]
+    finally:
+        screen.close()
+        speech.close()
+
+
+def test_the_server_says_so_when_the_recogniser_is_down(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(voice.URL_ENV, "http://127.0.0.1:9/transcribe")
+    screen = Screen(tmp_path)
+    try:
+        code, body = screen.post_raw("/api/transcribe", wav(), "audio/wav", screen.token)
+        assert code == 503
+        assert "not answering" in json.loads(body)["error"]
     finally:
         screen.close()

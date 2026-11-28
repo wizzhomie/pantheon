@@ -48,14 +48,12 @@
       </div>
     </header>
 
-    <div class="actbar" id="actbar" hidden></div>
-
     <div class="thread" id="thread"></div>
 
     <div class="composerwrap">
       <form class="composer" id="composer">
         <input id="text" autocomplete="off" aria-label="Message" placeholder="Message the orchestrator…">
-        <button type="button" class="icon" id="mic" title="voice input — next slice" disabled aria-label="Voice input">
+        <button type="button" class="icon" id="mic" title="voice input" aria-label="Voice input">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#4a3f41"
             stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <rect x="9" y="3" width="6" height="11" rx="3"></rect>
@@ -73,6 +71,14 @@
   </main>
 
   <aside class="side">
+    <section id="actionssection" hidden>
+      <div class="panelhead">
+        <div>Actions</div>
+        <div class="count mono" id="actionscount">—</div>
+      </div>
+      <div class="panelbody actbody" id="actbar"></div>
+    </section>
+
     <section>
       <div class="panelhead">
         <div>Subagents</div>

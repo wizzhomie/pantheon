@@ -10,9 +10,11 @@
   let thread = [];
   let busy = false;
   let notice = "";
+  let recorder = null;
   let pending = null;
   let actJob = null;
   let lastResult = null;
+  let voice = null;
 
   // ── helpers ──────────────────────────────────────────────────────
 
@@ -243,9 +245,7 @@
     $("mode-auto").className = mode === "auto" ? "on" : "";
     $("mode-manual").disabled = true;
     $("mode-auto").disabled = true;
-    $("text").placeholder = role === "orchestrator"
-      ? "Message the orchestrator…"
-      : "Message the architect…";
+    renderVoice();
   }
 
   // ── acts ─────────────────────────────────────────────────────────
@@ -272,20 +272,24 @@
       entry.detail ? h("span", { class: "actdetail" }, entry.detail) : null);
   }
 
+  function showActions(shown, count) {
+    $("actionssection").hidden = !shown;
+    if (count !== undefined) $("actionscount").textContent = count;
+  }
+
   function renderActions() {
     const bar = $("actbar");
-    if (!state) { bar.hidden = true; return; }
+    if (!state) { showActions(false); return; }
     if (pending) { renderAsk(); return; }
     if (actJob && !actJob.done) { renderRunning(); return; }
     const offered = meta().actions || [];
-    if (!offered.length) { bar.hidden = true; clear(bar); return; }
-    bar.hidden = false;
-    clear(bar, h("span", { class: "actlabel mono" }, "ACTIONS"), ...offered.map(actButton));
+    if (!offered.length) { showActions(false); clear(bar); return; }
+    showActions(true, `${offered.length}`);
+    clear(bar, ...offered.map(actButton));
   }
 
   function renderAsk() {
-    const bar = $("actbar");
-    bar.hidden = false;
+    showActions(true, "waiting");
     const field = pending.note
       ? h("input", {
           id: "actnote", class: "actnote", autocomplete: "off",
@@ -314,14 +318,12 @@
   }
 
   function renderRunning() {
-    const bar = $("actbar");
-    bar.hidden = false;
-    clear(bar,
-      h("span", { class: "actlabel mono" }, "RUNNING"),
+    showActions(true, "running");
+    clear($("actbar"),
       h("div", { class: "actask" },
         h("div", { class: "actname" }, actJob.label),
-        h("div", { class: "acthint" }, "the gate is working: a step can take minutes, and the page says when it ends")),
-      h("div", { class: "thinking" }, h("i"), h("i"), h("i")));
+        h("div", { class: "acthint" }, "the gate is working: a step can take minutes, and the page says when it ends"),
+        h("div", { class: "thinking" }, h("i"), h("i"), h("i"))));
   }
 
   async function confirmAct() {
@@ -664,6 +666,147 @@
     }
   }
 
+  // ── voice ────────────────────────────────────────────────────────
+
+  async function startRecording() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      notice = "Браузер не даёт микрофон: страница открыта по http, а микрофон он разрешает только на https или localhost.";
+      renderThread();
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const context = new AudioContext({ sampleRate: 16000 });
+      await context.resume();
+      const source = context.createMediaStreamSource(stream);
+      const processor = context.createScriptProcessor(4096, 1, 1);
+      const sink = context.createGain();
+      sink.gain.value = 0;
+      const chunks = [];
+      processor.onaudioprocess = (event) => {
+        chunks.push(new Float32Array(event.inputBuffer.getChannelData(0)));
+      };
+      source.connect(processor);
+      processor.connect(sink);
+      sink.connect(context.destination);
+      recorder = { stream, context, source, processor, sink, chunks, started: Date.now() };
+      voice = "recording";
+      notice = "";
+      renderVoice();
+      renderThread();
+    } catch (error) {
+      notice = `Микрофон не открылся: ${error.message}`;
+      renderThread();
+    }
+  }
+
+  function stopRecording() {
+    if (!recorder) return;
+    const done = recorder;
+    recorder = null;
+    done.processor.disconnect();
+    done.source.disconnect();
+    done.sink.disconnect();
+    done.stream.getTracks().forEach((track) => track.stop());
+    done.context.close();
+    if (Date.now() - done.started < 700) {
+      voice = null;
+      renderVoice();
+      notice = "Запись короче секунды: микрофон не успел ничего услышать.";
+      renderThread();
+      return;
+    }
+    const wav = encodeWav(done.chunks);
+    if (!wav) {
+      voice = null;
+      renderVoice();
+      notice = "Запись пустая: микрофон не отдал ни звука.";
+      renderThread();
+      return;
+    }
+    sendAudio(wav);
+  }
+
+  function encodeWav(chunks) {
+    const length = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    if (!length) return null;
+    const samples = new Float32Array(length);
+    let offset = 0;
+    for (const chunk of chunks) {
+      samples.set(chunk, offset);
+      offset += chunk.length;
+    }
+    const view = new DataView(new ArrayBuffer(44 + samples.length * 2));
+    const tag = (at, text) => {
+      for (let index = 0; index < text.length; index += 1) view.setUint8(at + index, text.charCodeAt(index));
+    };
+    tag(0, "RIFF");
+    view.setUint32(4, 36 + samples.length * 2, true);
+    tag(8, "WAVEfmt ");
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, 1, true);
+    view.setUint32(24, 16000, true);
+    view.setUint32(28, 32000, true);
+    view.setUint16(32, 2, true);
+    view.setUint16(34, 16, true);
+    tag(36, "data");
+    view.setUint32(40, samples.length * 2, true);
+    let at = 44;
+    for (const sample of samples) {
+      const clamped = Math.max(-1, Math.min(1, sample));
+      view.setInt16(at, clamped < 0 ? clamped * 0x8000 : clamped * 0x7fff, true);
+      at += 2;
+    }
+    return new Uint8Array(view.buffer);
+  }
+
+  async function sendAudio(wav) {
+    voice = "sending";
+    renderVoice();
+    renderThread();
+    try {
+      const response = await fetch("/api/transcribe", {
+        method: "POST",
+        headers: { "X-Pantheon-Token": token, "Content-Type": "audio/wav" },
+        body: wav,
+      });
+      const data = await response.json().catch(() => ({ error: `answer ${response.status}` }));
+      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const text = String(data.text || "").trim();
+      if (!text) {
+        notice = "Распознавание не разобрало ни слова: попробуй ближе к микрофону.";
+        voice = null;
+        renderVoice();
+        renderThread();
+        return;
+      }
+      const field = $("text");
+      field.value = field.value ? `${field.value} ${text}` : text;
+      field.focus();
+      field.setSelectionRange(field.value.length, field.value.length);
+      notice = "";
+    } catch (error) {
+      notice = `Голос не сработал: ${error.message}`;
+    } finally {
+      voice = null;
+      renderVoice();
+      renderThread();
+    }
+  }
+
+  function renderVoice() {
+    const mic = $("mic");
+    if (!mic) return;
+    mic.disabled = voice === "sending";
+    mic.classList.toggle("recording", voice === "recording");
+    mic.title = voice === "recording" ? "stop and transcribe" : voice === "sending" ? "recognising…" : "voice input";
+    mic.setAttribute("aria-label", mic.title);
+    $("text").placeholder = voice === "recording"
+      ? "Listening… click the mic to stop"
+      : role === "orchestrator" ? "Message the orchestrator…" : "Message the architect…";
+  }
+
   // ── boot ─────────────────────────────────────────────────────────
 
   function wire() {
@@ -676,8 +819,8 @@
       renderThread();
     });
     $("mic").addEventListener("click", () => {
-      notice = "Voice input is the next slice.";
-      renderThread();
+      if (voice === "recording") stopRecording();
+      else if (voice !== "sending") startRecording();
     });
   }
 
