@@ -2,6 +2,12 @@
 
 (() => {
   const token = new URLSearchParams(location.search).get("t") || "";
+  const DRAFT_MS = 1800;
+  const DRAFT_SECONDS = 0.9;
+  const DRAFT_LIMIT = 55 * 32000;
+  // Live drafting: while the owner speaks, the whole recording so far is read again every
+  // DRAFT_MS and the field follows. The final pass on stop replaces the draft with one clean
+  // read, so a word cut by a draft boundary cannot survive into the finished sentence.
   const initial = new URLSearchParams(location.search);
   let boxName = initial.get("box") || "";
   let role = initial.get("role") === "architect" ? "architect" : "orchestrator";
@@ -689,7 +695,17 @@
       source.connect(processor);
       processor.connect(sink);
       sink.connect(context.destination);
-      recorder = { stream, context, source, processor, sink, chunks, started: Date.now() };
+      const field = $("text");
+      recorder = {
+        stream, context, source, processor, sink, chunks,
+        started: Date.now(),
+        base: field.value.trim(),
+        written: field.value,
+        draft: "",
+        sending: false,
+        stopped: false,
+      };
+      recorder.timer = setInterval(draftOnce, DRAFT_MS);
       voice = "recording";
       notice = "";
       renderVoice();
@@ -704,6 +720,8 @@
     if (!recorder) return;
     const done = recorder;
     recorder = null;
+    done.stopped = true;
+    clearInterval(done.timer);
     done.processor.disconnect();
     done.source.disconnect();
     done.sink.disconnect();
@@ -731,7 +749,33 @@
       renderThread();
       return;
     }
-    sendAudio(wav);
+    sendAudio(wav, done);
+  }
+
+  async function draftOnce() {
+    const now = recorder;
+    if (!now || now.stopped || now.sending || voice !== "recording") return;
+    const samples = now.chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    if (samples < 16000 * DRAFT_SECONDS || samples * 2 > DRAFT_LIMIT) return;
+    if (peakOf(now.chunks) < 0.008) return;
+    const wav = encodeWav(now.chunks);
+    if (!wav) return;
+    now.sending = true;
+    try {
+      const data = await postAudio(wav);
+      const text = String(data.text || "").trim();
+      const field = $("text");
+      if (!text || now.stopped || recorder !== now) return;
+      if (field.value !== now.written) return; // the owner is typing: the field is theirs
+      now.draft = text;
+      now.written = now.base ? `${now.base} ${text}` : text;
+      field.value = now.written;
+      field.setSelectionRange(field.value.length, field.value.length);
+    } catch {
+      // a draft that failed is not an error: the final pass will say what went wrong
+    } finally {
+      now.sending = false;
+    }
   }
 
   function peakOf(chunks) {
@@ -776,18 +820,23 @@
     return new Uint8Array(view.buffer);
   }
 
-  async function sendAudio(wav) {
+  async function postAudio(wav) {
+    const response = await fetch("/api/transcribe", {
+      method: "POST",
+      headers: { "X-Pantheon-Token": token, "Content-Type": "audio/wav" },
+      body: wav,
+    });
+    const data = await response.json().catch(() => ({ error: `answer ${response.status}` }));
+    if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+    return data;
+  }
+
+  async function sendAudio(wav, done) {
     voice = "sending";
     renderVoice();
     renderThread();
     try {
-      const response = await fetch("/api/transcribe", {
-        method: "POST",
-        headers: { "X-Pantheon-Token": token, "Content-Type": "audio/wav" },
-        body: wav,
-      });
-      const data = await response.json().catch(() => ({ error: `answer ${response.status}` }));
-      if (!response.ok) throw new Error(data.error || `HTTP ${response.status}`);
+      const data = await postAudio(wav);
       const text = String(data.text || "").trim();
       if (!text) {
         notice = "Распознавание не разобрало ни слова: попробуй ближе к микрофону.";
@@ -797,7 +846,14 @@
         return;
       }
       const field = $("text");
-      field.value = field.value ? `${field.value} ${text}` : text;
+      if (field.value !== done.written) {
+        notice = "Пока шла запись, поле правили руками: распознанный текст не вставлен.";
+        voice = null;
+        renderVoice();
+        renderThread();
+        return;
+      }
+      field.value = done.base ? `${done.base} ${text}` : text;
       field.focus();
       field.setSelectionRange(field.value.length, field.value.length);
       notice = "";
