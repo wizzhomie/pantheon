@@ -613,6 +613,7 @@ def _plan_text(package: Package) -> str:
             "paths = [" + ", ".join(_quote(item) for item in task.paths) + "]",
             f"expected = {_quote(task.expected)}",
             f"spec = {_quote(package.id)}",
+            f"milestone = {_quote(package.milestone)}",
             "repro = [" + ", ".join(_quote(item) for item in task.repro) + "]",
             "[step.contract]",
             f"symptom = {_quote(task.contract.symptom)}",

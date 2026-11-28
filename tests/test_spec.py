@@ -283,6 +283,9 @@ budget = { max_cents = 10 }
     assert plan.steps[0].repro == ("python", "-c", "assert 1 + 1 == 2"), (
         "the plan has to keep the task's hidden check, or the step verifies the project instead"
     )
+    assert plan.steps[0].milestone == "M1", (
+        "the step has to name the package's milestone, or an approved frame refuses it"
+    )
     assert plan.acceptance[0].step == TASK_ID
     assert plan.budget == {"max_cents": 10}
 

@@ -424,6 +424,23 @@ def test_a_blocked_plan_still_counts_the_steps_the_box_closed(tmp_path: Path) ->
     )
 
 
+def test_a_step_carries_the_milestone_it_serves(tmp_path: Path) -> None:
+    from harness import campaign
+
+    project = make_project(tmp_path)
+    text = CAMPAIGN.replace(
+        'expected = "a section in the docs"',
+        'expected = "a section in the docs"\nmilestone = "M1"',
+        1,
+    ).format(frame="sha256:" + "0" * 64)
+    plan = campaign.read_campaign(write_campaign(project, text))
+    task = campaign.task_for(plan, plan.steps[0])
+    assert task.milestone == "M1", (
+        "a campaign step has to reach the dispatch with its milestone, or the rails gate refuses "
+        "it once the frame is approved"
+    )
+
+
 def test_a_step_can_name_the_records_it_wants(tmp_path: Path) -> None:
     from harness import campaign
 

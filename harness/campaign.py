@@ -48,6 +48,7 @@ STEP_KEYS = frozenset(
         "contract",
         "spec",
         "repro",
+        "milestone",
     }
 )
 ACCEPTANCE_KEYS = frozenset({"id", "statement", "step"})
@@ -88,6 +89,13 @@ class Step:
     A step born from a package must carry the task's reproduction, or the verdict would judge
     the project's checks instead of the criterion the owner accepted. ``problems`` refuses a
     step that names a package and declares no repro.
+    """
+
+    milestone: str | None = None
+    """The rail the step serves; an approved frame refuses a step that names none.
+
+    A package names its milestone, and the plan writes it on every step: without this the step
+    would reach the dispatch with no milestone and the rails gate would refuse it.
     """
 
 
@@ -397,6 +405,7 @@ def task_for(campaign: Campaign, step: Step) -> augustus.Task:
         spec=step.spec,
         spec_task=step.id if step.spec is not None else None,
         repro=step.repro,
+        milestone=step.milestone,
     )
 
 
@@ -877,6 +886,7 @@ def _read_step(path: Path, entry: object, index: int) -> Step:
         contract=augustus._contract(entry.get("contract"), Path(where)),
         spec=_text(entry.get("spec")),
         repro=tuple(item.strip() for item in raw_repro),
+        milestone=_text(entry.get("milestone")),
     )
 
 
